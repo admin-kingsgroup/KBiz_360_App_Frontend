@@ -1,0 +1,115 @@
+import { useCallback, useState } from 'react';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Plus, Bell, Archive } from 'lucide-react-native';
+import { Avatar } from '../../src/components/ui';
+import { ReminderCard } from '../../src/components/reminders';
+import { colors } from '../../src/theme';
+import { FILTERS } from '../../src/constants/filters';
+import { useUiStore } from '../../src/store/uiStore';
+import { useMessagingStore } from '../../src/store/messagingStore';
+import { listReminders, completeReminder, approveReminder, type ReminderTab, type ReminderListResponse } from '../../src/api/reminders';
+import type { ReminderRecord } from '../../src/data/reminders';
+
+// Reminders — backed by the Mongo reminders API. Tabs map to server tabs; the server does tab
+// filtering, chain-of-command visibility (All), and grouping. Operates on real CRM user ids.
+const TABS: ReminderTab[] = ['forme', 'iset', 'review', 'all'];
+
+export default function Reminders() {
+  const router = useRouter();
+  const showToast = useUiStore((s) => s.showToast);
+  const meId = useMessagingStore((s) => s.myUserId) ?? '';
+
+  const [f, setF] = useState(0);
+  const [data, setData] = useState<ReminderListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async (tab: ReminderTab) => {
+    try { setData(await listReminders(tab)); } catch { /* offline / not signed in */ } finally { setLoading(false); }
+  }, []);
+
+  // Refetch on focus or tab change (e.g. after creating a reminder in the modal).
+  useFocusEffect(useCallback(() => { void load(TABS[f]); }, [f, load]));
+  const onRefresh = useCallback(() => { setRefreshing(true); void load(TABS[f]).finally(() => setRefreshing(false)); }, [f, load]);
+
+  const onComplete = async (id: string) => {
+    try { const res = await completeReminder(id); showToast(res.result === 'archived' ? 'Done · archived' : 'Complete · sent for review'); }
+    catch { showToast('Could not update reminder'); }
+    void load(TABS[f]);
+  };
+  const onApprove = async (id: string) => {
+    try { await approveReminder(id); showToast('Approved · moved to archive'); } catch { showToast('Could not approve'); }
+    void load(TABS[f]);
+  };
+  const onReassign = (r: ReminderRecord) => showToast(`Re-assign ${(r.forName || '').split(' ')[0]} — coming soon`);
+
+  const groups = data?.groups ?? [];
+  const visible = data?.visible ?? [];
+  const reviewCount = data?.reviewCount ?? 0;
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+      <View className="flex-row items-center justify-between px-5 pt-3 pb-2">
+        <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 16, fontWeight: '600', letterSpacing: -0.5 }}>Reminders</Text>
+        <Pressable onPress={() => router.push('/reminder/archive')} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
+          <Archive size={15} color={colors.ink} />
+        </Pressable>
+      </View>
+
+      {/* Filter tabs */}
+      <View className="flex-row gap-1.5 px-4 pb-2">
+        {FILTERS.map((label, i) => {
+          const on = i === f;
+          const showBadge = label === 'Review' && reviewCount > 0;
+          return (
+            <Pressable key={label} onPress={() => setF(i)} className="flex-row items-center gap-1"
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, backgroundColor: on ? colors.ink : colors.paper, borderColor: on ? colors.ink : colors.cardEdge }}>
+              <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+              {showBadge ? <View style={{ minWidth: 15, height: 15, paddingHorizontal: 4, borderRadius: 999, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800' }}>{reviewCount}</Text></View> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {loading && !data ? (
+        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.ink} /></View>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingBottom: 96 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.ink} />}>
+          {groups.map((sec) => (
+            <View key={sec.key}>
+              <View className="flex-row items-center gap-2 px-5 pt-3 pb-1.5">
+                <Avatar initials={sec.initials || ''} color={sec.avColor || colors.ink} size={20} />
+                <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13, fontWeight: '600' }}>{sec.name}</Text>
+                {sec.sub ? (
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.cardEdge }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 9, fontWeight: '800' }}>{sec.sub}</Text>
+                  </View>
+                ) : null}
+                <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {sec.items.length}</Text>
+              </View>
+              <View className="px-4" style={{ gap: 6 }}>
+                {(sec.items as ReminderRecord[]).map((r) => (
+                  <ReminderCard key={r.id} r={r} biz={null} meId={meId} onComplete={onComplete} onApprove={onApprove} onReassign={onReassign} />
+                ))}
+              </View>
+            </View>
+          ))}
+
+          {visible.length === 0 ? (
+            <View className="items-center" style={{ paddingVertical: 64 }}>
+              <Bell size={32} color={colors.textMuted2} />
+              <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 }}>No reminders in this filter</Text>
+              {f === 2 ? <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4 }}>Items appear here when assignees complete what you set</Text> : null}
+            </View>
+          ) : null}
+        </ScrollView>
+      )}
+
+      <Pressable onPress={() => router.push('/reminder/new')} style={{ position: 'absolute', right: 16, bottom: 16, width: 52, height: 52, borderRadius: 26, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
+        <Plus size={22} color="#fff" strokeWidth={2.5} />
+      </Pressable>
+    </SafeAreaView>
+  );
+}

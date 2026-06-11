@@ -1,0 +1,89 @@
+{
+  "expo": {
+    "name": "KBiz 360 - Smart Connect",
+    "slug": "kbiz360-smart-connect",
+    "scheme": "kbiz360",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0C0E14"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "KBiz 360 uses your location to auto check-in / check-out when you are at the office."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "KBiz 360 uses Face ID as a backup way to punch attendance at the office."
+        }
+      ],
+      "expo-notifications",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "KBiz 360 needs microphone access to record voice messages in chat."
+        }
+      ],
+      "@config-plugins/react-native-webrtc"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kingsgroup.kbiz360",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to auto check-in / check-out at the office.",
+        "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance."
+      },
+      "bitcode": false
+    },
+    "android": {
+      "package": "com.kingsgroup.kbiz360",
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0C0E14"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS",
+        "RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
+      ]
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": "http://192.168.1.2:4000",
+      "router": {},
+      "eas": {
+        "projectId": "57cc7a94-1acf-42e3-8697-e7f1a6abae0d"
+      }
+    },
+    "owner": "adminkingsgroup"
+  }
+}
