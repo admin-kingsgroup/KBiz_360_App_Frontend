@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-native';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, useAnimatedRef, interpolate, Extrapolation, runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Search, Eye } from 'lucide-react-native';
-import { KBLogo, Pill, Toast } from '../../src/components/ui';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Search, Eye, UsersRound, Plus } from 'lucide-react-native';
+import { KBLogo, Pill, Toast, Skeleton, SkeletonList } from '../../src/components/ui';
 import { ChatListItem } from '../../src/components/chat';
 import { GroupsList, DepartmentsList, SystemAlertsList } from '../../src/components/home';
 import { colors } from '../../src/theme';
-import { businesses } from '../../src/data/businesses';
+import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useAuthStore } from '../../src/store/authStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import type { ChatConversation } from '../../src/api/chat';
+import { mediaUrl } from '../../src/api/media';
 import type { PresenceInfo } from '../../src/store/messagingStore';
 import { ROLE_DEFS } from '../../src/constants/roles';
 
@@ -36,6 +38,7 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>)
     ts: c.lastActivityAt ? new Date(c.lastActivityAt).getTime() : 0,
     unread: c.unread,
     online,
+    image: c.image ? mediaUrl(c.image) : null,
   };
 }
 
@@ -50,6 +53,36 @@ const SEGMENTS: { k: Segment; l: string }[] = [
 export default function Home() {
   const router = useRouter();
   const [seg, setSeg] = useState<Segment>('chats');
+  // Swipeable segments (WhatsApp-style): a horizontal paging ScrollView holds the four panes; tapping
+  // a tab scrolls to it, and settling on a pane after a swipe updates the active tab + underline.
+  const { width } = useWindowDimensions();
+  const pagerRef = useAnimatedRef<Animated.ScrollView>();
+  const [pagerH, setPagerH] = useState(0);
+  // Live underline driven entirely on the UI thread (Reanimated): scrollX mirrors the pager's offset
+  // so the indicator slides + resizes to each tab's measured width with zero JS-bridge work per frame.
+  const scrollX = useSharedValue(0);
+  const lastIdx = useSharedValue(0);
+  const [tabLayouts, setTabLayouts] = useState<({ x: number; width: number } | undefined)[]>([]);
+  const goToSeg = (k: Segment): void => {
+    setSeg(k);
+    pagerRef.current?.scrollTo({ x: SEGMENTS.findIndex((s) => s.k === k) * width, animated: true });
+  };
+  // Flip the bold/active tab only when the midpoint between panes is actually crossed — keeps React
+  // re-renders to ≤1 per swipe instead of one per frame (the per-frame jank source in the old version).
+  const setSegByIndex = useCallback((i: number): void => { const k = SEGMENTS[i]?.k; if (k) setSeg(k); }, []);
+  const onPagerScroll = useAnimatedScrollHandler((e) => {
+    scrollX.value = e.contentOffset.x;
+    const idx = Math.round(e.contentOffset.x / width);
+    if (idx !== lastIdx.value) { lastIdx.value = idx; runOnJS(setSegByIndex)(idx); }
+  }, [width]);
+  const tabsReady = tabLayouts.filter(Boolean).length === SEGMENTS.length;
+  const underlineInput = SEGMENTS.map((_, i) => i * width);
+  const tabXs = SEGMENTS.map((_, i) => tabLayouts[i]?.x ?? 0);
+  const tabWs = SEGMENTS.map((_, i) => tabLayouts[i]?.width ?? 0);
+  const underlineStyle = useAnimatedStyle(() => ({
+    width: interpolate(scrollX.value, underlineInput, tabWs, Extrapolation.CLAMP),
+    transform: [{ translateX: interpolate(scrollX.value, underlineInput, tabXs, Extrapolation.CLAMP) }],
+  }), [tabXs, tabWs, underlineInput]);
   const access = useAccessStore((s) => s.access());
   const viewAsUser = useAccessStore((s) => s.viewAsUser);
   const realUser = useAuthStore((s) => s.user);
@@ -58,18 +91,41 @@ export default function Home() {
   const toast = useUiStore((s) => s.toast);
   const showToast = useUiStore((s) => s.showToast);
 
+  // Real CRM org directory (companies/branches/departments), access-scoped by the backend. We show the
+  // real org ONLY — no mock fallback — so dummy pills/tabs never flash before the real data loads.
+  const dir = useDirectoryStore();
+  useEffect(() => { void useDirectoryStore.getState().load(); }, []);
+  const usingReal = dir.businesses.length > 0;
+  const bizSource = dir.businesses;
+
   const isSuper = !!access?.isSuper;
-  const totalUnread = businesses.reduce((s, b) => s + (b.unread || 0), 0);
+  const totalUnread = bizSource.reduce((s, b) => s + (b.unread || 0), 0);
   const pills = [
     ...(isSuper ? [{ id: 'all', code: 'ALL', name: 'All businesses', color: colors.ink, unread: totalUnread }] : []),
-    ...(isSuper ? businesses : businesses.filter((b) => (access?.bizIds || []).includes(b.id))),
+    // Real data is already access-scoped server-side; the mock path keeps the client-side bizIds filter.
+    ...(usingReal || isSuper ? bizSource : bizSource.filter((b) => (access?.bizIds || []).includes(b.id))),
   ];
 
-  // Real conversations from the messaging store (loaded on socket connect; refreshed on focus).
+  // Real conversations from the messaging store. Refetch every time Home gains focus so the list is
+  // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
   const conversations = useMessagingStore((s) => s.conversations);
   const presence = useMessagingStore((s) => s.presence);
-  useEffect(() => { void useMessagingStore.getState().loadConversations(); }, []);
-  const chats = conversations.map((c) => convToItem(c, presence));
+  useFocusEffect(useCallback(() => {
+    void useMessagingStore.getState().loadConversations().then(() => {
+      const ids = useMessagingStore.getState().conversations.filter((c) => c.type === 'direct' && c.otherUserId).map((c) => c.otherUserId as string);
+      if (ids.length) void useMessagingStore.getState().loadPresence(ids);
+    });
+  }, []));
+  // Chats segment = direct (1:1) conversations only — groups live exclusively in the Groups segment.
+  // Show a direct chat only once it has a message (so tapping a person to "open" a chat without
+  // sending anything doesn't leave an empty conversation in the list).
+  const chats = conversations.filter((c) => c.type === 'direct' && !!c.lastMessage).map((c) => convToItem(c, presence));
+  // Real group conversations the user belongs to — manual ones (branchId, no deptKey) surface under
+  // their branch in the Groups tab so they're reachable now that groups are out of the Chats list.
+  const groupConvs = conversations.filter((c) => c.type === 'group').map((c) => ({
+    id: c.id, name: c.name, branchId: c.branchId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
+    preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : undefined,
+  }));
   void realUser;
 
   return (
@@ -84,12 +140,8 @@ export default function Home() {
           </View>
         </View>
         <View className="flex-row items-center gap-2">
+          <Pressable onPress={() => router.push('/chat/new-group')} style={icon(colors.card)}><UsersRound size={16} color={colors.warmMute} /></Pressable>
           <Pressable onPress={() => router.push('/chat/search')} style={icon(colors.card)}><Search size={16} color={colors.warmMute} /></Pressable>
-          {isSuper || viewAsUser ? (
-            <Pressable onPress={() => router.push('/view-as')} style={icon(viewAsUser ? colors.purple : colors.card)}>
-              <Eye size={15} color={viewAsUser ? '#fff' : colors.warmMute} />
-            </Pressable>
-          ) : null}
         </View>
       </View>
 
@@ -109,49 +161,124 @@ export default function Home() {
       {/* Business pills (access-filtered, View-As-aware) */}
       <View className="px-4 pt-3 pb-1.5">
         <View className="flex-row flex-wrap gap-1.5">
-          {pills.map((p) => (
-            <Pill key={p.id} label={p.code} color={p.color} active={activeBizId === p.id} unread={p.unread || 0} onPress={() => setBiz(p.id)} />
-          ))}
+          {!dir.loaded && pills.length === 0
+            ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} w={62} h={30} r={999} />)
+            : pills.map((p) => (
+              <Pill key={p.id} label={p.code} color={p.color} active={activeBizId === p.id} unread={p.unread || 0} onPress={() => setBiz(p.id)} />
+            ))}
         </View>
       </View>
 
-      {/* Segment tabs */}
+      {/* Segment tabs — tap to switch; the underline slides live as you swipe the panes below */}
       <View className="flex-row gap-4 px-4 pt-1" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        {SEGMENTS.map((s) => {
+        {SEGMENTS.map((s, i) => {
           const on = s.k === seg;
           return (
-            <Pressable key={s.k} onPress={() => setSeg(s.k)} className="pb-1.5">
+            <Pressable
+              key={s.k}
+              onPress={() => goToSeg(s.k)}
+              className="pb-1.5"
+              onLayout={(e) => {
+                const { x, width: w } = e.nativeEvent.layout;
+                setTabLayouts((prev) => {
+                  if (prev[i] && prev[i]!.x === x && prev[i]!.width === w) return prev;
+                  const n = prev.slice();
+                  n[i] = { x, width: w };
+                  return n;
+                });
+              }}
+            >
               <Text style={{ fontFamily: 'Fraunces', fontSize: 14, color: on ? colors.ink : colors.warmMute, fontWeight: on ? '700' : '400' }}>{s.l}</Text>
-              {on ? <View style={{ height: 2, backgroundColor: colors.ink, borderRadius: 2, marginTop: 4 }} /> : null}
             </Pressable>
           );
         })}
+        {tabsReady ? (
+          <Animated.View
+            style={[
+              { position: 'absolute', left: 0, bottom: 0, height: 2, borderRadius: 2, backgroundColor: colors.ink },
+              underlineStyle,
+            ]}
+          />
+        ) : null}
       </View>
 
-      {/* Content */}
-      {seg === 'chats' ? (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 8, gap: 6 }}>
-          {chats.length === 0 ? (
-            <View className="items-center" style={{ paddingVertical: 56 }}>
-              <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No conversations yet</Text>
-              <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>Open Profile → Team &amp; Users and tap someone to start chatting.</Text>
+      {/* Swipeable content — swipe left/right to move between Chats · Groups · Departments · System Alerts */}
+      <View style={{ flex: 1 }} onLayout={(e) => setPagerH(e.nativeEvent.layout.height)}>
+        {pagerH > 0 ? (
+          <Animated.ScrollView
+            ref={pagerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={onPagerScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Chats */}
+            <View style={{ width, height: pagerH }}>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: 8, gap: 6 }}>
+                {chats.length === 0 ? (
+                  <View className="items-center" style={{ paddingVertical: 56 }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No conversations yet</Text>
+                    <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>Open Profile → Team &amp; Users and tap someone to start chatting.</Text>
+                  </View>
+                ) : null}
+                {chats.map((c) => <ChatListItem key={c.id} chat={c} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })} />)}
+              </ScrollView>
             </View>
-          ) : null}
-          {chats.map((c) => <ChatListItem key={c.id} chat={c} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })} />)}
-        </ScrollView>
-      ) : seg === 'groups' ? (
-        <ScrollView>
-          <GroupsList activeBizId={activeBizId} access={access} onOpen={(openName) => router.push({ pathname: '/chat/[id]', params: { id: openName } })} />
-        </ScrollView>
-      ) : seg === 'depts' ? (
-        <ScrollView>
-          <DepartmentsList activeBizId={activeBizId} access={access} onOpenDept={(d) => router.push({ pathname: '/department/[id]', params: { id: d._key, biz: d.bizId, name: d.name } })} />
-        </ScrollView>
-      ) : (
-        <ScrollView>
-          <SystemAlertsList activeBizId={activeBizId} access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} />
-        </ScrollView>
-      )}
+
+            {/* Groups */}
+            <View style={{ width, height: pagerH }}>
+              <ScrollView style={{ flex: 1 }}>
+                {!dir.loaded ? <SkeletonList /> : (
+                <GroupsList
+                  activeBizId={activeBizId} access={access} serverFiltered
+                  businesses={dir.businesses}
+                  branches={dir.branches}
+                  groupConversations={groupConvs}
+                  onOpen={(g) => {
+                    // A real group is an existing conversation — open it directly by id.
+                    if (g.convId) { router.push({ pathname: '/chat/[id]', params: { id: g.convId } }); return; }
+                    // Otherwise it's a department: open the department detail to see/create its groups.
+                    router.push({ pathname: '/department/[id]', params: { id: g.id, biz: g.bizId, name: g.name } });
+                  }}
+                />
+                )}
+              </ScrollView>
+            </View>
+
+            {/* Departments */}
+            <View style={{ width, height: pagerH }}>
+              <ScrollView style={{ flex: 1 }}>
+                {!dir.loaded ? <SkeletonList /> : (
+                <DepartmentsList
+                  activeBizId={activeBizId} access={access} serverFiltered
+                  businesses={dir.businesses}
+                  branches={dir.branches}
+                  businessDepts={dir.businessDepts}
+                  onOpenDept={(d) => router.push({ pathname: '/department/[id]', params: { id: d._key, biz: d.bizId, name: d.name } })}
+                />
+                )}
+                {isSuper ? (
+                  <View className="px-4 pb-6 pt-1">
+                    <Pressable onPress={() => router.push('/admin/departments')} className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 12, borderRadius: 13, borderWidth: 1, borderColor: colors.ink, borderStyle: 'dashed' }}>
+                      <Plus size={15} color={colors.ink} />
+                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>Create / manage departments</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </ScrollView>
+            </View>
+
+            {/* System Alerts */}
+            <View style={{ width, height: pagerH }}>
+              <ScrollView style={{ flex: 1 }}>
+                <SystemAlertsList activeBizId={activeBizId} access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} />
+              </ScrollView>
+            </View>
+          </Animated.ScrollView>
+        ) : null}
+      </View>
 
       <Toast message={toast} onHide={() => showToast(null)} />
     </SafeAreaView>

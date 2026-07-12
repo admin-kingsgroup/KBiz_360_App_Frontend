@@ -4,6 +4,7 @@ import { isRunningInExpoGo } from 'expo';
 import type { NotificationResponse } from 'expo-notifications';
 import { routeForData, type NotifType, type NotifData } from './routes';
 import { registerCallDevice } from '../../api/calls';
+import { useMessagingStore } from '../../store/messagingStore';
 
 // Client-only notifications. No backend/push delivery — we configure the foreground display
 // handler, request OS permission, schedule LOCAL notifications, and map a tapped notification's
@@ -27,15 +28,27 @@ function load(): NotificationsModule | null {
   return mod;
 }
 
-// Foreground presentation: show banner + list, no sound by default. (No-op in Expo Go.)
+// Foreground presentation. Since the backend pushes EVERY message (reliability — see chat.service),
+// we suppress the banner only when the app is already showing that exact conversation; every other
+// chat/reminder/call still pops a heads-up while the app is foregrounded. (No-op in Expo Go; when
+// the app is backgrounded/killed the OS shows the notification and this handler never runs.)
 load()?.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = (notification?.request?.content?.data ?? {}) as { type?: string; id?: string; conversationId?: string };
+    const activeConv = useMessagingStore.getState().activeConversationId;
+    const inThisChat = data.type === 'chat' && (data.conversationId ?? data.id) === activeConv;
+    return {
+      shouldShowBanner: !inThisChat,
+      shouldShowList: !inThisChat,
+      shouldPlaySound: !inThisChat,
+      shouldSetBadge: false,
+    };
+  },
 });
+
+// Register the incoming-call Accept/Decline action category on startup (needs no permission), so the
+// buttons appear on the call push even when the app was killed. (ensureCallCategory is hoisted.)
+void ensureCallCategory();
 
 export async function requestNotificationPermission(): Promise<boolean> {
   const m = load();
@@ -79,11 +92,24 @@ async function ensureCallChannel(): Promise<void> {
   await m.setNotificationChannelAsync('calls', {
     name: 'Calls',
     importance: m.AndroidImportance.MAX,
-    sound: 'default',
+    // No explicit `sound` — passing a string makes expo-notifications look for a bundled custom
+    // sound file (and warn when missing). Omitting it uses the system default notification sound.
     vibrationPattern: [0, 250, 250, 250],
     bypassDnd: true,
     lockscreenVisibility: m.AndroidNotificationVisibility.PUBLIC,
   });
+}
+
+// Register the incoming-call notification category so the call push shows Accept / Decline buttons
+// (the backend tags those pushes with categoryId 'incoming_call'). Tapping a button is handled in
+// useNotificationRouting via the action identifier. No-op on Expo Go.
+export async function ensureCallCategory(): Promise<void> {
+  const m = load();
+  if (!m) return;
+  await m.setNotificationCategoryAsync('incoming_call', [
+    { identifier: 'accept', buttonTitle: 'Accept', options: { opensAppToForeground: true } },
+    { identifier: 'decline', buttonTitle: 'Decline', options: { opensAppToForeground: true, isDestructive: true } },
+  ]);
 }
 
 // Register this device's Expo push token with the backend so it can ring us when offline. Requires
@@ -95,6 +121,7 @@ export async function registerPushToken(): Promise<void> {
     const granted = (await m.getPermissionsAsync()).granted;
     if (!granted) return;
     await ensureCallChannel();
+    await ensureCallCategory();
     const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
     const { data: token } = await m.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
     if (token) await registerCallDevice(token, Platform.OS);

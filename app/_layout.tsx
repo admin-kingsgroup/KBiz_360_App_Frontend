@@ -1,6 +1,6 @@
 import '../global.css';
 import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { View, AppState } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -13,7 +13,16 @@ import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
 import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAuthStore } from '../src/store/authStore';
 import { connectChatSocket, disconnectChatSocket } from '../src/realtime/chatSocket';
+import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
+import { setupIosCallKeep } from '../src/services/iosCallKeep';
+import { registerPushToken } from '../src/services/notifications';
+import { maybePromptBatteryOptimization } from '../src/services/batteryOptimization';
+import { useEmailStore } from '../src/store/emailStore';
+import { useMessagingStore } from '../src/store/messagingStore';
+import { useCallSessionStore } from '../src/store/callSessionStore';
 import { loadPrefs } from '../src/services/storage';
+import { authApi } from '../src/api';
 import { colors } from '../src/theme';
 import Constants from 'expo-constants';
 import { setApiBaseUrl } from '../src/api';
@@ -29,10 +38,35 @@ function GateController() {
   const segments = useSegments() as string[];
   const router = useRouter();
   useNotificationRouting(); // route on notification tap (client-only)
+  useCallNotifications(); // Answer/Decline from the native full-screen incoming-call notification
 
-  // Realtime chat socket follows the session: connect when signed in, drop when signed out.
+  // Realtime chat socket follows the session AND foreground state: connected while signed-in and
+  // active; dropped when signed out or backgrounded. Dropping on background marks the user offline
+  // promptly so incoming calls/messages reliably fall back to push (instead of a stale "online").
   const signedIn = useAuthStore((s) => s.status === 'signedIn');
-  useEffect(() => { if (signedIn) connectChatSocket(); else disconnectChatSocket(); }, [signedIn]);
+  useEffect(() => {
+    if (!signedIn) { disconnectChatSocket(); return; }
+    connectChatSocket();
+    void registerPushToken(); // Expo push token → background message/reminder notifications (every launch, so returning users stay registered)
+    void registerFcmToken(); // raw FCM token → native full-screen call UI (Android)
+    setupIosCallKeep(); // iOS: CallKit + VoIP/PushKit incoming-call screen
+    void syncAttendanceGeofencing(); // start OS geofencing for the user's offices (background auto check-in)
+    void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        connectChatSocket();
+        void useMessagingStore.getState().loadConversations(); // refresh chat list on return (server is source of truth)
+        void useEmailStore.getState().refreshUnread(); // Email tab badge
+        void useEmailStore.getState().silentRefresh('inbox'); // + bring new inbox mail into the list (no spinner)
+      } else if (state === 'background') {
+        // Keep the signaling socket alive during a call — backgrounding mid-call must NOT drop
+        // call:offer/answer/ice/end (that would hang the call). Drop it only when idle.
+        const cs = useCallSessionStore.getState();
+        if (!cs.active && !cs.incoming) disconnectChatSocket();
+      }
+    });
+    return () => sub.remove();
+  }, [signedIn]);
 
   useEffect(() => {
     const inAuth = segments[0] === '(auth)';
@@ -41,6 +75,14 @@ function GateController() {
     else if (gate === 'permissions' && !onPermissions) router.replace('/(auth)/permissions');
     else if (gate === 'app' && inAuth) router.replace('/(tabs)');
   }, [gate, segments, router]);
+
+  // Once the user is actually in the app (Android only), prompt ONCE to disable battery optimization
+  // so background calls/messages stay reliable. Delayed so the home screen renders first.
+  useEffect(() => {
+    if (gate !== 'app') return;
+    const t = setTimeout(() => void maybePromptBatteryOptimization(), 1500);
+    return () => clearTimeout(t);
+  }, [gate]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -56,6 +98,7 @@ function GateController() {
       <Stack.Screen name="reminder/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="reminder/archive" />
       <Stack.Screen name="email/[id]" options={{ presentation: 'card' }} />
+      <Stack.Screen name="email/folder/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="email/compose" options={{ presentation: 'modal' }} />
       <Stack.Screen name="call/[id]" options={{ presentation: 'card' }} />
     </Stack>
@@ -63,12 +106,13 @@ function GateController() {
 }
 
 export default function RootLayout() {
-  // Hydrate persisted perms/consent BEFORE the gate decides, so previously-granted
-  // permissions bypass the gate ("asked once" preserved across restart).
+  // Restore the persisted session + perms/consent BEFORE the gate decides, so a returning user lands
+  // straight in the app (signed in until explicit logout) and previously-granted permissions are not
+  // re-requested ("asked once" preserved across restart).
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     let active = true;
-    loadPrefs().then((p) => {
+    Promise.all([loadPrefs(), authApi.restoreSession()]).then(([p]) => {
       if (!active) return;
       useAttendanceStore.getState().hydrate(p);
       setHydrated(true);

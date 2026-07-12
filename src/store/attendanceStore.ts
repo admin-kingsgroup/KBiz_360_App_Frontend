@@ -13,6 +13,7 @@ export interface AttendanceState {
   setConsent: (v: boolean) => void;
   setPerm: (k: keyof Permissions, v: boolean) => void;
   hydrate: (p: { perms?: Permissions; consent?: boolean }) => void;
+  setAtt: (att: AttendanceRecord) => void; // adopt the server's record (today's punch)
   refreshPresence: (input: { wifiOn: boolean; coords: Coords | null; office: OfficeGeo }) => OfficePresence;
   runAutoPunch: (now?: Date) => boolean;        // returns true if a transition fired
   punchByFace: (now?: Date) => boolean;         // returns true if punched
@@ -28,6 +29,7 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   presence: null,
   setConsent: (consent) => set({ consent }),
   setPerm: (k, v) => set((s) => ({ perms: { ...s.perms, [k]: v } })),
+  setAtt: (att) => set({ att }),
   hydrate: ({ perms, consent }) =>
     set((s) => ({ perms: perms ?? s.perms, consent: consent ?? s.consent })),
   refreshPresence: (input) => {

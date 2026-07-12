@@ -23,6 +23,7 @@ export interface Group {
 
 export interface Branch {
   id: string;
+  companyId?: string;    // owning business id (real CRM data); mock branches set it too
   code: string;          // e.g. 'AMD'
   city: string;
   country: string;

@@ -27,6 +27,16 @@ const DELETE_EVERYONE_MS = 60 * 60 * 1000;
 const hhmm = (iso: string): string => { const d = new Date(iso); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; };
 const mmss = (s: number): string => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 
+// WhatsApp-style "last seen today/yesterday/DD/MM at HH:MM".
+function lastSeenLabel(ts: number): string {
+  const d = new Date(ts); const now = new Date();
+  const time = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return `last seen today at ${time}`;
+  if (d.toDateString() === yest.toDateString()) return `last seen yesterday at ${time}`;
+  return `last seen ${d.getDate()}/${d.getMonth() + 1} at ${time}`;
+}
+
 export default function ChatDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -51,6 +61,7 @@ export default function ChatDetail() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [viewer, setViewer] = useState<string | null>(null);
   const [pinned, setPinned] = useState<ChatMessage[]>([]);
+  const [contactOpen, setContactOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
   const { isRecording, elapsedSec, start, finish, cancel } = useVoiceRecorder();
   const listRef = useRef<FlatList<StoredMessage>>(null);
@@ -79,11 +90,26 @@ export default function ChatDetail() {
   const isGroup = conv?.type === 'group';
   const title = conv?.name ?? 'Chat';
   const otherPresence = conv?.otherUserId ? presence[conv.otherUserId] : undefined;
+
+  // Keep the other person's presence fresh while the chat is open (live socket events + a 30s poll
+  // so "online" / "last seen" stays accurate even if no event arrives).
+  useEffect(() => {
+    const other = conv?.type === 'direct' ? conv.otherUserId : undefined;
+    if (!other) return;
+    void useMessagingStore.getState().loadPresence([other]);
+    const t = setInterval(() => void useMessagingStore.getState().loadPresence([other]), 30000);
+    return () => clearInterval(t);
+  }, [conv?.type, conv?.otherUserId]);
+
+  // The other person's job title (if set) — shown before presence in a direct chat header.
+  const otherPosition = !isGroup ? (users.find((u) => u.id === conv?.otherUserId)?.position ?? null) : null;
+  const presenceLabel = typingUsers.length ? 'typing…'
+    : otherPresence?.status === 'in_call' ? 'in a call'
+      : otherPresence?.status === 'online' || conv?.online ? 'online'
+        : otherPresence?.lastSeen ? lastSeenLabel(otherPresence.lastSeen) : 'last seen recently';
   const subtitle = isGroup
     ? `${conv?.memberCount ?? 0} members`
-    : typingUsers.length ? 'typing…'
-      : otherPresence?.status === 'online' || conv?.online ? 'online'
-        : otherPresence?.lastSeen ? `last seen ${hhmm(new Date(otherPresence.lastSeen).toISOString())}` : 'offline';
+    : otherPosition && !typingUsers.length ? `${otherPosition} · ${presenceLabel}` : presenceLabel;
 
   const onChangeText = (t: string): void => {
     setText(t);
@@ -158,17 +184,19 @@ export default function ChatDetail() {
       {/* Header */}
       <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
         <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-        <Avatar initials={(title[0] ?? '?').toUpperCase()} color={isGroup ? colors.purple : colors.blue} size={36} />
-        <View className="flex-1">
-          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{title}</Text>
-          <Text numberOfLines={1} style={{ color: typingUsers.length ? colors.teal : colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{subtitle}</Text>
-        </View>
+        <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2">
+          <Avatar initials={(title[0] ?? '?').toUpperCase()} color={isGroup ? colors.purple : colors.blue} size={36} uri={conv?.image ? mediaUrl(conv.image) : null} />
+          <View className="flex-1">
+            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: typingUsers.length ? colors.teal : colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{subtitle}</Text>
+          </View>
+        </Pressable>
         {!isGroup && conv?.otherUserId ? (
           <Pressable onPress={() => callManager.startOutgoing({ id: conv.otherUserId as string, name: title }, 'voice')} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
             <Phone size={18} color={colors.ink} />
           </Pressable>
         ) : null}
-        <Pressable onPress={() => showToast('More options')} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable>
+        <Pressable onPress={() => (isGroup ? router.push({ pathname: '/chat/group-info', params: { id: convId } }) : setContactOpen(true))} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable>
       </View>
 
       {/* Pinned banner */}
@@ -194,7 +222,9 @@ export default function ChatDetail() {
             contentContainerStyle={{ padding: 12 }}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
             ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.textMuted, fontSize: 12 }}>No messages yet — say hi 👋</Text></View>}
-            renderItem={({ item: m }) => <Bubble m={m} isGroup={isGroup} nameOf={nameOf} onPress={() => !m.deletedForEveryone && setActive(m)} onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} />}
+            renderItem={({ item: m }) => (m.type === 'system'
+              ? <SystemNotice text={m.text} />
+              : <Bubble m={m} isGroup={isGroup} nameOf={nameOf} onPress={() => !m.deletedForEveryone && setActive(m)} onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} />)}
           />
         )}
 
@@ -253,6 +283,35 @@ export default function ChatDetail() {
         <Pressable onPress={() => setViewer(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' }}>
           {viewer ? <Image source={{ uri: viewer }} style={{ width: '100%', height: '80%' }} resizeMode="contain" /> : null}
           <Pressable onPress={() => setViewer(null)} style={{ position: 'absolute', top: insets.top + 12, right: 18 }}><X size={26} color="#fff" /></Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Contact info (direct chats) */}
+      <Modal visible={contactOpen} transparent animationType="fade" onRequestClose={() => setContactOpen(false)}>
+        <Pressable onPress={() => setContactOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 28 }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: '#fff', borderRadius: 18, padding: 20, alignItems: 'center' }}>
+            {(() => {
+              const c = users.find((u) => u.id === conv?.otherUserId);
+              return (
+                <>
+                  <Avatar initials={c?.initials ?? (title[0] ?? '?').toUpperCase()} color={c?.color ?? colors.blue} size={64} uri={c?.avatar} />
+                  <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800', marginTop: 10 }}>{c?.name ?? title}</Text>
+                  {c?.position ? <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '600', marginTop: 2 }}>{c.position}</Text> : null}
+                  {c?.roleName ? <Text style={{ color: colors.textMuted, fontSize: 11.5, marginTop: 1 }}>{c.roleName}</Text> : null}
+                  {c?.email ? <Text style={{ color: colors.textMuted2, fontSize: 11, marginTop: 6 }}>{c.email}</Text> : null}
+                  <View className="flex-row gap-2" style={{ marginTop: 16 }}>
+                    <Pressable onPress={() => { setContactOpen(false); if (conv?.otherUserId) callManager.startOutgoing({ id: conv.otherUserId, name: title }, 'voice'); }}
+                      className="flex-row items-center gap-1.5" style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: colors.teal }}>
+                      <Phone size={15} color="#fff" /><Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>Voice call</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setContactOpen(false)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.cardEdge }}>
+                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>Close</Text>
+                    </Pressable>
+                  </View>
+                </>
+              );
+            })()}
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -355,6 +414,18 @@ function Attachments({ m, mine, onOpenImage }: { m: StoredMessage; mine: boolean
         );
       })}
     </>
+  );
+}
+
+// WhatsApp-style centered grey notice for group events ("X added Y", "Z left", subject changes).
+function SystemNotice({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <View className="items-center" style={{ marginVertical: 6 }}>
+      <View style={{ backgroundColor: '#E6E4DD', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5, maxWidth: '85%' }}>
+        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '600', textAlign: 'center' }}>{text}</Text>
+      </View>
+    </View>
   );
 }
 

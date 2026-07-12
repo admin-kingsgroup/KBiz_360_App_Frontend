@@ -1,68 +1,123 @@
 import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical, ChevronRight, MapPin } from 'lucide-react-native';
-import { colors } from '../../src/theme';
-import { businesses, branches, businessDepts } from '../../src/data/businesses';
+import { ChevronLeft, MoreVertical, ChevronRight, MessageCircle, Plus } from 'lucide-react-native';
+import { colors, shadow } from '../../src/theme';
+import { businesses as mockBusinesses } from '../../src/data/businesses';
 import { DEPT_DESCRIPTIONS } from '../../src/constants/departments';
-import { useUiStore } from '../../src/store/uiStore';
+import { useAccessStore } from '../../src/store/accessStore';
+import { useDirectoryStore } from '../../src/store/directoryStore';
+import { useMessagingStore } from '../../src/store/messagingStore';
 
-// Department detail — faithful port of source DepartmentDetailScreen. Resolves the dept from
-// the route (biz + name), lists its per-branch groups, each opening the group chat.
+// Department detail — Branch → Department → many GROUPS. For this department, shows each branch's groups
+// (a department can hold several) and a "+ New group" per branch. Branches are access-scoped by the
+// directory (a regular user sees only their own).
 export default function DepartmentDetail() {
   const router = useRouter();
   const { biz: bizId, name } = useLocalSearchParams<{ id: string; biz: string; name: string }>();
-  const biz = businesses.find((b) => b.id === bizId);
-  const dept = (businessDepts[bizId ?? ''] || []).find((d) => d.name === name);
-  const showToast = useUiStore((s) => s.showToast);
+  const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
+  const dir = useDirectoryStore();
+  const conversations = useMessagingStore((s) => s.conversations);
 
-  if (!biz || !dept) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
-        <Hdr title="Department" onBack={() => router.back()} />
-        <View className="items-center" style={{ paddingVertical: 64 }}><Text style={{ color: colors.textMuted }}>Department not found</Text></View>
-      </SafeAreaView>
-    );
-  }
-  const code = biz.code;
-  const bizBranches = bizId === 'tk' ? branches : [];
-  const desc = DEPT_DESCRIPTIONS[dept.name] || 'Department group';
+  useEffect(() => {
+    if (!dir.loaded && !dir.loading) void useDirectoryStore.getState().load();
+    void useMessagingStore.getState().loadConversations();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const usingReal = dir.businesses.length > 0;
+  const biz = (usingReal ? dir.businesses : mockBusinesses).find((b) => b.id === bizId);
+  const deptName = name ?? 'Department';
+  const desc = DEPT_DESCRIPTIONS[deptName] || 'Department';
+
+  // One section per branch (in this company) that has this department, with that branch's groups.
+  const sections = dir.branches
+    .filter((br) => (br.companyId ?? 'tk') === bizId)
+    .map((br) => {
+      const g = br.groups.find((x) => x.name === deptName);
+      if (!g) return null;
+      const groups = conversations
+        .filter((c) => {
+          if (c.type !== 'group') return false;
+          // Prefer explicit fields; fall back to the deptKey ("<branchId>:<departmentId>") so legacy
+          // department groups (created before departmentId existed) still appear.
+          const cBranch = c.branchId ?? c.deptKey?.split(':')[0];
+          const cDept = c.departmentId ?? c.deptKey?.split(':')[1];
+          return cBranch === br.id && cDept === g.id;
+        })
+        .map((c) => ({
+          id: c.id, name: c.name, unread: c.unread ?? 0,
+          preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : null,
+        }));
+      return {
+        branchId: br.id, deptId: g.id,
+        branchLabel: br.city || br.code || 'Branch',
+        color: g.color || colors.blue, icon: g.icon || (deptName.trim()[0] ?? '•').toUpperCase(),
+        groups,
+      };
+    })
+    .filter(Boolean) as { branchId: string; deptId: string; branchLabel: string; color: string; icon: string; groups: { id: string; name: string; unread: number; preview: string | null }[] }[];
+
+  const openChat = (id: string) => router.push({ pathname: '/chat/[id]', params: { id } });
+  const newGroup = (branchId: string, deptId: string) =>
+    router.push({ pathname: '/chat/new-group', params: { companyId: bizId ?? '', branchId, departmentId: deptId, deptName } });
+
+  const totalGroups = sections.reduce((n, s) => n + s.groups.length, 0);
+  const deptColor = sections[0]?.color ?? colors.blue;
+  const deptIcon = sections[0]?.icon ?? (deptName.trim()[0] ?? '•').toUpperCase();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-      <Hdr title={dept.name} subtitle={`${biz.name} · ${desc}`} onBack={() => router.back()}
-        right={<Pressable onPress={() => showToast(`${dept.name} settings`)} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable>} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
+      <Hdr title={deptName} subtitle={biz ? `${biz.name} · ${desc}` : desc} onBack={() => router.back()}
+        right={isSuper ? <Pressable onPress={() => router.push('/admin/departments')} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable> : undefined} />
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-        <View style={{ margin: 14, padding: 16, borderRadius: 16, backgroundColor: dept.color + '18' }} className="flex-row items-center gap-3">
-          <View style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: dept.color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{dept.icon}</Text></View>
+        <View style={{ margin: 14, padding: 16, borderRadius: 16, backgroundColor: deptColor + '18' }} className="flex-row items-center gap-3">
+          <View style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: deptColor, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{deptIcon}</Text></View>
           <View className="flex-1">
-            <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800', letterSpacing: -0.4 }}>{dept.name}</Text>
+            <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800', letterSpacing: -0.4 }}>{deptName}</Text>
             <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 11.5, marginTop: 2 }}>{desc}</Text>
-            <Text style={{ color: dept.color, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 6 }}>{bizBranches.length} GROUP{bizBranches.length === 1 ? '' : 'S'} · {biz.name.toUpperCase()}</Text>
+            <Text style={{ color: deptColor, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 6 }}>
+              {totalGroups} GROUP{totalGroups === 1 ? '' : 'S'} · {sections.length} BRANCH{sections.length === 1 ? '' : 'ES'}
+            </Text>
           </View>
         </View>
 
-        <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 1.3, paddingHorizontal: 16, paddingBottom: 8 }}>GROUPS IN THIS DEPARTMENT</Text>
-
-        {bizBranches.length === 0 ? (
+        {sections.length === 0 ? (
           <View className="items-center px-6" style={{ paddingVertical: 48 }}>
-            <MapPin size={28} color={colors.textMuted2} />
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 10 }}>No branches yet</Text>
+            <MessageCircle size={28} color={colors.textMuted2} />
+            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 10 }}>No branches in your access</Text>
+            <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>This department has no branches you can see.</Text>
           </View>
-        ) : bizBranches.map((b) => {
-          const groupName = `${code} ${b.code} ${dept.name}`;
-          return (
-            <Pressable key={b.id} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: groupName } })} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-              <View style={{ width: 40, height: 40, borderRadius: 11, backgroundColor: b.color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '800' }}>{code} {b.code}</Text></View>
-              <View className="flex-1">
-                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>{groupName}</Text>
-                <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{b.city} · {b.memberCount} members</Text>
-              </View>
-              <ChevronRight size={14} color={colors.textMuted2} />
-            </Pressable>
-          );
-        })}
+        ) : sections.map((s) => (
+          <View key={s.branchId} style={{ marginBottom: 6 }}>
+            <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 }}>{s.branchLabel.toUpperCase()}</Text>
+            <View style={{ paddingHorizontal: 14, gap: 8 }}>
+              {s.groups.map((grp) => (
+                <Pressable key={grp.id} onPress={() => openChat(grp.id)} className="flex-row items-center gap-3 p-3"
+                  style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16 }, shadow]}>
+                  <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: s.color, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{s.icon}</Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>{grp.name}</Text>
+                    <Text numberOfLines={1} style={{ color: grp.preview ? colors.warmMute : '#bdb3a0', fontSize: 11, fontStyle: grp.preview ? 'normal' : 'italic', marginTop: 1 }}>{grp.preview || 'No messages yet'}</Text>
+                  </View>
+                  {grp.unread > 0 ? (
+                    <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '800' }}>{grp.unread}</Text>
+                    </View>
+                  ) : <ChevronRight size={16} color={colors.textMuted2} />}
+                </Pressable>
+              ))}
+              <Pressable onPress={() => newGroup(s.branchId, s.deptId)} className="flex-row items-center justify-center gap-1.5"
+                style={{ paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: colors.ink, borderStyle: 'dashed' }}>
+                <Plus size={14} color={colors.ink} />
+                <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '800' }}>New group in {deptName} · {s.branchLabel}</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
       </ScrollView>
     </SafeAreaView>
   );

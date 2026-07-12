@@ -10,13 +10,10 @@ import {
   listCompanies, listBranches, listDepartments, listUsers, toUser,
   type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment,
 } from '../../src/api/directory';
+import { codeFromName } from '../../src/logic/directory';
 import type { User } from '../../src/types';
 
 const PALETTE = ['#9A6CF0', '#4F8BFF', '#37B6A4', '#E8A13A', '#E3674E', '#2FB36B', '#DB2777'];
-const codeOf = (name: string): string => {
-  const words = name.split(/\s+/).filter((w) => !/^(and|of|the|&|private|limited|ltd)$/i.test(w));
-  return (words.slice(0, 3).map((w) => w[0]).join('') || name.slice(0, 2)).toUpperCase();
-};
 type SubTab = 'branches' | 'depts' | 'users';
 
 // Company detail (real CRM, read-only): branches / departments / users for the company.
@@ -65,13 +62,13 @@ export default function BusinessDetail() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
       <Hdr title={company.name} subtitle={company.status ?? undefined} onBack={() => router.back()} />
 
       {/* Stat card */}
       <View style={{ margin: 14, padding: 16, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
         <View className="flex-row items-center gap-3">
-          <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: PALETTE[0], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>{codeOf(company.name)}</Text></View>
+          <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: PALETTE[0], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>{codeFromName(company.name)}</Text></View>
           <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800', letterSpacing: -0.4 }}>{company.name}</Text></View>
         </View>
         <View className="flex-row gap-1.5 mt-3">
@@ -120,7 +117,7 @@ export default function BusinessDetail() {
               const rd = ROLE_DEFS[u.role];
               return (
                 <View key={u.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-                  <Avatar initials={u.initials} color={u.color} size={36} />
+                  <Avatar initials={u.initials} color={u.color} size={36} uri={u.avatar} />
                   <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>{u.name}</Text>{u.scopeLine ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{u.scopeLine}</Text> : null}</View>
                   <View style={{ backgroundColor: rd.color, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}><Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800' }}>{rd.badge}</Text></View>
                 </View>

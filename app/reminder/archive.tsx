@@ -25,7 +25,7 @@ export default function ReminderArchive() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
       <View className="flex-row items-center gap-2 px-2 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: colors.card }}>
         <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
         <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>Archive</Text><Text style={{ color: colors.textMuted, fontSize: 10.5 }}>{archived.length} approved</Text></View>

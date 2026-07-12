@@ -17,7 +17,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "KBiz 360 uses your location to auto check-in / check-out when you are at the office."
+          "locationAlwaysAndWhenInUsePermission": "KBiz 360 uses your location to auto check-in / check-out when you are at the office, even in the background.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       [
@@ -33,14 +35,41 @@
           "microphonePermission": "KBiz 360 needs microphone access to record voice messages in chat."
         }
       ],
-      "@config-plugins/react-native-webrtc"
+      "@config-plugins/react-native-webrtc",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      "expo-web-browser",
+      "expo-sharing",
+      "./plugins/withVoipPush",
+      "./plugins/withNotifeeRepo"
     ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.kingsgroup.kbiz360",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to auto check-in / check-out at the office.",
-        "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "KBiz 360 uses your location in the background to auto check-in when you arrive at the office and check out when you leave.",
+        "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance.",
+        "NSMicrophoneUsageDescription": "KBiz 360 needs the microphone for voice messages and calls.",
+        "NSCameraUsageDescription": "KBiz 360 needs the camera for photos, videos and video calls in chat.",
+        "NSPhotoLibraryUsageDescription": "KBiz 360 needs photo access to attach images and files to chats and email.",
+        "UIBackgroundModes": [
+          "remote-notification",
+          "audio",
+          "voip",
+          "location",
+          "fetch"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bitcode": false
     },
@@ -60,6 +89,8 @@
         "RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
         "android.permission.RECORD_AUDIO",
@@ -71,19 +102,31 @@
         "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
-        "android.permission.BLUETOOTH"
+        "android.permission.BLUETOOTH",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "apiUrl": "http://192.168.1.2:4000",
+      "apiUrl": "https://kbiz360.duckdns.org",
       "router": {},
       "eas": {
         "projectId": "57cc7a94-1acf-42e3-8697-e7f1a6abae0d"
+      },
+      "msEmail": {
+        "clientId": "c29562fd-8836-420b-afaf-88831a129095",
+        "tenantId": "4a760f41-b76c-4477-9142-b8692697769e"
       }
     },
-    "owner": "adminkingsgroup"
+    "owner": "adminkingsgroup",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/57cc7a94-1acf-42e3-8697-e7f1a6abae0d"
+    }
   }
 }

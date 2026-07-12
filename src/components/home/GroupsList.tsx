@@ -3,33 +3,58 @@ import { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { ChevronDown, ChevronRight, Clock, Lock, MessageCircle } from 'lucide-react-native';
 import { colors, shadow } from '../../theme';
-import { businesses, branches } from '../../data/businesses';
+import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
 import { makeAccessFilters } from '../../logic/accessFilters';
+import { colorForId } from '../../logic/directory';
 import { tzTime } from '../../utils/time';
-import type { AccessControl } from '../../types';
+import type { AccessControl, Business, Branch } from '../../types';
 
-interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; openName: string; }
+// A real group conversation the user belongs to (manual "New group" groups are filed under a branch).
+export interface GroupConv { id: string; name: string; branchId?: string | null; deptKey?: string | null; unread?: number; preview?: string }
+export interface GroupOpen { id: string; name: string; bizId: string; branchId: string; branchCode?: string; convId?: string }
+interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; bizId: string; branchId: string; branchCode?: string; convId?: string; }
+
+const initialsOf = (name: string): string => ((name.match(/\b\w/g) ?? []).slice(0, 2).join('') || name.slice(0, 2)).toUpperCase();
 interface Sub { code: string; city: string; color: string; time: string; flag: string; items: GItem[]; }
 interface Block { id: string; label: string; color: string; subs: Sub[]; }
 
-// Groups segment — faithful port of source GroupsList: access-filtered (biz/branch/group),
-// business→branch→group nesting, Unread pinned on top, collapsible. View-As-aware via `access`.
-export function GroupsList({ activeBizId, access, onOpen }: { activeBizId: string; access: AccessControl | null; onOpen: (openName: string) => void }) {
-  const { isSuper, bizOK, brOK, grpOK } = makeAccessFilters(access);
+// Groups segment. Data via props (real CRM directory) with a mock fallback. business→branch→group
+// nesting, Unread pinned on top, collapsible. `serverFiltered` skips client access filters (the
+// backend already scoped the rows). View-As-aware otherwise.
+export function GroupsList({
+  activeBizId, access, onOpen,
+  businesses = mockBusinesses, branches = mockBranches, serverFiltered = false, groupConversations = [],
+}: {
+  activeBizId: string; access: AccessControl | null; onOpen: (g: GroupOpen) => void;
+  businesses?: Business[]; branches?: Branch[]; serverFiltered?: boolean; groupConversations?: GroupConv[];
+}) {
+  const f = makeAccessFilters(access);
+  const isSuper = f.isSuper;
+  const yes = () => true; // permissive filter when the server already scoped the rows
+  const bizOK: typeof f.bizOK = serverFiltered ? yes : f.bizOK;
+  const brOK: typeof f.brOK = serverFiltered ? yes : f.brOK;
+  const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const isOpen = (k: string, d: boolean) => (k in open ? open[k] : d);
   const toggle = (k: string, d: boolean) => setOpen((o) => ({ ...o, [k]: !(k in o ? o[k] : d) }));
 
+  // The Groups tab lists the real group chats the user belongs to (created under a branch's
+  // department), grouped by branch — opened directly by conversation id. Browsing/creating groups by
+  // department lives in the Departments tab; new groups are created via the "+" New group action.
+  const myConvsByBranch = new Map<string, GItem[]>();
+  groupConversations.filter((c) => c.branchId).forEach((c) => {
+    const arr = myConvsByBranch.get(c.branchId as string) ?? [];
+    arr.push({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, bizId: '', branchId: c.branchId as string, branchCode: undefined });
+    myConvsByBranch.set(c.branchId as string, arr);
+  });
+
   const bizBase = (activeBizId === 'all' ? businesses : businesses.filter((b) => b.id === activeBizId)).filter((b) => bizOK(b.id));
   const blocks: Block[] = bizBase.map((b) => {
-    if (b.id === 'tk') {
-      const subs = branches.filter((br) => brOK(br.code)).map((br) => ({
-        code: br.code, city: br.city, color: br.color, time: tzTime(br.tz), flag: br.flag,
-        items: br.groups.filter((g) => grpOK(br.code, g.name)).map((g) => ({ id: g.id, name: g.name, icon: g.icon, color: g.color, preview: g.preview, unread: g.unread, openName: `TK ${br.code} ${g.name}` })),
-      })).filter((s) => s.items.length > 0);
-      return { id: b.id, label: b.name, color: b.color, subs };
-    }
-    return { id: b.id, label: b.name, color: b.color, subs: [] };
+    const subs = branchesForBiz(b.id).filter((br) => brOK(br.code)).map((br) => {
+      const items = (myConvsByBranch.get(br.id) ?? []).map((m) => ({ ...m, bizId: b.id, branchCode: br.code }));
+      return { code: br.code, city: br.city, color: br.color, time: tzTime(br.tz), flag: br.flag, items };
+    }).filter((s) => s.items.length > 0);
+    return { id: b.id, label: b.name, color: b.color, subs };
   });
   const allItems = blocks.flatMap((bl) => bl.subs.flatMap((s) => s.items));
   const unreadCount = allItems.filter((g) => (g.unread || 0) > 0).length;
@@ -44,7 +69,7 @@ export function GroupsList({ activeBizId, access, onOpen }: { activeBizId: strin
   const bizDefaultOpen = !manyBiz;
 
   const GroupCard = (g: GItem) => (
-    <Pressable key={g.openName} onPress={() => onOpen(g.openName)} className="flex-row items-center gap-2.5 p-2.5"
+    <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} className="flex-row items-center gap-2.5 p-2.5"
       style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16 }, shadow]}>
       <View style={{ width: 38, height: 38, borderRadius: 14, backgroundColor: g.color, opacity: g.preview ? 1 : 0.55, alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{g.icon}</Text>

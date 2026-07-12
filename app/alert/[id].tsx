@@ -37,7 +37,7 @@ export default function AlertDetail() {
   const memberObjs = channel.members.map((mid) => reminderPeople.find((p) => p.id === mid) || { id: mid, name: mid, initials: mid.slice(0, 2).toUpperCase(), color: colors.textMuted2 });
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
       <Header title={channel.name} subtitle={`${biz?.name || 'System'} · ${channel.members.length} member${channel.members.length === 1 ? '' : 's'}`}
         onBack={() => router.back()} right={<Pressable onPress={() => { markChannelRead(channel.id); showToast('Marked all read'); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable>} />
 

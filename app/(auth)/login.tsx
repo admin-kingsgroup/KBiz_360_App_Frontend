@@ -11,7 +11,6 @@ import { User, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
 import { KBLogo } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { authApi, ApiError } from '../../src/api';
-import { useUiStore } from '../../src/store/uiStore';
 
 // Real authentication against the backend (CRM users via /api/auth/login). On success the auth
 // store flips to signed-in and the root gate routes to permissions/app. SSO/forgot are not wired.
@@ -68,7 +67,6 @@ export default function Login() {
   const [focused, setFocused] = useState<'id' | 'pwd' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const showToast = useUiStore((s) => s.showToast);
   const insets = useSafeAreaInsets();
 
   // Continuous logo spin + a slow breathing halo.
@@ -100,8 +98,6 @@ export default function Login() {
       setLoading(false);
     }
   };
-  const notAvailable = (what: string) => showToast(`${what} is not available yet`);
-
   const fieldBorder = (f: 'id' | 'pwd') => (focused === f ? colors.purple : colors.line);
 
   return (
@@ -162,11 +158,6 @@ export default function Login() {
               <Text style={{ color: colors.coral, fontSize: 11.5, fontWeight: '700', marginTop: 10 }}>{error}</Text>
             ) : null}
 
-            {/* Forgot password (not wired yet) */}
-            <View className="flex-row justify-end" style={{ marginTop: 10 }}>
-              <Pressable onPress={() => notAvailable('Password reset')} hitSlop={6} disabled={loading}><Text style={{ color: colors.textMuted2, fontSize: 11.5, fontWeight: '700' }}>Forgot password?</Text></Pressable>
-            </View>
-
             {/* Sign in */}
             <AnimatedPressable onPress={onLogin} disabled={loading}
               onPressIn={() => { press.value = withTiming(0.97, { duration: 110 }); }}
@@ -183,22 +174,6 @@ export default function Login() {
               )}
             </AnimatedPressable>
 
-            {/* Divider */}
-            <View className="flex-row items-center gap-3" style={{ marginVertical: 16 }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
-              <Text style={{ color: colors.textMuted2, fontSize: 9.5, fontWeight: '700', letterSpacing: 1.5 }}>OR CONTINUE WITH</Text>
-              <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
-            </View>
-
-            {/* SSO (not wired yet) */}
-            <View className="flex-row gap-2.5">
-              {['Google', 'Microsoft'].map((p) => (
-                <Pressable key={p} onPress={() => notAvailable(`${p} sign-in`)} disabled={loading} className="flex-1 items-center justify-center"
-                  style={({ pressed }) => ({ borderRadius: 15, paddingVertical: 13, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: colors.line })}>
-                  <Text style={{ color: colors.paper, fontSize: 12.5, fontWeight: '700' }}>{p}</Text>
-                </Pressable>
-              ))}
-            </View>
           </Animated.View>
 
           <Text style={{ color: colors.textMuted2, fontSize: 10, textAlign: 'center', marginTop: 14 }}>v1.0 · Build 240</Text>

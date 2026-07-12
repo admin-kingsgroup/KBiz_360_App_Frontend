@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
+import type { NotificationResponse } from 'expo-notifications';
 import { Notifications } from '../services/notifications';
 import { routeForData, type NotifData } from '../services/notifications/routes';
+import { callManager } from '../services/rtc/CallManager';
 
 // Registers a tap-response listener and routes into the app. Also handles the cold-start case
-// (app launched by tapping a notification). Client-only — no remote delivery.
+// (app launched by tapping a notification) and the incoming-call Accept/Decline action buttons.
 export function useNotificationRouting() {
   const router = useRouter();
   const handled = useRef<string | null>(null);
@@ -19,22 +21,26 @@ export function useNotificationRouting() {
       router.push(route);
     };
 
-    // Cold start: launched from a notification tap.
-    Notifications.getLastNotificationResponseAsync().then((resp) => {
+    const handle = (resp: NotificationResponse | null): void => {
       const reqId = resp?.notification.request.identifier;
-      if (resp && reqId && handled.current !== reqId) {
-        handled.current = reqId;
-        go(resp.notification.request.content.data as NotifData);
-      }
-    });
-
-    // Warm: tapped while running/backgrounded.
-    const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
-      const reqId = resp.notification.request.identifier;
-      if (handled.current === reqId) return;
+      if (!resp || !reqId || handled.current === reqId) return;
       handled.current = reqId;
-      go(resp.notification.request.content.data as NotifData);
-    });
+      const data = resp.notification.request.content.data as NotifData & { callId?: string };
+      const action = resp.actionIdentifier;
+      // Incoming-call Accept / Decline buttons (categoryId 'incoming_call').
+      if (data?.type === 'call' && (action === 'accept' || action === 'decline')) {
+        const callId = (data.callId ?? data.id) ?? '';
+        if (action === 'accept') { callManager.acceptFromNotification(callId); go(data); }
+        else callManager.declineFromNotification(callId);
+        return;
+      }
+      go(data);
+    };
+
+    // Cold start: launched from a notification tap or action.
+    Notifications.getLastNotificationResponseAsync().then(handle);
+    // Warm: tapped while running/backgrounded.
+    const sub = Notifications.addNotificationResponseReceivedListener(handle);
     return () => sub.remove();
   }, [router]);
 }

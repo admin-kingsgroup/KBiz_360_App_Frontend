@@ -65,5 +65,14 @@ export const getCall = (id: string): Promise<CallLogDTO> => apiFetch(`/api/calls
 export const registerCallDevice = (expoPushToken: string, platform?: string): Promise<void> =>
   apiFetch('/api/calls/register-device', { method: 'POST', body: { expoPushToken, platform } });
 
+// Raw FCM token → enables the native full-screen incoming-call UI (data push).
+export const registerFcmDevice = (fcmToken: string, platform?: string): Promise<void> =>
+  apiFetch('/api/calls/register-fcm', { method: 'POST', body: { fcmToken, platform } });
+
+// Apple PushKit VoIP token (iOS) → enables the native CallKit incoming-call screen.
+// `production` = which APNs environment the token belongs to (store/preview build = true, dev = false).
+export const registerVoipDevice = (voipToken: string, production: boolean): Promise<void> =>
+  apiFetch('/api/calls/register-voip', { method: 'POST', body: { voipToken, production } });
+
 export const callAnalytics = (params?: { from?: number; to?: number; userId?: string }): Promise<CallAnalytics> =>
   apiFetch(`/api/calls/analytics${qs(params)}`);

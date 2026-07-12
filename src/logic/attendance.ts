@@ -33,6 +33,26 @@ export function autoPunch(
   return null;
 }
 
+// ── auto check-out grace ──
+// GPS drops indoors constantly, and a lost fix must read as UNKNOWN, not "left the office".
+// Auto check-out therefore requires a CONFIRMED outside reading (real coords, outside the fence,
+// no office Wi-Fi) sustained for AWAY_GRACE_MS. Check-in stays instant.
+export const AWAY_GRACE_MS = 5 * 60 * 1000;
+
+// Reducer for the "away since" timestamp. present → null; unknown (no fix, no Wi-Fi) → null
+// (never accumulate away-time on missing data); confirmed outside → keep/start the timer.
+export function nextAwaySince(p: OfficePresence, awaySince: number | null, now: number): number | null {
+  if (p.present) return null;
+  const confirmedOutside = p.distance != null && !p.inside;
+  if (!confirmedOutside) return null;
+  return awaySince ?? now;
+}
+
+// True once the confirmed-outside timer has run for the full grace period.
+export function awayLongEnough(awaySince: number | null, now: number, graceMs: number = AWAY_GRACE_MS): boolean {
+  return awaySince != null && now - awaySince >= graceMs;
+}
+
 // FALLBACK face punch guard. Extracted from faceScan(): blocked off-site; no-op once both punched.
 export function canFacePunch(present: boolean, att: AttendanceRecord, scanning: boolean): boolean {
   if (!present) return false;

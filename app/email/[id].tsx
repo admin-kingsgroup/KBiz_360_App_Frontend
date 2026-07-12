@@ -1,17 +1,24 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, Star, Trash2, RotateCcw, MailOpen, Reply, ReplyAll, Forward, Paperclip } from 'lucide-react-native';
+import { ChevronLeft, Star, Trash2, RotateCcw, MailOpen, Reply, ReplyAll, Forward, Paperclip, Download, Pencil } from 'lucide-react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { Avatar } from '../../src/components/ui';
+import { EmailBody } from '../../src/components/email';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useUiStore } from '../../src/store/uiStore';
+import * as emailApi from '../../src/api/email';
 import { initialsOf, relativeTime } from '../../src/logic/email';
-import { CURRENT_MAILBOX } from '../../src/data/emails';
+import type { AttachmentMeta } from '../../src/types';
+
+const humanSize = (b: number): string => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(1)} MB`);
 
 export default function EmailDetail() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const email = useEmailStore((s) => s.byId(id ?? ''));
   const toggleRead = useEmailStore((s) => s.toggleRead);
@@ -19,6 +26,15 @@ export default function EmailDetail() {
   const moveToFolder = useEmailStore((s) => s.moveToFolder);
   const deleteForever = useEmailStore((s) => s.deleteForever);
   const showToast = useUiStore((s) => s.showToast);
+
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  // Fetch the full message body (the list only carries a preview) + attachment list.
+  useEffect(() => { if (id) void useEmailStore.getState().loadMessage(id); }, [id]);
+  useEffect(() => {
+    if (email?.hasAttachments && id) emailApi.listAttachments(id).then(setAttachments).catch(() => setAttachments([]));
+  }, [email?.hasAttachments, id]);
 
   if (!email) {
     return (
@@ -32,18 +48,34 @@ export default function EmailDetail() {
   }
 
   const inTrash = email.folder === 'deleted';
-  const quote = `\n\n---------- Original message ----------\nFrom: ${email.from.name} <${email.from.email}>\nSubject: ${email.subject}\n\n${email.body}`;
+  const isDraft = email.folder === 'drafts';
 
+  // Reply/forward carry the original's id + mode; compose builds the quoted body at send time
+  // (HTML originals are embedded as HTML so the quote keeps its formatting — no raw-tag dump).
   const reply = (all: boolean) => {
-    const others = all ? [...email.to, ...(email.cc ?? [])].filter((a) => a.email !== CURRENT_MAILBOX.email && a.email !== email.from.email) : [];
+    const me = (useEmailStore.getState().account ?? '').toLowerCase(); // real connected mailbox, not a mock address
+    const others = all ? [...email.to, ...(email.cc ?? [])].filter((a) => a.email.toLowerCase() !== me && a.email !== email.from.email) : [];
     const to = [email.from, ...others].map((a) => a.email).join(', ');
-    router.push({ pathname: '/email/compose', params: { to, subject: email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`, body: quote } });
+    router.push({ pathname: '/email/compose', params: { to, subject: email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`, replyTo: email.id, mode: all ? 'replyAll' : 'reply' } });
   };
-  const forward = () => router.push({ pathname: '/email/compose', params: { to: '', subject: email.subject.startsWith('Fwd:') ? email.subject : `Fwd: ${email.subject}`, body: quote } });
+  const forward = () => router.push({ pathname: '/email/compose', params: { to: '', subject: email.subject.startsWith('Fwd:') ? email.subject : `Fwd: ${email.subject}`, replyTo: email.id, mode: 'forward' } });
+  const editDraft = () => router.push({ pathname: '/email/compose', params: { id: email.id } });
 
   const trash = () => { moveToFolder(email.id, 'deleted'); showToast('Moved to Deleted'); router.back(); };
   const restore = () => { moveToFolder(email.id, 'inbox'); showToast('Restored to Inbox'); router.back(); };
   const purge = () => { deleteForever(email.id); showToast('Deleted permanently'); router.back(); };
+
+  const openAttachment = async (att: AttachmentMeta) => {
+    setDownloading(att.id);
+    try {
+      const data = await emailApi.downloadAttachment(email.id, att.id);
+      const path = `${FileSystem.cacheDirectory}${att.name.replace(/[^\w.-]+/g, '_')}`;
+      await FileSystem.writeAsStringAsync(path, data.contentBytes, { encoding: FileSystem.EncodingType.Base64 });
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path, { mimeType: data.contentType, dialogTitle: att.name });
+      else showToast('Saved to device cache');
+    } catch { showToast('Could not open attachment'); }
+    finally { setDownloading(null); }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
@@ -81,28 +113,39 @@ export default function EmailDetail() {
 
         <View style={{ height: 1, backgroundColor: colors.cardEdge, marginVertical: 16 }} />
 
-        {/* Body */}
-        <Text style={{ color: colors.ink, fontSize: 14.5, lineHeight: 23 }}>{email.body}</Text>
+        {/* Body — HTML via WebView, plain text otherwise */}
+        <EmailBody body={email.body} bodyType={email.bodyType} />
 
-        {/* Attachments */}
-        {email.attachments?.length ? (
+        {/* Attachments (tap to download + open) */}
+        {attachments.length ? (
           <View style={{ marginTop: 20, gap: 8 }}>
-            {email.attachments.map((at) => (
-              <View key={at.id} className="flex-row items-center" style={{ gap: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
+            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 0.4 }}>{attachments.length} ATTACHMENT{attachments.length > 1 ? 'S' : ''}</Text>
+            {attachments.map((at) => (
+              <Pressable key={at.id} onPress={() => openAttachment(at)} className="flex-row items-center" style={{ gap: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
                 <Paperclip size={16} color={colors.textMuted} />
-                <Text style={{ flex: 1, color: colors.ink, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{at.name}</Text>
-                <Text style={{ color: colors.textMuted, fontSize: 11 }}>{at.sizeLabel}</Text>
-              </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{at.name}</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 11 }}>{humanSize(at.size)}</Text>
+                </View>
+                <Download size={16} color={downloading === at.id ? colors.textMuted : colors.blue} />
+              </Pressable>
             ))}
           </View>
         ) : null}
       </ScrollView>
 
-      {/* Reply bar */}
-      <View className="flex-row" style={{ gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 18, backgroundColor: colors.card, borderTopColor: colors.cardEdge, borderTopWidth: 1 }}>
-        <ActionBtn icon={<Reply size={16} color="#fff" />} label="Reply" primary onPress={() => reply(false)} />
-        <ActionBtn icon={<ReplyAll size={16} color={colors.ink} />} label="Reply all" onPress={() => reply(true)} />
-        <ActionBtn icon={<Forward size={16} color={colors.ink} />} label="Forward" onPress={forward} />
+      {/* Bottom bar — pad the bottom by the safe-area inset so the buttons clear the Android nav bar.
+          Drafts get a single "Edit draft" action (reply/forward make no sense for an unsent message). */}
+      <View className="flex-row" style={{ gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: insets.bottom + 12, backgroundColor: colors.card, borderTopColor: colors.cardEdge, borderTopWidth: 1 }}>
+        {isDraft ? (
+          <ActionBtn icon={<Pencil size={16} color="#fff" />} label="Edit draft" primary onPress={editDraft} />
+        ) : (
+          <>
+            <ActionBtn icon={<Reply size={16} color="#fff" />} label="Reply" primary onPress={() => reply(false)} />
+            <ActionBtn icon={<ReplyAll size={16} color={colors.ink} />} label="Reply all" onPress={() => reply(true)} />
+            <ActionBtn icon={<Forward size={16} color={colors.ink} />} label="Forward" onPress={forward} />
+          </>
+        )}
       </View>
     </SafeAreaView>
   );

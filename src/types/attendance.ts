@@ -30,6 +30,11 @@ export interface TeamAttendanceEntry {
   initials: string;
   color: string;
   branch: string;
+  branchId: string;          // WORKING branch id: explicit assignment → first CRM access branch
+  workBranchId?: string | null; // explicit working-branch assignment (null = derived from access)
+  position?: string | null;  // job title (kb360_app), shown under the name
+  office: string | null;     // resolved office name the person reports at
+  officeId: string | null;   // explicit assignment id (null = on the branch default)
   in: string | null;
   out: string | null;
   via?: PunchMethod;

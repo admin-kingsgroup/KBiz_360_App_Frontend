@@ -1,27 +1,35 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { View, Text, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { ChevronLeft, Clock, Check, Wifi, WifiOff, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight } from 'lucide-react-native';
+import { ChevronLeft, Clock, Check, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPinOff, MapPin, Building2, X } from 'lucide-react-native';
+import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { colors, shadow, shadowSm } from '../src/theme';
-import { branches } from '../src/data/businesses';
-import { teamAttendance } from '../src/data/team';
 import { useGeoFence } from '../src/hooks/useGeoFence';
 import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAccessStore } from '../src/store/accessStore';
 import { useUiStore } from '../src/store/uiStore';
-import { canFacePunch } from '../src/logic/attendance';
+import { canFacePunch, nextAwaySince, awayLongEnough } from '../src/logic/attendance';
 import { saveConsent } from '../src/services/storage';
+import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
+import { getCurrentSsid } from '../src/services/wifi';
+import { ssidMatches } from '../src/logic/wifi';
+import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { ApiError } from '../src/api/client';
+import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
 
 const fmt = (d: Date | null) => (d ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null);
-const HISTORY = [
-  { date: 'Yesterday', in: '9:02 AM', out: '6:34 PM', via: 'Wi-Fi' },
-  { date: 'Mon 26 May', in: '9:10 AM', out: '6:20 PM', via: 'Geofence' },
-  { date: 'Sun 25 May', in: null as string | null, out: null as string | null, via: undefined as string | undefined },
-  { date: 'Sat 24 May', in: '9:30 AM', out: '2:05 PM', via: 'Face' },
-];
+// 'YYYY-MM-DD' → "Today" / "Yesterday" / "Mon 26 May" for the history list.
+const dateLabel = (key: string): string => {
+  const d = new Date(key + 'T00:00:00');
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yest = new Date(today); yest.setDate(today.getDate() - 1);
+  if (d.getTime() === today.getTime()) return 'Today';
+  if (d.getTime() === yest.getTime()) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+};
 
 // Attendance — faithful port of source AttendanceScreen, wired to the tested attendanceStore
 // (computePresence/autoPunch/canFacePunch/facePunch). Wi-Fi is a simulated toggle (source-faithful);
@@ -29,12 +37,18 @@ const HISTORY = [
 // no ML. Consent-gated on first use.
 export default function Attendance() {
   const router = useRouter();
-  const offices = branches.filter((b) => typeof b.lat === 'number');
-  const [office, setOffice] = useState(offices[0]);
+  const [offices, setOffices] = useState<AttendanceOffice[]>([]);
+  const [office, setOffice] = useState<AttendanceOffice | null>(null);
   const [tab, setTab] = useState<'mine' | 'team'>('mine');
   const [clock, setClock] = useState(new Date());
-  const [wifiOn, setWifiOn] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [team, setTeam] = useState<TeamAttendanceEntry[]>([]);
+  const [history, setHistory] = useState<AttendanceHistoryEntry[]>([]);
+  const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
+  const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
+  const [exempt, setExempt] = useState(false); // this account is exempt from attendance
+  const [ssid, setSsid] = useState<string | null>(null); // Wi-Fi network the device is on (null when unreadable)
+  const awaySinceRef = useRef<number | null>(null); // confirmed-outside timer for the auto check-out grace
 
   const role = useAccessStore((s) => s.user?.role);
   const isSuper = role === 'SUPER_ADMIN';
@@ -43,23 +57,89 @@ export default function Attendance() {
   const presence = useAttendanceStore((s) => s.presence);
   const refreshPresence = useAttendanceStore((s) => s.refreshPresence);
   const runAutoPunch = useAttendanceStore((s) => s.runAutoPunch);
-  const punchByFace = useAttendanceStore((s) => s.punchByFace);
   const showToast = useUiStore((s) => s.showToast);
 
-  const { coords, geoState, simulate } = useGeoFence(office);
+  const { coords, geoState } = useGeoFence(office);
 
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
 
-  // Recompute presence whenever signals change, then auto-punch (source AUTO useEffect).
+  // Poll the connected Wi-Fi SSID (Android needs location perms/services on to read it; the
+  // consent flow already asks). Drives the Wi-Fi half of presence — verified again server-side.
   useEffect(() => {
-    const p = refreshPresence({ wifiOn, coords, office: { lat: office.lat as number, lng: office.lng as number, radius: office.radius } });
+    let alive = true;
+    const read = (): void => { void getCurrentSsid().then((s) => { if (alive) setSsid(s); }); };
+    read();
+    const t = setInterval(read, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // Load the caller's office geofence(s), today's record, history, and the team view on open.
+  useEffect(() => {
+    getOffices().then((list) => { setOffices(list); setOffice((cur) => cur ?? list[0] ?? null); }).catch(() => undefined);
+    void syncAttendanceGeofencing(); // ensure background geofencing is registered for the user's offices
+
+    getMyAttendance()
+      .then((m) => { setExempt(!!m.exempt); useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null }); })
+      .catch(() => undefined);
+    getAttendanceHistory().then(setHistory).catch(() => undefined);
+    getTeamAttendance().then(setTeam).catch(() => undefined);
+    if (isSuper) getAdminOffices().then(setAdminOffices).catch(() => undefined); // offices for the reassign picker
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Super-admin: move a teammate to a different office (or back to the branch default).
+  const reassignTo = (userId: string, officeId: string | null): void => {
+    assignUserOffice(userId, officeId)
+      .then(() => { showToast('Office updated'); setReassign(null); getTeamAttendance().then(setTeam).catch(() => undefined); })
+      .catch(() => showToast('Could not update office'));
+  };
+  // Super-admin: set a teammate's WORKING branch (where they mark attendance). Keeps the modal open,
+  // re-pointed at the refreshed entry, so the office list below re-scopes to the new branch.
+  const reassignBranchTo = (userId: string, branchId: string | null): void => {
+    assignUserWorkBranch(userId, branchId)
+      .then(() => {
+        showToast('Working branch updated');
+        return getTeamAttendance().then((list) => {
+          setTeam(list);
+          setReassign((cur) => (cur ? list.find((t) => t.id === cur.id) ?? null : null));
+        });
+      })
+      .catch(() => showToast('Could not update branch'));
+  };
+  const reassignBranchOffices = reassign ? (adminOffices.find((b) => b.branchId === reassign.branchId)?.offices ?? []) : [];
+
+  // Persist a punch to the backend and adopt the server's record. `silent` = auto (no toast/error).
+  const apiPunch = async (kind: 'in' | 'out', method: 'auto' | 'face', silent = false): Promise<void> => {
+    try {
+      const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid };
+      const m = kind === 'in' ? await checkIn(body) : await checkOut(body);
+      useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
+      getAttendanceHistory().then(setHistory).catch(() => undefined);
+      if (!silent) showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
+    } catch (e) {
+      if (!silent) showToast(e instanceof ApiError ? e.message : 'Could not record punch');
+    }
+  };
+
+  // Recompute presence (office Wi-Fi match OR geofence) whenever GPS, Wi-Fi or office changes,
+  // then auto-punch. The backend re-verifies both the location and the SSID on every punch.
+  // Auto check-IN is instant; auto check-OUT needs a CONFIRMED outside reading sustained for the
+  // grace period — a lost GPS fix is unknown, not "left" (it once closed a day 4 s after check-in).
+  // `clock` keeps this re-evaluating every second so the grace timer fires even if GPS goes quiet.
+  useEffect(() => {
+    if (!office) return;
+    const wifiOn = ssidMatches(ssid, office.wifiSsid);
+    const p = refreshPresence({ wifiOn, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
+    awaySinceRef.current = nextAwaySince(p, awaySinceRef.current, Date.now());
+    if (!p.present && !awayLongEnough(awaySinceRef.current, Date.now())) return; // unknown / not away long enough
     const fired = runAutoPunch();
     if (fired) {
       const a = useAttendanceStore.getState().att;
-      if (a.outTime) showToast('Auto check-out · ' + fmt(a.outTime));
-      else if (a.inTime) showToast('Auto check-in · ' + fmt(a.inTime) + ' · ' + (p.viaNow || 'Auto'));
+      if (a.outTime) { showToast('Auto check-out · ' + fmt(a.outTime)); void apiPunch('out', 'auto', true); }
+      else if (a.inTime) { showToast('Auto check-in · ' + fmt(a.inTime) + ' · ' + (p.viaNow || 'Auto')); void apiPunch('in', 'auto', true); }
     }
-  }, [wifiOn, coords, office, refreshPresence, runAutoPunch, showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coords, ssid, office, clock, refreshPresence, runAutoPunch, showToast]);
 
   const inTime = att.inTime;
   const outTime = att.outTime;
@@ -79,9 +159,8 @@ export default function Attendance() {
       const enrolled = has && (await LocalAuthentication.isEnrolledAsync());
       const res = enrolled ? await LocalAuthentication.authenticateAsync({ promptMessage: 'Verify to punch attendance' }) : { success: true };
       if (res.success) {
-        const punched = punchByFace();
-        const a = useAttendanceStore.getState().att;
-        if (punched) showToast((a.outTime ? 'Face check-out · ' + fmt(a.outTime) : 'Face check-in · ' + fmt(a.inTime)));
+        const kind: 'in' | 'out' | null = !inTime ? 'in' : (!outTime ? 'out' : null);
+        if (kind) await apiPunch(kind, 'face');
       } else {
         showToast('Face verification cancelled');
       }
@@ -94,9 +173,8 @@ export default function Attendance() {
 
   const punchPresent = () => {
     if (!present) { showToast('Need office Wi-Fi or geofence'); return; }
-    const fired = runAutoPunch();
-    const a = useAttendanceStore.getState().att;
-    if (fired) showToast((a.outTime ? 'Checked out · ' + fmt(a.outTime) : 'Checked in · ' + fmt(a.inTime)) + ' · ' + (viaNow || 'Auto'));
+    const kind: 'in' | 'out' | null = !inTime ? 'in' : (!outTime ? 'out' : null);
+    if (kind) void apiPunch(kind, 'auto');
   };
 
   // ---- Consent gate ----
@@ -133,8 +211,8 @@ export default function Attendance() {
   const statusColor = inTime ? (outTime ? colors.warmMute : colors.success) : (present ? colors.success : colors.coral);
   const statusText = inTime ? (outTime ? 'Done for today' : 'Checked in') : (present ? 'Detecting' : 'Not checked in');
 
-  const presentCount = teamAttendance.filter((t) => t.in).length;
-  const absentCount = teamAttendance.length - presentCount;
+  const presentCount = team.filter((t) => t.in).length;
+  const absentCount = team.length - presentCount;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
@@ -155,28 +233,44 @@ export default function Attendance() {
             <View className="flex-row gap-2 mb-3">
               <Stat3 n={presentCount} label="Present" color={colors.success} bg={colors.success + '12'} border={colors.success + '33'} />
               <Stat3 n={absentCount} label="Absent" color={colors.coral} bg={colors.coral + '12'} border={colors.coral + '33'} />
-              <Stat3 n={teamAttendance.length} label="Total" color={colors.ink} bg={colors.card} border={colors.cardEdge} />
+              <Stat3 n={team.length} label="Total" color={colors.ink} bg={colors.card} border={colors.cardEdge} />
             </View>
             <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6, paddingHorizontal: 4 }}>TODAY · TEAM</Text>
             <View style={{ gap: 6 }}>
-              {teamAttendance.map((t) => {
+              {team.map((t) => {
                 const absent = !t.in;
                 return (
-                  <View key={t.id} className="flex-row items-center gap-2.5 p-2.5" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.coral + '40' : colors.cardEdge, borderRadius: 14, ...shadowSm }}>
+                  <Pressable key={t.id} disabled={!isSuper} onPress={() => setReassign(t)} className="flex-row items-center gap-2.5 p-2.5" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.coral + '40' : colors.cardEdge, borderRadius: 14, ...shadowSm }}>
                     <Avatar initials={t.initials} color={t.color} size={36} />
                     <View className="flex-1">
-                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{t.name}</Text>
+                      <View className="flex-row items-center gap-1.5">
+                        <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{t.name}</Text>
+                        {t.position ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10, flexShrink: 1 }}>· {t.position}</Text> : null}
+                      </View>
                       {absent
                         ? <Text style={{ color: colors.coral, fontSize: 10.5, fontWeight: '800', marginTop: 2 }}>{t.branch} · Absent</Text>
                         : <Text numberOfLines={1} style={{ color: colors.warmMute, fontSize: 10.5, marginTop: 2 }}>{t.branch} · In {t.in}{t.out ? ' · Out ' + t.out : ''} · {t.via}</Text>}
+                      {/* Office the person reports at — super-admin taps the row to reassign. */}
+                      <View className="flex-row items-center gap-1" style={{ marginTop: 2 }}>
+                        <Building2 size={10} color={colors.teal} />
+                        <Text numberOfLines={1} style={{ color: colors.teal, fontSize: 10, fontWeight: '700' }}>
+                          {t.office || 'No office set'}{isSuper ? ' · tap to change' : ''}
+                        </Text>
+                      </View>
                     </View>
                     <Badge on={!absent} />
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
             <Text style={{ color: colors.warmMute, fontSize: 11, textAlign: 'center', marginTop: 12, paddingHorizontal: 12 }}>Visible to Super Admin only. Staff see only their own record.</Text>
           </>
+        ) : exempt ? (
+          <View className="items-center" style={{ paddingVertical: 56 }}>
+            <CheckCircle2 size={36} color={colors.success} />
+            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '800', marginTop: 12 }}>Attendance not required</Text>
+            <Text style={{ color: colors.warmMute, fontSize: 12, marginTop: 4, textAlign: 'center', paddingHorizontal: 28 }}>Your account is exempt from attendance — you don&apos;t need to check in or out.</Text>
+          </View>
         ) : (
           <>
             <View className="items-center mb-4">
@@ -185,16 +279,30 @@ export default function Attendance() {
             </View>
 
             <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 6, paddingHorizontal: 4 }}>OFFICE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 12 }}>
-              {offices.map((o) => {
-                const sel = o.id === office.id;
-                return (
-                  <Pressable key={o.id} onPress={() => setOffice(o)} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 11, borderWidth: 1, backgroundColor: sel ? o.color : '#fff', borderColor: sel ? o.color : colors.cardEdge }}>
-                    <Text style={{ color: sel ? '#fff' : colors.ink, fontSize: 11, fontWeight: '800' }}>{o.flag} {o.code} · {o.city}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            {offices.length === 0 ? (
+              <View className="flex-row items-center gap-2.5 p-3 mb-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.orange + '40', borderRadius: 14 }}>
+                <MapPinOff size={18} color={colors.orange} />
+                <Text style={{ color: colors.warmMute, fontSize: 11.5, flex: 1 }}>No office location is set for your branch yet. Ask your admin to set it in Admin → Office locations.</Text>
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 12 }}>
+                {offices.map((o) => {
+                  const sel = o.id === office?.id;
+                  return (
+                    <Pressable key={o.id} onPress={() => setOffice(o)} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 11, borderWidth: 1, backgroundColor: sel ? colors.ink : '#fff', borderColor: sel ? colors.ink : colors.cardEdge }}>
+                      <Text style={{ color: sel ? '#fff' : colors.ink, fontSize: 11, fontWeight: '800' }}>{o.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {office?.address ? (
+              <View className="flex-row items-center gap-1.5" style={{ marginBottom: 12, paddingHorizontal: 2 }}>
+                <MapPin size={12} color={colors.warmMute} />
+                <Text numberOfLines={2} style={{ color: colors.warmMute, fontSize: 11, flex: 1 }}>{office.address}</Text>
+              </View>
+            ) : null}
 
             {/* Status card */}
             <View style={{ padding: 14, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge, marginBottom: 12, ...shadow }}>
@@ -211,18 +319,14 @@ export default function Attendance() {
             {/* Automatic */}
             <View className="flex-row items-center gap-1.5 mb-1.5 px-1"><Zap size={12} color={colors.success} /><Text style={{ color: colors.success, fontSize: 10, fontWeight: '800', letterSpacing: 1 }}>AUTOMATIC · PRIMARY</Text></View>
             <View style={{ gap: 8, marginBottom: 12 }}>
-              <AutoCard icon={wifiOn ? <Wifi size={17} color={colors.blue} /> : <WifiOff size={17} color={colors.warmMute} />} title="Office Wi-Fi / router" sub={office.wifi} on={wifiOn} color={colors.blue}>
-                <Pressable onPress={() => setWifiOn((v) => !v)} style={{ marginTop: 10, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.blue, backgroundColor: wifiOn ? colors.blue : '#fff', alignItems: 'center' }}>
-                  <Text style={{ color: wifiOn ? '#fff' : colors.blue, fontSize: 11, fontWeight: '800' }}>{wifiOn ? 'Disconnect (simulate leaving)' : 'Simulate connect to office Wi-Fi'}</Text>
-                </Pressable>
-              </AutoCard>
-              <AutoCard icon={<Navigation size={17} color={inside ? colors.success : colors.warmMute} />} title="Office geofence" sub={distance != null ? `${distance} m away · radius ${office.radius} m` : `Radius ${office.radius} m · ${geoState}`} on={inside} color={colors.success}>
-                <View className="flex-row gap-2" style={{ marginTop: 10 }}>
-                  <Pressable onPress={() => simulate(true)} style={{ flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.success, alignItems: 'center' }}><Text style={{ color: colors.success, fontSize: 11, fontWeight: '800' }}>Simulate · at office</Text></Pressable>
-                  <Pressable onPress={() => simulate(false)} style={{ flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.coral, alignItems: 'center' }}><Text style={{ color: colors.coral, fontSize: 11, fontWeight: '800' }}>Simulate · away</Text></Pressable>
-                </View>
-              </AutoCard>
-              <Text style={{ color: colors.warmMute, fontSize: 10.5, textAlign: 'center' }}>You are checked in automatically the moment either turns ON, and checked out when both go OFF.</Text>
+              <AutoCard
+                icon={<Navigation size={17} color={inside ? colors.success : colors.warmMute} />}
+                title="Office geofence"
+                sub={!office ? 'No office set' : distance != null ? `${distance} m away · radius ${office.radius} m` : `Radius ${office.radius} m · ${geoState}`}
+                on={inside}
+                color={colors.success}
+              />
+              <Text style={{ color: colors.warmMute, fontSize: 10.5, textAlign: 'center' }}>You are checked in automatically when you are inside the office area, and checked out when you leave. Your location is verified on the server.</Text>
             </View>
 
             {/* Face fallback */}
@@ -237,7 +341,7 @@ export default function Attendance() {
                 <>
                   <View className="flex-row gap-2 mb-2">
                     <Pressable onPress={punchPresent} className="flex-row items-center justify-center gap-1.5" style={{ flex: 1, paddingVertical: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.success, backgroundColor: '#fff' }}>
-                      {inside ? <Navigation size={15} color={colors.success} /> : <Wifi size={15} color={colors.success} />}
+                      <Navigation size={15} color={colors.success} />
                       <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{!inTime ? 'Check in' : 'Check out'} · {viaNow || 'office'}</Text>
                     </Pressable>
                     <Pressable onPress={faceScan} disabled={scanning} className="flex-row items-center justify-center gap-1.5" style={{ flex: 1, paddingVertical: 12, borderRadius: 16, backgroundColor: scanning ? colors.purple : colors.ink }}>
@@ -254,14 +358,17 @@ export default function Attendance() {
 
             <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6, paddingHorizontal: 4 }}>MY HISTORY</Text>
             <View style={{ gap: 6 }}>
-              {HISTORY.map((e, i) => {
-                const absent = !e.in;
+              {history.length === 0 ? (
+                <Text style={{ color: colors.warmMute, fontSize: 11.5, textAlign: 'center', paddingVertical: 16 }}>No attendance history yet.</Text>
+              ) : null}
+              {history.map((e) => {
+                const absent = !e.inTime;
                 return (
-                  <View key={i} className="flex-row items-center gap-2.5 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.coral + '40' : colors.cardEdge, borderRadius: 14, ...shadowSm }}>
+                  <View key={e.date} className="flex-row items-center gap-2.5 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.coral + '40' : colors.cardEdge, borderRadius: 14, ...shadowSm }}>
                     <View className="flex-1">
-                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{e.date}</Text>
+                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{dateLabel(e.date)}</Text>
                       {absent ? <Text style={{ color: colors.coral, fontSize: 10.5, fontWeight: '800', marginTop: 2 }}>Absent · no check-in</Text>
-                              : <Text style={{ color: colors.warmMute, fontSize: 10.5, marginTop: 2 }}>In {e.in} · Out {e.out || '—'}{e.via ? ' · ' + e.via : ''}</Text>}
+                              : <Text style={{ color: colors.warmMute, fontSize: 10.5, marginTop: 2 }}>In {fmt(e.inTime ? new Date(e.inTime) : null)} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>}
                     </View>
                     <Badge on={!absent} />
                   </View>
@@ -271,6 +378,62 @@ export default function Attendance() {
           </>
         )}
       </ScrollView>
+
+      {/* Super-admin: set a teammate's working branch + office */}
+      <Modal visible={!!reassign} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setReassign(null)}>
+        <Pressable onPress={() => setReassign(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18, maxHeight: '80%' }}>
+            <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
+              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>Working branch & office</Text>
+              <Pressable onPress={() => setReassign(null)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+            </View>
+            <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11.5, marginBottom: 12 }}>
+              {reassign?.name} · {reassign?.branch}
+            </Text>
+            <ScrollView style={{ flexGrow: 0 }}>
+            {/* Where this person marks attendance. Picking a branch scopes the office list below. */}
+            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6 }}>WORKING BRANCH</Text>
+            <View style={{ gap: 6, marginBottom: 14 }}>
+              {adminOffices.map((b) => {
+                const on = reassign?.branchId === b.branchId;
+                return (
+                  <Pressable key={b.branchId} onPress={() => reassign && !on && reassignBranchTo(reassign.id, b.branchId)} className="flex-row items-center gap-2" style={{ paddingVertical: 11, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: on ? colors.ink : colors.cardEdge, backgroundColor: on ? colors.ink + '0D' : '#fff' }}>
+                    <MapPin size={15} color={on ? colors.ink : colors.warmMute} />
+                    <Text style={{ flex: 1, color: colors.ink, fontSize: 13, fontWeight: '700' }}>{b.code || b.name || 'Branch'}{b.city ? ` · ${b.city}` : ''}</Text>
+                    {on ? <Check size={15} color={colors.ink} /> : null}
+                  </Pressable>
+                );
+              })}
+              {/* Clear the explicit working branch → person falls back to their CRM access branch. */}
+              <Pressable onPress={() => reassign && reassignBranchTo(reassign.id, null)} disabled={!reassign?.workBranchId} className="items-center" style={{ paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.cardEdge, borderStyle: 'dashed', marginTop: 2 }}>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>{reassign?.workBranchId ? 'Clear (use access branch)' : 'Following access branch'}</Text>
+              </Pressable>
+            </View>
+            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6 }}>OFFICE</Text>
+            {reassignBranchOffices.length === 0 ? (
+              <Text style={{ color: colors.textMuted2, fontSize: 12 }}>No offices configured for this branch yet. Add one in Admin → Office locations.</Text>
+            ) : (
+              <View style={{ gap: 6 }}>
+                {reassignBranchOffices.map((o) => {
+                  const on = reassign?.officeId === o.id;
+                  return (
+                    <Pressable key={o.id} onPress={() => reassign && reassignTo(reassign.id, o.id)} className="flex-row items-center gap-2" style={{ paddingVertical: 11, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: on ? colors.ink : colors.cardEdge, backgroundColor: on ? colors.ink + '0D' : '#fff' }}>
+                      <Building2 size={15} color={on ? colors.ink : colors.warmMute} />
+                      <Text style={{ flex: 1, color: colors.ink, fontSize: 13, fontWeight: '700' }}>{o.label || 'Office'}{o.isDefault ? ' · default' : ''}</Text>
+                      {on ? <Check size={15} color={colors.ink} /> : null}
+                    </Pressable>
+                  );
+                })}
+                {/* Clear the explicit assignment → person falls back to the branch default office. */}
+                <Pressable onPress={() => reassign && reassignTo(reassign.id, null)} className="items-center" style={{ paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.cardEdge, borderStyle: 'dashed', marginTop: 2 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>{reassign?.officeId ? 'Clear assignment (use branch default)' : 'On branch default'}</Text>
+                </Pressable>
+              </View>
+            )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

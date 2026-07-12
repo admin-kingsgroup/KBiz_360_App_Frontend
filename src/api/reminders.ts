@@ -32,4 +32,7 @@ export const completeReminder = (id: string): Promise<PatchResult> =>
 export const approveReminder = (id: string): Promise<PatchResult> =>
   apiFetch(`/api/reminders/${id}`, { method: 'PATCH', body: { action: 'approve' } });
 
+export const reassignReminder = (id: string, forId: string): Promise<PatchResult> =>
+  apiFetch(`/api/reminders/${id}`, { method: 'PATCH', body: { forId } });
+
 export const deleteReminder = (id: string): Promise<void> => apiFetch(`/api/reminders/${id}`, { method: 'DELETE' });

@@ -4,6 +4,7 @@ import InCallManager from 'react-native-incall-manager';
 import type { Socket } from 'socket.io-client';
 import { initiateCall, acceptCall, rejectCall, endCall, getIceServers, type CallParticipant, type CallMediaType, type IceServer } from '../../api/calls';
 import { useCallSessionStore } from '../../store/callSessionStore';
+import { isCallKitActive, endCallKit, reportCallKitConnected } from '../iosCallKeep';
 
 // Socket event names — must match the backend (src/mongo/calls/call.types.ts CALL_EVENTS).
 const EV = {
@@ -32,6 +33,7 @@ class CallManager {
   private isCaller = false;
   private pendingCandidates: RTCIceCandidate[] = [];
   private iceServers: IceServer[] = [];
+  private pendingAcceptCallId: string | null = null; // set by a notification "Accept" before the call arrives over socket
 
   private get store() { return useCallSessionStore.getState(); }
 
@@ -60,8 +62,12 @@ class CallManager {
   // Start an outgoing call to a contact.
   async startOutgoing(receiver: CallParticipant, type: CallMediaType = 'voice'): Promise<void> {
     if (this.store.active) return; // already in a call
+    // eslint-disable-next-line no-console
+    console.log('[call] startOutgoing →', receiver.id, type, 'socket?', !!this.socket);
     try {
       const { call, iceServers } = await initiateCall(receiver.id, type);
+      // eslint-disable-next-line no-console
+      console.log('[call] initiated callId=', call.callId);
       this.callId = call.callId;
       this.peerId = receiver.id;
       this.isCaller = true;
@@ -71,6 +77,8 @@ class CallManager {
       InCallManager.start({ media: 'audio' });
       InCallManager.startRingback('_DTMF_'); // local ringback while the callee's phone rings
     } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[call] startOutgoing FAILED:', (e as Error).message);
       this.fail((e as Error).message || 'Could not start call');
     }
   }
@@ -90,11 +98,43 @@ class CallManager {
       this.store.setActive({ callId: inc.callId, peer: inc.caller, type: inc.type, direction: 'incoming', phase: 'connecting', startedAt: inc.startedAt, connectedAt: null });
       InCallManager.stopRingtone();
       await this.setupPeer(iceServers);
-      InCallManager.start({ media: 'audio' });
+      // Under iOS CallKit, CallKit owns the audio session — starting InCallManager here grabs it first
+      // and breaks call audio. Defer to the CallKit 'didActivateAudioSession' event (onAudioSessionActivated).
+      if (!isCallKitActive()) InCallManager.start({ media: 'audio' });
       // The caller sends the SDP offer once it receives call:accept → we answer in onOffer().
     } catch (e) {
       this.fail((e as Error).message || 'Could not accept call');
     }
+  }
+
+  // From a notification action button. On a cold start the call:incoming socket event may not have
+  // arrived yet, so we accept/decline as soon as it does (or immediately if already present).
+  acceptFromNotification(callId: string): void {
+    if (this.store.incoming?.callId === callId) { this.pendingAcceptCallId = null; void this.acceptIncoming(); }
+    else this.pendingAcceptCallId = callId;
+  }
+  declineFromNotification(callId: string): void {
+    this.pendingAcceptCallId = null;
+    if (this.store.incoming?.callId === callId) { InCallManager.stopRingtone(); this.store.setIncoming(null); }
+    void rejectCall(callId).catch(() => undefined);
+  }
+
+  // From the iOS CallKit "end" button — it covers both declining a ringing call AND hanging up an
+  // active one (CallKit has a single end action), so route to the right teardown.
+  declineOrEndFromNotification(callId: string): void {
+    if (this.store.active?.callId === callId) { void this.end(); return; }
+    this.declineFromNotification(callId);
+  }
+
+  // iOS CallKit activated its audio session → now safe to start our audio route (see acceptIncoming).
+  onAudioSessionActivated(): void {
+    InCallManager.start({ media: 'audio' });
+  }
+
+  // System (CallKit) mute toggle → mirror into the call.
+  setMutedFromSystem(muted: boolean): void {
+    this.localStream?.getAudioTracks().forEach((t: MediaStreamTrack) => { t.enabled = !muted; });
+    this.store.setMuted(muted);
   }
 
   // Decline the current incoming call.
@@ -141,21 +181,32 @@ class CallManager {
         this.emit(EV.ICE, { callId: this.callId, to: this.peerId, candidate: e.candidate });
       }
     });
+    // Promote to "active" once media can flow. Idempotent — both connectionState and iceConnectionState
+    // call this, because RN-WebRTC does not reliably fire connectionState 'connected' (the cause of
+    // calls getting stuck on "connecting"); ICE state is the dependable signal.
+    const onConnected = (): void => {
+      if (this.store.active?.phase === 'active') return;
+      this.store.patchActive({ phase: 'active', connectedAt: this.store.active?.connectedAt ?? Date.now() });
+      this.store.setQuality('good');
+      InCallManager.stopRingback();
+      reportCallKitConnected(this.callId); // CallKit: stop "connecting…", start the timer (iOS)
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pc as any).addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      if (state === 'connected') {
-        this.store.patchActive({ phase: 'active', connectedAt: this.store.active?.connectedAt ?? Date.now() });
-        this.store.setQuality('good');
-        InCallManager.stopRingback();
-      } else if (state === 'disconnected') {
-        this.store.patchActive({ phase: 'reconnecting' });
-        this.store.setQuality('poor');
-      } else if (state === 'failed') {
-        void this.attemptIceRestart();
-      } else if (state === 'closed') {
-        this.teardown('ended');
-      }
+      if (state === 'connected') onConnected();
+      else if (state === 'disconnected') { this.store.patchActive({ phase: 'reconnecting' }); this.store.setQuality('poor'); }
+      else if (state === 'failed') void this.attemptIceRestart();
+      else if (state === 'closed') this.teardown('ended');
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pc as any).addEventListener('iceconnectionstatechange', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ice = (pc as any).iceConnectionState as string;
+      if (ice === 'connected' || ice === 'completed') onConnected();
+      else if (ice === 'disconnected') { this.store.patchActive({ phase: 'reconnecting' }); this.store.setQuality('poor'); }
+      else if (ice === 'failed') void this.attemptIceRestart();
+      else if (ice === 'closed') this.teardown('ended');
     });
   }
 
@@ -170,9 +221,11 @@ class CallManager {
         await pc.setLocalDescription(offer);
         this.emit(EV.OFFER, { callId: this.callId, to: this.peerId, sdp: { type: offer.type, sdp: offer.sdp } });
       }
-      // Give it a window to recover; otherwise tear down.
+      // Give it a window to recover; otherwise tear down. Check the STORE phase (set by either
+      // connectionState or iceConnectionState) rather than the unreliable pc.connectionState — so a
+      // call that recovered via ICE isn't wrongly killed.
       setTimeout(() => {
-        if (this.pc && this.pc.connectionState !== 'connected') this.fail('Connection lost');
+        if (this.pc && this.store.active?.phase !== 'active') this.fail('Connection lost');
       }, 12000);
     } catch {
       this.fail('Connection lost');
@@ -181,9 +234,14 @@ class CallManager {
 
   // ─── socket event handlers ───
   private onIncoming = (p: { callId: string; type: CallMediaType; caller: CallParticipant; startedAt: number }): void => {
+    // eslint-disable-next-line no-console
+    console.log('[call] onIncoming callId=', p.callId, 'from', p.caller?.name, '| busy?', !!(this.store.active || this.store.incoming));
     if (this.store.active || this.store.incoming) { void rejectCall(p.callId).catch(() => undefined); return; } // busy
     this.store.setIncoming({ callId: p.callId, type: p.type, caller: p.caller, startedAt: p.startedAt });
-    InCallManager.startRingtone('_DEFAULT_', [0, 1000, 1000], 'playback', 30);
+    // On iOS the native CallKit screen rings; don't double-ring with the in-app ringtone.
+    if (!isCallKitActive()) InCallManager.startRingtone('_DEFAULT_', [0, 1000, 1000], 'playback', 30);
+    // If the user already tapped "Accept" on the notification (cold start), answer now.
+    if (this.pendingAcceptCallId === p.callId) { this.pendingAcceptCallId = null; void this.acceptIncoming(); }
   };
 
   private onAccepted = async (p: { callId: string }): Promise<void> => {
@@ -217,7 +275,11 @@ class CallManager {
     try {
       await this.pc.setRemoteDescription(new RTCSessionDescription(p.sdp));
       await this.flushCandidates();
-    } catch { /* ignore */ }
+    } catch (e) {
+      // Initial answer failing = call can't connect → fail loudly instead of hanging on "connecting".
+      // A failed answer during an ICE restart (already active) must NOT kill the working call.
+      if (this.store.active?.phase !== 'active') this.fail((e as Error).message || 'Negotiation failed');
+    }
   };
 
   private onRemoteCandidate = async (p: SignalIn): Promise<void> => {
@@ -249,6 +311,7 @@ class CallManager {
   private fail(reason: string): void { this.teardown(reason); }
 
   private teardown(reason: string): void {
+    endCallKit(this.callId ?? this.store.active?.callId ?? this.store.incoming?.callId); // dismiss the iOS CallKit screen
     InCallManager.stopRingback();
     InCallManager.stopRingtone();
     this.localStream?.getTracks().forEach((t: MediaStreamTrack) => t.stop());

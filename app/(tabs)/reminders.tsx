@@ -1,20 +1,25 @@
-import { useCallback, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Plus, Bell, Archive } from 'lucide-react-native';
+import { Plus, Bell, Archive, X } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { ReminderCard } from '../../src/components/reminders';
 import { colors } from '../../src/theme';
 import { FILTERS } from '../../src/constants/filters';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
-import { listReminders, completeReminder, approveReminder, type ReminderTab, type ReminderListResponse } from '../../src/api/reminders';
+import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
+import { listReminders, completeReminder, approveReminder, reassignReminder, type ReminderTab, type ReminderListResponse } from '../../src/api/reminders';
+import { listUsers, type DirectoryUser } from '../../src/api/directory';
 import type { ReminderRecord } from '../../src/data/reminders';
 
 // Reminders — backed by the Mongo reminders API. Tabs map to server tabs; the server does tab
 // filtering, chain-of-command visibility (All), and grouping. Operates on real CRM user ids.
 const TABS: ReminderTab[] = ['forme', 'iset', 'review', 'all'];
+const PALETTE = [colors.purple, colors.blue, colors.teal, colors.orange, colors.coral, colors.ink];
+const colorFor = (id: string): string => PALETTE[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % PALETTE.length];
+const initialsOf = (name: string): string => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
 
 export default function Reminders() {
   const router = useRouter();
@@ -25,9 +30,15 @@ export default function Reminders() {
   const [data, setData] = useState<ReminderListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [reassignFor, setReassignFor] = useState<ReminderRecord | null>(null);
+  const [people, setPeople] = useState<DirectoryUser[]>([]);
+
+  // Directory for the reassign picker.
+  useEffect(() => { listUsers().then(setPeople).catch(() => undefined); }, []);
 
   const load = useCallback(async (tab: ReminderTab) => {
     try { setData(await listReminders(tab)); } catch { /* offline / not signed in */ } finally { setLoading(false); }
+    void useReminderBadgeStore.getState().refresh(); // keep the tab badge in sync
   }, []);
 
   // Refetch on focus or tab change (e.g. after creating a reminder in the modal).
@@ -43,7 +54,14 @@ export default function Reminders() {
     try { await approveReminder(id); showToast('Approved · moved to archive'); } catch { showToast('Could not approve'); }
     void load(TABS[f]);
   };
-  const onReassign = (r: ReminderRecord) => showToast(`Re-assign ${(r.forName || '').split(' ')[0]} — coming soon`);
+  const onReassign = (r: ReminderRecord) => setReassignFor(r);
+  const doReassign = async (forId: string) => {
+    const r = reassignFor;
+    setReassignFor(null);
+    if (!r) return;
+    try { await reassignReminder(r.id, forId); showToast('Reminder reassigned'); } catch { showToast('Could not reassign'); }
+    void load(TABS[f]);
+  };
 
   const groups = data?.groups ?? [];
   const visible = data?.visible ?? [];
@@ -110,6 +128,30 @@ export default function Reminders() {
       <Pressable onPress={() => router.push('/reminder/new')} style={{ position: 'absolute', right: 16, bottom: 16, width: 52, height: 52, borderRadius: 26, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
         <Plus size={22} color="#fff" strokeWidth={2.5} />
       </Pressable>
+
+      {/* Reassign picker — choose a new assignee; resets the reminder to pending for them. */}
+      <Modal visible={!!reassignFor} transparent animationType="slide" onRequestClose={() => setReassignFor(null)}>
+        <Pressable onPress={() => setReassignFor(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, maxHeight: '72%' }}>
+            <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
+            <View className="flex-row items-center justify-between px-5 pb-2">
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Reassign to…</Text>
+                {reassignFor ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11.5, marginTop: 1 }}>{reassignFor.text}</Text> : null}
+              </View>
+              <Pressable onPress={() => setReassignFor(null)} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
+              {people.filter((u) => u.id !== reassignFor?.forId).map((u) => (
+                <Pressable key={u.id} onPress={() => void doReassign(u.id)} className="flex-row items-center" style={{ gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12 }}>
+                  <Avatar initials={initialsOf(u.name)} color={colorFor(u.id)} size={36} />
+                  <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{u.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

@@ -1,4 +1,4 @@
-import { emailsInFolder, searchEmails, unreadCount, parseRecipients, initialsOf, relativeTime } from '../logic/email';
+import { emailsInFolder, searchEmails, unreadCount, parseRecipients, initialsOf, relativeTime, escapeHtml, htmlToText, buildReplyBody } from '../logic/email';
 import type { Email } from '../types';
 
 const base = (over: Partial<Email>): Email => ({
@@ -49,5 +49,36 @@ describe('email logic', () => {
     const yest = new Date('2026-06-10T09:05:00').getTime();
     expect(relativeTime(today, now)).toBe('9:05 AM');
     expect(relativeTime(yest, now)).toBe('Yesterday');
+  });
+
+  it('escapeHtml escapes the dangerous characters', () => {
+    expect(escapeHtml('<b>Tom & "Jerry"</b>')).toBe('&lt;b&gt;Tom &amp; "Jerry"&lt;/b&gt;');
+  });
+
+  it('htmlToText strips tags, drops style/script, keeps line breaks', () => {
+    const html = '<p>Hello</p><div>World</div>Bye<script>x()</script>';
+    expect(htmlToText(html)).toBe('Hello\nWorld\nBye');
+    expect(htmlToText('<style>p{color:red}</style>Visible')).toBe('Visible');
+    expect(htmlToText('A&nbsp;&amp;&nbsp;B')).toBe('A & B');
+  });
+
+  it('buildReplyBody quotes a plain-text original as text', () => {
+    const original = base({ subject: 'Q3 numbers', body: 'see attached', bodyType: 'text', from: { name: 'Faiz', email: 'faiz@x.com' } });
+    const { body, bodyType } = buildReplyBody({ userText: 'Thanks!', original, mode: 'reply' });
+    expect(bodyType).toBe('text');
+    expect(body).toContain('Thanks!');
+    expect(body).toContain('---------- Original message ----------');
+    expect(body).toContain('From: Faiz <faiz@x.com>');
+    expect(body).toContain('see attached');
+  });
+
+  it('buildReplyBody quotes an HTML original as HTML in a blockquote (no raw tags leaking from user text)', () => {
+    const original = base({ subject: 'Invoice', body: '<p>Please pay</p>', bodyType: 'html', from: { name: 'Acct', email: 'ar@x.com' } });
+    const { body, bodyType } = buildReplyBody({ userText: 'Got it <thanks>', original, mode: 'forward' });
+    expect(bodyType).toBe('html');
+    expect(body).toContain('Got it &lt;thanks&gt;'); // user text escaped
+    expect(body).toContain('<blockquote');
+    expect(body).toContain('<p>Please pay</p>'); // original HTML preserved
+    expect(body).toContain('---------- Forwarded message ----------');
   });
 });

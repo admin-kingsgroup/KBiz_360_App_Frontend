@@ -2,6 +2,53 @@ import type { Email, EmailAddress, EmailFolder } from '../types';
 
 // Pure email helpers — no RN/store imports, fully unit-testable.
 
+// Escape text so it's safe to embed inside an HTML email body.
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Rough HTML → readable plain text. Used when a stored draft body is HTML but we need to edit it in
+// the plain-text composer (so the user sees clean text, not tag soup).
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export interface ReplyParts { body: string; bodyType: 'html' | 'text' }
+
+// Build a reply/forward body that QUOTES the original. When the original is HTML we send HTML (the
+// user's typed text on top, escaped, then the original embedded in a blockquote) so the quote keeps
+// its formatting instead of showing raw tags. Plain originals stay plain text.
+export function buildReplyBody({ userText, original, mode }: { userText: string; original: Email; mode: 'reply' | 'replyAll' | 'forward' }): ReplyParts {
+  const header = mode === 'forward' ? '---------- Forwarded message ----------' : '---------- Original message ----------';
+  const fromLine = `From: ${original.from.name || original.from.email}${original.from.email ? ` <${original.from.email}>` : ''}`;
+  const subjLine = `Subject: ${original.subject}`;
+  const toLine = original.to.length ? `To: ${original.to.map((a) => a.name || a.email).join(', ')}` : '';
+  const metaLines = [header, fromLine, ...(toLine ? [toLine] : []), subjLine];
+
+  if (original.bodyType === 'html') {
+    const meta = metaLines.map(escapeHtml).join('<br>');
+    const top = escapeHtml(userText).replace(/\n/g, '<br>');
+    return {
+      bodyType: 'html',
+      body: `<div>${top}</div><br><div style="color:#666;font-size:13px">${meta}</div><blockquote style="margin:0 0 0 8px;padding-left:10px;border-left:2px solid #ccc">${original.body}</blockquote>`,
+    };
+  }
+  return { bodyType: 'text', body: `${userText}\n\n${metaLines.join('\n')}\n\n${original.body}` };
+}
+
 // Folder contents, newest first.
 export function emailsInFolder(emails: Email[], folder: EmailFolder): Email[] {
   return emails.filter((e) => e.folder === folder).sort((a, b) => b.ts - a.ts);

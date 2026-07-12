@@ -21,9 +21,9 @@ const tkGroups = (codePfx: string) => ([
 
 // Only Travkings (tk) has branches in the current app.
 export const branches: Branch[] = [
-  { id: 'amd', code: 'AMD', city: 'Ahmedabad', country: 'India', flag: '🇮🇳', tz: 'Asia/Kolkata',  lat: 23.0225, lng: 72.5714, radius: 150, wifi: 'TK-AMD-Office', color: '#9A6CF0', groups: tkGroups('amd') },
-  { id: 'bom', code: 'BOM', city: 'Mumbai',    country: 'India', flag: '🇮🇳', tz: 'Asia/Kolkata',  lat: 19.0760, lng: 72.8777, radius: 150, wifi: 'TK-BOM-Office', color: '#37B6A4', groups: tkGroups('bom') },
-  { id: 'nbo', code: 'NBO', city: 'Nairobi',   country: 'Kenya', flag: '🇰🇪', tz: 'Africa/Nairobi', lat: -1.2921, lng: 36.8219, radius: 150, wifi: 'TK-NBO-Office', color: '#E8A13A', groups: tkGroups('nbo') },
+  { id: 'amd', companyId: 'tk', code: 'AMD', city: 'Ahmedabad', country: 'India', flag: '🇮🇳', tz: 'Asia/Kolkata',  lat: 23.0225, lng: 72.5714, radius: 150, wifi: 'TK-AMD-Office', color: '#9A6CF0', groups: tkGroups('amd') },
+  { id: 'bom', companyId: 'tk', code: 'BOM', city: 'Mumbai',    country: 'India', flag: '🇮🇳', tz: 'Asia/Kolkata',  lat: 19.0760, lng: 72.8777, radius: 150, wifi: 'TK-BOM-Office', color: '#37B6A4', groups: tkGroups('bom') },
+  { id: 'nbo', companyId: 'tk', code: 'NBO', city: 'Nairobi',   country: 'Kenya', flag: '🇰🇪', tz: 'Africa/Nairobi', lat: -1.2921, lng: 36.8219, radius: 150, wifi: 'TK-NBO-Office', color: '#E8A13A', groups: tkGroups('nbo') },
 ];
 
 // branchesFor(bizId): only 'tk' has branches (preserves branchesFor helper behavior).

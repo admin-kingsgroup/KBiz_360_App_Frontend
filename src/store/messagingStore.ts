@@ -40,6 +40,7 @@ interface MessagingState {
   loadMessages: (conversationId: string) => Promise<void>;
   openDirect: (otherUserId: string) => Promise<string>;
   setActive: (conversationId: string | null) => void;
+  loadPresence: (userIds: string[]) => Promise<void>;
   send: (conversationId: string, text: string, replyToId?: string) => Promise<void>;
   sendMedia: (conversationId: string, input: { type: ChatMessage['type']; attachments: ChatAttachment[]; text?: string }) => Promise<void>;
   retry: (clientId: string) => Promise<void>;
@@ -85,10 +86,14 @@ export const useMessagingStore = create<MessagingState>()(
       reset: () => set({ conversations: [], messages: {}, outbox: [], typing: {}, presence: {}, activeConversationId: null }),
 
       loadConversations: async () => {
+        if (get().loadingConversations) return; // coalesce the burst (focus + foreground + socket events)
         set({ loadingConversations: true });
         try {
-          const conversations = sortConvs(await chatApi.listConversations());
-          set({ conversations });
+          const fresh = sortConvs(await chatApi.listConversations());
+          // Never let a refetch re-raise the badge for the chat the user is currently viewing
+          // (avoids a race where loadConversations on socket-connect clobbers a just-marked-read 0).
+          const active = get().activeConversationId;
+          set({ conversations: active ? fresh.map((c) => (c.id === active ? { ...c, unread: 0 } : c)) : fresh });
         } catch { /* offline — keep cached */ } finally { set({ loadingConversations: false }); }
       },
 
@@ -111,6 +116,19 @@ export const useMessagingStore = create<MessagingState>()(
 
       setActive: (activeConversationId) => set({ activeConversationId }),
 
+      loadPresence: async (userIds) => {
+        const ids = [...new Set(userIds)].filter(Boolean);
+        if (!ids.length) return;
+        try {
+          const map = await chatApi.getPresence(ids);
+          set((s) => {
+            const presence = { ...s.presence };
+            for (const [id, p] of Object.entries(map)) presence[id] = { status: (p.status as PresenceInfo['status']) ?? 'offline', lastSeen: p.lastSeen ?? null };
+            return { presence };
+          });
+        } catch { /* offline — keep what we have */ }
+      },
+
       // Optimistic + queued: the message shows instantly and is persisted to the outbox; if the
       // send fails (offline), it stays queued and is retried on reconnect (flushOutbox).
       send: async (conversationId, text, replyToId) => {
@@ -128,6 +146,11 @@ export const useMessagingStore = create<MessagingState>()(
         set((s) => ({
           messages: { ...s.messages, [conversationId]: [...(s.messages[conversationId] ?? []), optimistic] },
           outbox: [...s.outbox, { clientId, conversationId, type: 'text', text: body, replyToId, createdAt: Date.now() }],
+          // Optimistically surface the conversation (with a lastMessage) so it appears at the top of
+          // the chat list immediately — even before the server confirms (real-app behaviour).
+          conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId
+            ? { ...c, lastMessage: { messageId: clientId, text: body, type: 'text', senderId: myUserId, at: nowIso }, lastActivityAt: nowIso }
+            : c))),
         }));
         await get()._flush(clientId);
       },
@@ -168,15 +191,21 @@ export const useMessagingStore = create<MessagingState>()(
         const my = get().myUserId;
         const stored: StoredMessage = { ...m, mine: m.senderId === my, starred: false, pending: false, failed: false };
         get()._upsert(m.conversationId, stored);
-        set((s) => {
-          const active = s.activeConversationId;
-          const conversations = s.conversations.map((c) =>
-            c.id === m.conversationId
-              ? { ...c, lastMessage: { messageId: m.id, text: m.text, type: m.type, senderId: m.senderId, at: m.createdAt }, lastActivityAt: m.createdAt, unread: m.senderId === my || active === m.conversationId ? c.unread : c.unread + 1 }
-              : c,
-          );
-          return { conversations: sortConvs(conversations) };
-        });
+        // First message of a brand-new conversation → we don't have it yet. Refetch so it appears
+        // in the list with the right name/metadata (real-app behaviour, not a silent drop).
+        if (!get().conversations.some((c) => c.id === m.conversationId)) {
+          void get().loadConversations();
+        } else {
+          set((s) => {
+            const active = s.activeConversationId;
+            const conversations = s.conversations.map((c) =>
+              c.id === m.conversationId
+                ? { ...c, lastMessage: { messageId: m.id, text: m.text, type: m.type, senderId: m.senderId, at: m.createdAt }, lastActivityAt: m.createdAt, unread: m.senderId === my || active === m.conversationId ? c.unread : c.unread + 1 }
+                : c,
+            );
+            return { conversations: sortConvs(conversations) };
+          });
+        }
         if (get().activeConversationId === m.conversationId && m.senderId !== my) void get().markRead(m.conversationId);
       },
       onDelivered: (p) => set((s) => ({ messages: { ...s.messages, [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => (p.messageIds.includes(m.id) && m.status === 'sent' ? { ...m, status: 'delivered' } : m)) } })),
@@ -211,7 +240,9 @@ export const useMessagingStore = create<MessagingState>()(
         try {
           const saved = await chatApi.sendMessage({ conversationId: item.conversationId, text: item.text, type: item.type, attachments: item.attachments, replyToId: item.replyToId, clientId });
           set((s) => ({ outbox: s.outbox.filter((o) => o.clientId !== clientId) }));
-          get()._upsert(item.conversationId, { ...saved, pending: false, failed: false });
+          // Carry the clientId so _upsert REPLACES the optimistic row (the REST response omits it) —
+          // otherwise the saved message is appended as a duplicate bubble with a clashing key.
+          get()._upsert(item.conversationId, { ...saved, clientId, pending: false, failed: false });
           set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === item.conversationId ? { ...c, lastMessage: { messageId: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt }, lastActivityAt: saved.createdAt } : c))) }));
         } catch {
           // keep queued; mark the optimistic bubble failed so the user can retry
@@ -221,7 +252,10 @@ export const useMessagingStore = create<MessagingState>()(
     }),
     {
       name: 'kb360-messaging',
-      version: 1,
+      // v2: one-time reset of the cached chat list/messages so the server DB wipe (fresh demo) and
+      // the duplicate-message fix start from a clean slate instead of stale persisted data.
+      version: 2,
+      migrate: () => ({ conversations: [], messages: {}, outbox: [] }),
       storage: createJSONStorage(() => asyncStorage),
       // Cache conversations/messages/outbox for offline; transient state (typing/presence/active) is not persisted.
       partialize: (s) => ({ conversations: s.conversations, messages: s.messages, outbox: s.outbox }),

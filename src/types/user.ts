@@ -17,6 +17,10 @@ export interface User {
   accessAlerts: GrantId[];
   attendance?: boolean;
   scopeLine?: string;
+  position?: string | null;    // app-set job title (e.g. "Senior Finance Manager"), distinct from role
+  roleName?: string;           // human label of the ACTUAL CRM role (e.g. "Company Manager")
+  roleId?: string | null;      // CRM role _id (for the user editor)
+  avatar?: string | null;      // profile picture (absolute url), else null → initials
   login?: string;
 }
 

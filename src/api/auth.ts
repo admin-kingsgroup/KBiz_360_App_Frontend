@@ -3,6 +3,9 @@ import { setTokens, getRefreshToken, clearTokens } from './tokens';
 import { useAuthStore } from '../store/authStore';
 import { useAccessStore } from '../store/accessStore';
 import { useMessagingStore } from '../store/messagingStore';
+import { useUiStore } from '../store/uiStore';
+import { saveSession, loadSession, clearSession, updateStoredTokens, updateStoredUser } from '../services/storage/session';
+import { mediaUrl } from './media';
 import { ROLE_DEFS } from '../constants/roles';
 import type { RoleKey, User } from '../types';
 
@@ -18,6 +21,7 @@ export interface BackendUser {
   level?: number;
   branchIds?: string[];
   branches?: string[];
+  avatar?: string | null; // profile picture url (relative or absolute)
 }
 export interface BackendAccess {
   isSuper?: boolean;
@@ -76,6 +80,7 @@ function toFrontendUser(bu: BackendUser, access: BackendAccess): User {
     accessDepts: [],
     accessAlerts: [],
     scopeLine: access.roleName ?? bu.role,
+    avatar: bu.avatar ? mediaUrl(bu.avatar) : null,
   };
 }
 
@@ -86,35 +91,81 @@ export async function login(identifier: string, password: string): Promise<Sessi
   const fe = toFrontendUser(s.user, s.access);
   useAccessStore.getState().setUser(fe);
   useAuthStore.getState().signIn(fe, s.accessToken);
+  useUiStore.getState().showToast(null); // clear any lingering toast (e.g. a prior "Signed out")
   // Realtime chat: identify the current user. The socket is connected from the app layer
   // (app/_layout) reacting to auth status, so this module stays free of socket/runtime deps.
   useMessagingStore.getState().setMyUserId(s.user.id);
+  // Persist so the session survives app restarts (signed in until explicit logout).
+  await saveSession({ access: s.accessToken, refresh: s.refreshToken, user: fe, myUserId: s.user.id });
   return s;
+}
+
+// Restore a persisted session at app launch (no network needed — works offline; the first API call
+// refreshes the access token on 401). Returns true if a session was restored. Drives the gate.
+export async function restoreSession(): Promise<boolean> {
+  const s = await loadSession();
+  if (!s) return false;
+  setTokens(s.access, s.refresh);
+  useAccessStore.getState().setUser(s.user);
+  useAuthStore.getState().signIn(s.user, s.access);
+  useMessagingStore.getState().setMyUserId(s.myUserId);
+  // The persisted user is a snapshot from login time — the avatar (or name/role) may have changed
+  // since. Refresh from /me in the background so the profile picture shows on launch, not only
+  // after the Profile tab happens to reload it. Fire-and-forget: offline launch stays instant.
+  void refreshMe();
+  return true;
 }
 
 export function me(): Promise<{ user: BackendUser; access: BackendAccess }> {
   return apiFetch('/api/auth/me');
 }
 
-// Refresh + retry hook used by the client on 401. Returns false (and signs out) when it can't refresh.
-export async function refresh(): Promise<boolean> {
-  const rt = getRefreshToken();
-  if (!rt) return false;
+// Re-fetch the signed-in user from the server and sync it into the stores + the persisted session.
+// Used after launch-restore and after profile edits (avatar/name) so every surface — and the next
+// app start — shows the current user without needing to visit the Profile tab.
+export async function refreshMe(): Promise<void> {
   try {
-    const t = await apiFetch<{ accessToken: string; refreshToken: string }>('/api/auth/refresh', {
-      method: 'POST',
-      auth: false,
-      body: { refreshToken: rt },
-    });
-    setTokens(t.accessToken, t.refreshToken);
-    return true;
-  } catch {
-    clearTokens();
-    useAuthStore.getState().signOut();
-    return false;
-  }
+    const { user, access } = await me();
+    const fe = toFrontendUser(user, access);
+    useAccessStore.getState().setUser(fe);
+    const auth = useAuthStore.getState();
+    if (auth.status === 'signedIn') auth.signIn(fe, auth.token ?? undefined);
+    await updateStoredUser(fe);
+  } catch { /* offline or expired session — keep the restored snapshot */ }
 }
 
+// Refresh + retry hook used by the client on 401. Returns false (and signs out) when it can't refresh.
+// SINGLE-FLIGHT: refresh tokens rotate (the backend revokes the old one), so two concurrent 401s must
+// share ONE refresh — otherwise the second sends an already-revoked token and forces a spurious logout.
+let refreshInFlight: Promise<boolean> | null = null;
+export function refresh(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const rt = getRefreshToken();
+    if (!rt) return false;
+    try {
+      const t = await apiFetch<{ accessToken: string; refreshToken: string }>('/api/auth/refresh', {
+        method: 'POST',
+        auth: false,
+        body: { refreshToken: rt },
+      });
+      setTokens(t.accessToken, t.refreshToken);
+      void updateStoredTokens(t.accessToken, t.refreshToken); // keep the persisted session current
+      return true;
+    } catch {
+      clearTokens();
+      void clearSession();
+      useAuthStore.getState().signOut();
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+// Full sign-out: revoke server-side, clear persisted session + tokens, and reset ALL per-user stores
+// so nothing leaks into the next session (or re-restores the "logged out" user on next launch).
 export async function logout(): Promise<void> {
   const rt = getRefreshToken();
   if (rt) {
@@ -125,7 +176,15 @@ export async function logout(): Promise<void> {
     }
   }
   clearTokens();
+  await clearSession();
+  // Stop background geofencing (don't punch for a signed-out user). Lazy-required so this core
+  // module's test graph stays free of native (expo-task-manager / expo-constants) dependencies.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  void (require('../services/backgroundAttendance') as typeof import('../services/backgroundAttendance')).stopAttendanceGeofencing();
   useAuthStore.getState().signOut();
+  useAccessStore.getState().setViewAs(null);
+  useAccessStore.getState().setUser(null);
+  useAccessStore.getState().setUsers([]);
   useMessagingStore.getState().reset();
   useMessagingStore.getState().setMyUserId(null);
 }

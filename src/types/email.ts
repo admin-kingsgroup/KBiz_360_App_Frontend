@@ -1,6 +1,6 @@
 // Email domain types. Mock today; a backend that proxies Microsoft Graph becomes the source of
 // truth (see src/api/email.ts). Folder ids map to Graph well-known mail folders.
-export type EmailFolder = 'inbox' | 'sent' | 'drafts' | 'deleted';
+export type EmailFolder = 'inbox' | 'sent' | 'drafts' | 'spam' | 'deleted';
 
 export interface EmailAddress {
   name: string;
@@ -13,6 +13,21 @@ export interface EmailAttachment {
   sizeLabel: string; // human label, e.g. "240 KB"
 }
 
+// Attachment metadata from the backend Graph proxy (GET /messages/:id/attachments).
+export interface AttachmentMeta {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+}
+
+// An attachment to send (file content as base64).
+export interface OutAttachment {
+  name: string;
+  contentType: string;
+  contentBytes: string;
+}
+
 export interface Email {
   id: string;
   folder: EmailFolder;
@@ -21,8 +36,10 @@ export interface Email {
   cc?: EmailAddress[];
   subject: string;
   preview: string; // short snippet for the list row
-  body: string;    // full message text
+  body: string;    // full message text (HTML when bodyType === 'html')
+  bodyType?: 'html' | 'text';
   ts: number;      // received (inbox) or sent time, ms epoch
+  bodyFull?: boolean; // true once the full body has been fetched (list rows only carry a preview)
   read: boolean;
   starred?: boolean;
   hasAttachments?: boolean;
@@ -38,11 +55,23 @@ export interface EmailDraft {
   bcc?: string;
   subject: string;
   body: string;
+  bodyType?: 'html' | 'text'; // 'html' for replies/forwards that quote an HTML original; defaults to text
+  id?: string; // when set: the existing Graph draft being updated/sent (resume-a-draft)
+  attachments?: OutAttachment[];
+}
+
+// A user-created "smart folder": a real Outlook folder + a sender-match rule that auto-files mail.
+export interface SmartFolder {
+  id: string;
+  name: string;
+  graphFolderId: string;
+  from: string[]; // sender match substrings (domain like "travkings.com" or a full address)
 }
 
 export const EMAIL_FOLDERS: { key: EmailFolder; label: string }[] = [
   { key: 'inbox', label: 'Inbox' },
   { key: 'sent', label: 'Sent' },
   { key: 'drafts', label: 'Drafts' },
+  { key: 'spam', label: 'Spam' },
   { key: 'deleted', label: 'Deleted' },
 ];

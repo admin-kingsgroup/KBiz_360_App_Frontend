@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Search, Link2, PhoneCall } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Search, PhoneCall } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { CallListItem } from '../../src/components/call';
 import { colors } from '../../src/theme';
-import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
+import { useCallSessionStore } from '../../src/store/callSessionStore';
 import { callManager } from '../../src/services/rtc/CallManager';
 import { callHistory, type CallLogDTO, type CallMediaType } from '../../src/api/calls';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
@@ -35,7 +35,6 @@ const FILTERS: { key: CallFilter; label: string }[] = [
 
 export default function CallScreen() {
   const router = useRouter();
-  const showToast = useUiStore((s) => s.showToast);
   const myId = useMessagingStore((s) => s.myUserId);
   const presence = useMessagingStore((s) => s.presence);
 
@@ -53,7 +52,12 @@ export default function CallScreen() {
     } catch { /* offline / not signed in — keep current */ }
   }, [myId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Refetch on focus so a call you just finished (or a missed call) shows in RECENT immediately.
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  // Also refetch when an active call clears (call ended) — covers calling from THIS tab, where the
+  // overlay sits on top so focus never changes. The log is written server-side on the call ending.
+  const activeCallId = useCallSessionStore((s) => s.active?.callId ?? null);
+  useEffect(() => { if (!activeCallId) void load(); }, [activeCallId, load]);
   const onRefresh = useCallback(() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }, [load]);
 
   const records = useMemo(() => {
@@ -110,30 +114,20 @@ export default function CallScreen() {
         )}
         contentContainerStyle={{ paddingBottom: 24 }}
         ListHeaderComponent={
-          <View>
-            <Pressable onPress={() => showToast('Call link copied to clipboard')} className="flex-row items-center px-4 py-3" style={{ gap: 12 }}>
-              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.teal, alignItems: 'center', justifyContent: 'center' }}>
-                <Link2 size={20} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '700' }}>Create call link</Text>
-                <Text style={{ color: colors.textMuted, fontSize: 12.5, marginTop: 1 }}>Share a link for your call</Text>
-              </View>
-            </Pressable>
-
+          <View style={{ paddingTop: 4 }}>
             {filter === 'all' && !search && favourites.length ? (
-              <View style={{ paddingTop: 8 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 0.5, paddingHorizontal: 16, marginBottom: 8 }}>FAVOURITES</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 14 }}>
+              <View style={{ paddingTop: 2 }}>
+                <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, paddingHorizontal: 16, marginBottom: 6 }}>FAVOURITES</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 12 }}>
                   {favourites.map((c) => {
                     const online = presence[c.id]?.status === 'online';
                     return (
-                      <Pressable key={c.id} onPress={() => startCall(c.id, c.name, 'voice')} style={{ alignItems: 'center', width: 64 }}>
+                      <Pressable key={c.id} onPress={() => startCall(c.id, c.name, 'voice')} style={{ alignItems: 'center', width: 52 }}>
                         <View>
-                          <Avatar initials={initialsOf(c.name)} color={colorFor(c.id)} size={56} />
-                          {online ? <View style={{ position: 'absolute', right: 1, bottom: 1, width: 13, height: 13, borderRadius: 7, backgroundColor: colors.success, borderWidth: 2, borderColor: colors.canvas }} /> : null}
+                          <Avatar initials={initialsOf(c.name)} color={colorFor(c.id)} size={42} />
+                          {online ? <View style={{ position: 'absolute', right: 0, bottom: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.success, borderWidth: 2, borderColor: colors.canvas }} /> : null}
                         </View>
-                        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 11.5, fontWeight: '600', marginTop: 6 }}>{c.name.split(' ')[0]}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 10.5, fontWeight: '600', marginTop: 5 }}>{c.name.split(' ')[0]}</Text>
                       </Pressable>
                     );
                   })}

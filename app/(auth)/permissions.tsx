@@ -29,12 +29,14 @@ export default function Permissions() {
     if (key === 'notifications') {
       const ok = await requestNotificationPermission();
       setPerm('notifications', ok);
-      savePerms({ ...perms, notifications: ok });
-      if (ok) void registerPushToken(); // register Expo push token for incoming-call pushes
-      return;
+      if (ok) void registerPushToken(); // register Expo push token for message/call/reminder pushes
+    } else {
+      setPerm(key, true);
     }
-    setPerm(key, true);
-    savePerms({ ...perms, [key]: true });
+    // Persist the FULL, up-to-date perms read fresh from the store — NOT the stale render snapshot.
+    // (The old code saved `{...perms, key}`, so allowAll's loop overwrote storage with only the last
+    // key, and the permissions gate kept reappearing on every restart.)
+    void savePerms(useAttendanceStore.getState().perms);
   };
   const allowAll = async () => { for (const p of PERMISSIONS) { if (!perms[p.key]) await grant(p.key); } };
 

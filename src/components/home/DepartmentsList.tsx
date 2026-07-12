@@ -2,20 +2,34 @@ import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { ChevronRight, Clock, Lock, Building2 } from 'lucide-react-native';
 import { colors, shadow } from '../../theme';
-import { businesses, branches, businessDepts } from '../../data/businesses';
+import { businesses as mockBusinesses, branches as mockBranches, businessDepts as mockDepts } from '../../data/businesses';
 import { DEPT_DESCRIPTIONS } from '../../constants/departments';
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { tzTime } from '../../utils/time';
-import type { AccessControl } from '../../types';
+import type { AccessControl, Business, Branch, Department } from '../../types';
 
 interface DItem { _key: string; name: string; icon: string; color: string; desc: string; bizId: string; branchCode?: string; _unread: number; }
 interface Section { id: string; label: string; color: string; ctx: string; time?: string; flag?: string; items: DItem[]; }
 
-// Departments segment — faithful port of source DepartmentsList. Access-filtered (deptOK incl.
-// branch-qualified + bare-name match). tk → per-branch sections; else per-business. View-As-aware.
-export function DepartmentsList({ activeBizId, access, onOpenDept }: { activeBizId: string; access: AccessControl | null; onOpenDept: (d: DItem) => void }) {
-  const { isSuper, bizOK, brOK, deptOK } = makeAccessFilters(access);
-  const branchMode = activeBizId === 'tk';
+// Departments segment. Data comes via props (real CRM directory) and falls back to the mock org data.
+// A business with branches → per-branch sections; otherwise per-business. `serverFiltered` skips the
+// client access filters because the backend already scoped the rows. View-As-aware otherwise.
+export function DepartmentsList({
+  activeBizId, access, onOpenDept,
+  businesses = mockBusinesses, branches = mockBranches, businessDepts = mockDepts, serverFiltered = false,
+}: {
+  activeBizId: string; access: AccessControl | null; onOpenDept: (d: DItem) => void;
+  businesses?: Business[]; branches?: Branch[]; businessDepts?: Record<string, Department[]>; serverFiltered?: boolean;
+}) {
+  const f = makeAccessFilters(access);
+  const isSuper = f.isSuper;
+  const yes = () => true; // permissive filter when the server already scoped the rows
+  const bizOK: typeof f.bizOK = serverFiltered ? yes : f.bizOK;
+  const brOK: typeof f.brOK = serverFiltered ? yes : f.brOK;
+  const deptOK: typeof f.deptOK = serverFiltered ? yes : f.deptOK;
+  const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
+  // Per-branch view when a single business that actually has branches is selected.
+  const branchMode = activeBizId !== 'all' && branchesForBiz(activeBizId).length > 0;
 
   const deptUnread = (deptName: string, branchId: string | null) => {
     let total = 0;
@@ -25,16 +39,16 @@ export function DepartmentsList({ activeBizId, access, onOpenDept }: { activeBiz
 
   let sections: Section[] = [];
   if (branchMode) {
-    const depts = businessDepts['tk'] || [];
-    sections = branches.filter((br) => brOK(br.code)).map((br) => ({
+    const depts = businessDepts[activeBizId] || [];
+    sections = branchesForBiz(activeBizId).filter((br) => brOK(br.code)).map((br) => ({
       id: br.id, label: `${br.code} · ${br.city}`, color: br.color, ctx: br.code, time: tzTime(br.tz), flag: br.flag,
-      items: depts.filter((d) => deptOK(br.code, d.name)).map((d) => ({ _key: `${br.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: 'tk', branchCode: br.code, _unread: deptUnread(d.name, br.id) })),
+      items: depts.filter((d) => deptOK(br.code, d.name)).map((d) => ({ _key: `${br.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: activeBizId, branchCode: br.code, _unread: deptUnread(d.name, br.id) })),
     }));
   } else {
     const bizList = (activeBizId === 'all' ? businesses : businesses.filter((b) => b.id === activeBizId)).filter((b) => bizOK(b.id));
     sections = bizList.map((b) => ({
       id: b.id, label: b.name, color: b.color, ctx: b.code,
-      items: (businessDepts[b.id] || []).filter((d) => deptOK(b.code, d.name)).map((d) => ({ _key: `${b.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: b.id, _unread: b.id === 'tk' ? deptUnread(d.name, null) : 0 })),
+      items: (businessDepts[b.id] || []).filter((d) => deptOK(b.code, d.name)).map((d) => ({ _key: `${b.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: b.id, _unread: branchesForBiz(b.id).length ? deptUnread(d.name, null) : 0 })),
     }));
   }
   const allItems = sections.flatMap((s) => s.items);

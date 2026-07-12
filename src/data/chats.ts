@@ -14,6 +14,7 @@ export interface DirectChatItem {
   unread?: number;
   online?: boolean;
   role?: string;
+  image?: string | null; // profile picture (absolute url) — DM = other user's avatar, group = group image
 }
 
 const now = Date.now();

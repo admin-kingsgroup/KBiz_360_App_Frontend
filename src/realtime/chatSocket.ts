@@ -2,6 +2,7 @@ import { io, type Socket } from 'socket.io-client';
 import { getApiBaseUrl } from '../api/client';
 import { getAccessToken } from '../api/tokens';
 import { useMessagingStore } from '../store/messagingStore';
+import { useReminderBadgeStore } from '../store/reminderBadgeStore';
 import { callManager } from '../services/rtc/CallManager';
 
 // Single Socket.IO client for the whole app. Connects with the JWT, wires chat events into the
@@ -19,7 +20,7 @@ export function connectChatSocket(): void {
   // Audio calling: wire the WebRTC signaling (call:incoming/accept/reject/end/missed + offer/answer/ice).
   callManager.attach(socket);
 
-  socket.on('connect', () => { void store().loadConversations(); void store().flushOutbox(); });
+  socket.on('connect', () => { void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); });
   socket.on('chat:receive', (m) => store().onReceive(m));
   socket.on('chat:delivered', (p) => store().onDelivered(p));
   socket.on('chat:read', (p) => store().onRead(p));
@@ -33,6 +34,16 @@ export function connectChatSocket(): void {
   socket.on('presence:update', (p: { userId: string; status?: string; lastSeen?: number | null }) => store().onPresence(p));
   socket.on('chat:conversationNew', () => void store().loadConversations());
   socket.on('chat:conversationUpdated', () => void store().loadConversations());
+
+  // Reminders: refresh the tab badge when one is assigned to me / sent back for my review.
+  socket.on('reminder:new', () => void useReminderBadgeStore.getState().refresh());
+  socket.on('reminder:update', () => void useReminderBadgeStore.getState().refresh());
+
+  // A super-admin disabled this user's app access → log out immediately.
+  socket.on('auth:revoked', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    void require('../api/auth').logout();
+  });
 }
 
 export function disconnectChatSocket(): void {

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Pressable, View, Text } from 'react-native';
+import { Pressable, View, Text, Image } from 'react-native';
 import { colors, shadow } from '../../theme';
 import type { DirectChatItem } from '../../data/chats';
 
@@ -8,7 +8,9 @@ function ChatListItemBase({ chat, onPress }: { chat: DirectChatItem; onPress: ()
     <Pressable onPress={onPress} className="flex-row items-center gap-2.5 p-2.5"
       style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 20 }, shadow]}>
       <View style={{ width: 38, height: 38, borderRadius: 14, backgroundColor: chat.color, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{chat.initials}</Text>
+        {chat.image
+          ? <Image source={{ uri: chat.image }} style={{ width: 38, height: 38, borderRadius: 14 }} />
+          : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{chat.initials}</Text>}
         {chat.online ? <View style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.teal, borderWidth: 2, borderColor: colors.card }} /> : null}
       </View>
       <View className="flex-1">

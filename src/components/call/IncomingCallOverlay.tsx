@@ -6,6 +6,7 @@ import { Avatar } from '../ui';
 import { colors } from '../../theme';
 import { useCallSessionStore } from '../../store/callSessionStore';
 import { callManager } from '../../services/rtc/CallManager';
+import { isCallKitActive } from '../../services/iosCallKeep';
 
 const PALETTE = [colors.purple, colors.blue, colors.teal, colors.orange, colors.coral, colors.ink];
 const colorFor = (seed: string): string => PALETTE[[...seed].reduce((n, c) => n + c.charCodeAt(0), 0) % PALETTE.length];
@@ -18,6 +19,8 @@ export function IncomingCallOverlay() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   if (!incoming) return null;
+  // On iOS the native CallKit screen is the incoming-call UI — don't draw the in-app overlay on top.
+  if (isCallKitActive()) return null;
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.ink, zIndex: 1000, elevation: 1000 }]}>
