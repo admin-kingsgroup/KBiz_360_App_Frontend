@@ -25,9 +25,12 @@ const relTime = (iso: string): string => {
     ? `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
     : `${d.getDate()}/${d.getMonth() + 1}`;
 };
-function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>) {
+function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>, myUserId: string | null) {
   const last = c.lastMessage;
-  const online = c.type === 'direct' ? (presence[c.otherUserId ?? '']?.status === 'online' || !!c.online) : false;
+  // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
+  // no live entry has arrived at all.
+  const live = c.type === 'direct' ? presence[c.otherUserId ?? ''] : undefined;
+  const online = c.type === 'direct' ? (live ? live.status === 'online' : !!c.online) : false;
   return {
     id: c.id,
     name: c.name,
@@ -39,6 +42,8 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>)
     unread: c.unread,
     online,
     image: c.image ? mediaUrl(c.image) : null,
+    // WhatsApp list ticks — only for MY last message (status may be absent on old cached rows).
+    lastStatus: last && myUserId && last.senderId === myUserId ? last.status ?? null : null,
   };
 }
 
@@ -110,6 +115,7 @@ export default function Home() {
   // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
   const conversations = useMessagingStore((s) => s.conversations);
   const presence = useMessagingStore((s) => s.presence);
+  const myUserId = useMessagingStore((s) => s.myUserId);
   useFocusEffect(useCallback(() => {
     void useMessagingStore.getState().loadConversations().then(() => {
       const ids = useMessagingStore.getState().conversations.filter((c) => c.type === 'direct' && c.otherUserId).map((c) => c.otherUserId as string);
@@ -119,7 +125,7 @@ export default function Home() {
   // Chats segment = direct (1:1) conversations only — groups live exclusively in the Groups segment.
   // Show a direct chat only once it has a message (so tapping a person to "open" a chat without
   // sending anything doesn't leave an empty conversation in the list).
-  const chats = conversations.filter((c) => c.type === 'direct' && !!c.lastMessage).map((c) => convToItem(c, presence));
+  const chats = conversations.filter((c) => c.type === 'direct' && !!c.lastMessage).map((c) => convToItem(c, presence, myUserId));
   // Real group conversations the user belongs to — manual ones (branchId, no deptKey) surface under
   // their branch in the Groups tab so they're reachable now that groups are out of the Chats list.
   const groupConvs = conversations.filter((c) => c.type === 'group').map((c) => ({
@@ -159,16 +165,20 @@ export default function Home() {
         </View>
       ) : null}
 
-      {/* Business pills (access-filtered, View-As-aware) */}
-      <View className="px-4 pt-3 pb-1.5">
-        <View className="flex-row flex-wrap gap-1.5">
-          {!dir.loaded && pills.length === 0
-            ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} w={62} h={30} r={999} />)
-            : pills.map((p) => (
-              <Pill key={p.id} label={p.code} color={p.color} active={activeBizId === p.id} unread={p.unread || 0} onPress={() => setBiz(p.id)} />
-            ))}
+      {/* Business pills (access-filtered, View-As-aware). Hidden on System Alerts — every
+          alert channel is TK, so the ALL/TK/… switcher is noise there (the alerts pane is
+          pinned to the TK branch view below). */}
+      {seg !== 'pulse' ? (
+        <View className="px-4 pt-3 pb-1.5">
+          <View className="flex-row flex-wrap gap-1.5">
+            {!dir.loaded && pills.length === 0
+              ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} w={62} h={30} r={999} />)
+              : pills.map((p) => (
+                <Pill key={p.id} label={p.code} color={p.color} active={activeBizId === p.id} unread={p.unread || 0} onPress={() => setBiz(p.id)} />
+              ))}
+          </View>
         </View>
-      </View>
+      ) : null}
 
       {/* Segment tabs — tap to switch; the underline slides live as you swipe the panes below */}
       <View className="flex-row gap-4 px-4 pt-1" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
@@ -274,7 +284,7 @@ export default function Home() {
             {/* System Alerts */}
             <View style={{ width, height: pagerH }}>
               <ScrollView style={{ flex: 1 }}>
-                <SystemAlertsList activeBizId={activeBizId} access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} onCreate={() => router.push('/alert/new')} />
+                <SystemAlertsList activeBizId="tk" access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} onCreate={() => router.push('/alert/new')} />
               </ScrollView>
             </View>
           </Animated.ScrollView>
