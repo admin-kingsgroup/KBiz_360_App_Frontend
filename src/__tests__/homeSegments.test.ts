@@ -24,10 +24,10 @@ describe('Home segments — access filtering (View-As)', () => {
     expect(depts).toEqual(['AMD-Ticketing']);
   });
 
-  it('System Alerts: Employee(Nurul, BOM-crm) sees no attendance channels', () => {
-    const f = makeAccessFilters(deriveAccess(byId('a8'))); // Nurul: BOM, BOM-crm — no hr grant
+  it('System Alerts: Employee(Nurul, BOM-crm) sees only the CRM - BOM channel', () => {
+    const f = makeAccessFilters(deriveAccess(byId('a8'))); // Nurul: BOM, BOM-crm — no hr/accounts grant
     const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, ch.module));
-    expect(visible).toEqual([]);
+    expect(visible.map((ch) => ch.id)).toEqual(['tk_crm_bom']);
   });
 
   it('Super sees every registered alert channel', () => {
