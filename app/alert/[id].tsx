@@ -2,13 +2,15 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical } from 'lucide-react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { ChevronLeft, MoreVertical, FileText } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { pulseChannels } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
 import { reminderPeople } from '../../src/data/reminders';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { useUiStore } from '../../src/store/uiStore';
+import { mediaUrl } from '../../src/api/media';
 import { timeAgo } from '../../src/utils/time';
 
 // Alert detail — port of source PulseChannelScreen. Opening the channel marks ALL its events read
@@ -36,6 +38,22 @@ export default function AlertDetail() {
     markChannelRead(channel.id);
   }, [channel, events, markChannelRead]);
   const isNew = (e: { id: string; read: boolean }): boolean => !e.read || newOnEntry.current.has(e.id);
+
+  // Open the attachment in an in-app browser sheet. Linking.openURL never rejects for
+  // http(s) (a browser always handles it), so a HEAD preflight is what makes the
+  // failure toast truthful when the file is gone or the bucket denies access.
+  const openAttachment = async (e: { id: string; read: boolean; attachment?: { url: string } }): Promise<void> => {
+    if (!e.attachment) return;
+    if (!e.read) markEventRead(e.id);
+    const url = mediaUrl(e.attachment.url);
+    try {
+      const head = await fetch(url, { method: 'HEAD' }).catch(() => null);
+      if (!head?.ok) { showToast('Could not open PDF'); return; }
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      showToast('Could not open PDF');
+    }
+  };
 
   if (!channel) {
     return (
@@ -92,6 +110,16 @@ export default function AlertDetail() {
             <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '800', marginTop: 2 }}>{e.title}</Text>
             {e.body ? <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{e.body}</Text> : null}
             {e.context ? <View style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: '#F4F2EC' }}><Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: '700' }}>{e.context}</Text></View> : null}
+            {e.attachment ? (
+              <Pressable
+                onPress={() => { void openAttachment(e); }}
+                className="flex-row items-center gap-1.5"
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: colors.ink }}
+              >
+                <FileText size={12} color="#fff" />
+                <Text numberOfLines={1} style={{ color: '#fff', fontSize: 10.5, fontWeight: '800', maxWidth: 220 }}>{e.attachment.name}</Text>
+              </Pressable>
+            ) : null}
             {e.actions && e.actions.length > 0 ? (
               <View className="flex-row gap-1.5 mt-2" style={{ flexWrap: 'wrap' }}>
                 {e.actions.map((a, i) => (

@@ -9,6 +9,7 @@ export interface PulseChannel {
 export interface PulseEvent {
   id: string; channelId: string; source: string; title: string; body: string;
   context: string; time: number; read: boolean; actions?: { label: string; primary?: boolean }[];
+  attachment?: { name: string; url: string }; // e.g. the ERP's invoice PDF; url may be server-relative
 }
 
 // Real, backend-fed attendance channels — one per tracked Travkings branch. Ids and grants

@@ -11,6 +11,7 @@ export interface AlertEventDto {
   context: string;
   time: number; // epoch ms
   read: boolean; // per-user read flag
+  attachment?: { name: string; url: string }; // e.g. an invoice PDF (url may be server-relative)
 }
 
 export const listAlerts = (): Promise<{ events: AlertEventDto[] }> => apiFetch('/api/alerts');

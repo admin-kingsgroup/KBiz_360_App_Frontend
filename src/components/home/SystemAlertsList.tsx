@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { Bell, Plus } from 'lucide-react-native';
+import { Bell, Paperclip, Plus } from 'lucide-react-native';
 import { colors, shadow } from '../../theme';
 import { businesses, branches } from '../../data/businesses';
 import { announcementsChannel, pulseChannels, moduleRank, branchOf, type PulseChannel, type PulseEvent } from '../../data/pulse';
@@ -57,6 +57,7 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
     bizList.forEach((b) => {
       visible.filter((ch) => ch.bizId === b.id).sort((x, y) => moduleRank(x.module) - moduleRank(y.module)).forEach((ch) => {
         const st = stats[ch.id];
+        if (!ch.branch && !st?.last) return; // company-wide channels (announcements) hide while empty — same rule as branch mode
         cards.push({ key: `${b.id}-${ch.id}`, ch, last: st?.last || null, unread: st?.unread || 0, ctx: b.code, secId: b.id });
       });
     });
@@ -93,6 +94,7 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
         </View>
         {c.last ? (
           <View className="flex-row justify-between items-center gap-2 mt-0.5">
+            {c.last.attachment ? <Paperclip size={11} color={colors.warmMute} /> : null}
             <Text numberOfLines={1} style={{ flex: 1, color: colors.warmMute, fontSize: 11 }}>{c.last.title}</Text>
             {c.unread > 0 ? <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '800' }}>{c.unread}</Text></View> : null}
           </View>
