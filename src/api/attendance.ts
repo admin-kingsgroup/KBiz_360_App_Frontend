@@ -67,8 +67,15 @@ export interface AdminBranchOffices {
 export const checkIn = (body: PunchBody): Promise<MyAttendance> => apiFetch('/api/attendance/check-in', { method: 'POST', body });
 export const checkOut = (body: PunchBody): Promise<MyAttendance> => apiFetch('/api/attendance/check-out', { method: 'POST', body });
 export const getMyAttendance = (): Promise<MyAttendance> => apiFetch('/api/attendance/me');
-export const getTeamAttendance = (): Promise<TeamAttendanceEntry[]> => apiFetch('/api/attendance/team');
+// date 'YYYY-MM-DD' (business-tz) browses a past day; omit for today.
+export const getTeamAttendance = (date?: string): Promise<TeamAttendanceEntry[]> => apiFetch(`/api/attendance/team${date ? `?date=${date}` : ''}`);
 export const getAttendanceHistory = (days = 30): Promise<AttendanceHistoryEntry[]> => apiFetch(`/api/attendance/history?days=${days}`);
+// Manager-only: a teammate's recent attendance (per-user history in the admin team view).
+export const getUserAttendanceHistory = (userId: string, days = 30): Promise<AttendanceHistoryEntry[]> => apiFetch(`/api/attendance/history/user/${userId}?days=${days}`);
+// Manager-only: correct one day — mark present (default 10:00–19:00 business time) or absent.
+// Stored as method 'Manual' with an audit stamp of the admin who changed it.
+export const adminSetAttendanceDay = (body: { userId: string; date: string; present: boolean; inTime?: string; outTime?: string }): Promise<MyAttendance> =>
+  apiFetch('/api/attendance/admin/day', { method: 'POST', body });
 
 // Office geofences the caller may punch at (drives the office picker + geofence presence).
 export const getOffices = (): Promise<AttendanceOffice[]> => apiFetch('/api/attendance/offices');

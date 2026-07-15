@@ -17,6 +17,7 @@ export interface ReminderRecord extends Reminder {
   byColor?: string;
   when?: string;
   overdue?: boolean;
+  dueAt?: string; // ISO due timestamp (real backend reminders)
   completedAt?: number;
   approvedAt?: number;
 }

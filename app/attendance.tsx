@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { ChevronLeft, Clock, Check, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPinOff, MapPin, Building2, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Check, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPinOff, MapPin, Building2, X } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { colors, shadow, shadowSm } from '../src/theme';
@@ -13,7 +13,7 @@ import { useAccessStore } from '../src/store/accessStore';
 import { useUiStore } from '../src/store/uiStore';
 import { canFacePunch, nextAwaySince, awayLongEnough } from '../src/logic/attendance';
 import { saveConsent } from '../src/services/storage';
-import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
+import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { getCurrentSsid } from '../src/services/wifi';
 import { ssidMatches } from '../src/logic/wifi';
 import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
@@ -21,6 +21,9 @@ import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
 
 const fmt = (d: Date | null) => (d ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null);
+// Device-local 'YYYY-MM-DD' key (matches the backend business day for on-site devices).
+const keyOf = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayKey = (): string => keyOf(new Date());
 // 'YYYY-MM-DD' → "Today" / "Yesterday" / "Mon 26 May" for the history list.
 const dateLabel = (key: string): string => {
   const d = new Date(key + 'T00:00:00');
@@ -43,12 +46,15 @@ export default function Attendance() {
   const [clock, setClock] = useState(new Date());
   const [scanning, setScanning] = useState(false);
   const [team, setTeam] = useState<TeamAttendanceEntry[]>([]);
+  const [teamDate, setTeamDate] = useState(todayKey()); // day shown on the admin team tab
   const [history, setHistory] = useState<AttendanceHistoryEntry[]>([]);
+  const [userHistory, setUserHistory] = useState<AttendanceHistoryEntry[] | null>(null); // selected teammate's recent days (admin modal)
   const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
   const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
   const [exempt, setExempt] = useState(false); // this account is exempt from attendance
   const [ssid, setSsid] = useState<string | null>(null); // Wi-Fi network the device is on (null when unreadable)
   const awaySinceRef = useRef<number | null>(null); // confirmed-outside timer for the auto check-out grace
+  const autoBlockedUntilRef = useRef(0); // back-off after the server rejects an auto punch (no retry storm)
 
   const role = useAccessStore((s) => s.user?.role);
   const isSuper = role === 'SUPER_ADMIN';
@@ -82,15 +88,36 @@ export default function Attendance() {
       .then((m) => { setExempt(!!m.exempt); useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null }); })
       .catch(() => undefined);
     getAttendanceHistory().then(setHistory).catch(() => undefined);
-    getTeamAttendance().then(setTeam).catch(() => undefined);
     if (isSuper) getAdminOffices().then(setAdminOffices).catch(() => undefined); // offices for the reassign picker
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Team view follows the selected day (today by default; admin can browse past days).
+  const loadTeam = (): Promise<void> =>
+    getTeamAttendance(teamDate === todayKey() ? undefined : teamDate).then(setTeam).catch(() => undefined);
+  useEffect(() => { void loadTeam(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamDate]);
+  const shiftTeamDay = (n: number): void => {
+    setTeamDate((cur) => {
+      const d = new Date(cur + 'T00:00:00');
+      d.setDate(d.getDate() + n);
+      const next = keyOf(d);
+      return next > todayKey() ? cur : next;
+    });
+  };
+
+  // Selected teammate's recent attendance for the admin modal (null = loading).
+  useEffect(() => {
+    if (!reassign || !isSuper) { setUserHistory(null); return; }
+    setUserHistory(null);
+    getUserAttendanceHistory(reassign.id, 14).then(setUserHistory).catch(() => setUserHistory([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reassign?.id]);
+
   // Super-admin: move a teammate to a different office (or back to the branch default).
   const reassignTo = (userId: string, officeId: string | null): void => {
     assignUserOffice(userId, officeId)
-      .then(() => { showToast('Office updated'); setReassign(null); getTeamAttendance().then(setTeam).catch(() => undefined); })
+      .then(() => { showToast('Office updated'); setReassign(null); void loadTeam(); })
       .catch(() => showToast('Could not update office'));
   };
   // Super-admin: set a teammate's WORKING branch (where they mark attendance). Keeps the modal open,
@@ -99,7 +126,7 @@ export default function Attendance() {
     assignUserWorkBranch(userId, branchId)
       .then(() => {
         showToast('Working branch updated');
-        return getTeamAttendance().then((list) => {
+        return getTeamAttendance(teamDate === todayKey() ? undefined : teamDate).then((list) => {
           setTeam(list);
           setReassign((cur) => (cur ? list.find((t) => t.id === cur.id) ?? null : null));
         });
@@ -108,7 +135,23 @@ export default function Attendance() {
   };
   const reassignBranchOffices = reassign ? (adminOffices.find((b) => b.branchId === reassign.branchId)?.offices ?? []) : [];
 
-  // Persist a punch to the backend and adopt the server's record. `silent` = auto (no toast/error).
+  // Super-admin: correct one day for the selected teammate (present 10:00–19:00 / absent).
+  // Stored server-side as 'Manual' with the admin's id, so corrections stay distinguishable.
+  const setMemberDay = (date: string, present: boolean): void => {
+    if (!reassign) return;
+    adminSetAttendanceDay({ userId: reassign.id, date, present })
+      .then(() => {
+        showToast(present ? 'Marked present (Manual)' : 'Marked absent');
+        getUserAttendanceHistory(reassign.id, 14).then(setUserHistory).catch(() => undefined);
+        if (date === teamDate) void loadTeam(); // the day being shown on the team tab changed
+      })
+      .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not update the day'));
+  };
+
+  // Persist a punch to the backend and adopt the server's record. `silent` = auto (no success
+  // toast). Failures are NEVER silent: the server is the record of truth, so on rejection we
+  // re-adopt its state (the optimistic local punch would otherwise show "checked in" all day
+  // while the server has nothing — the person then reads as absent tomorrow) and tell the user.
   const apiPunch = async (kind: 'in' | 'out', method: 'auto' | 'face', silent = false): Promise<void> => {
     try {
       const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid };
@@ -117,7 +160,12 @@ export default function Attendance() {
       getAttendanceHistory().then(setHistory).catch(() => undefined);
       if (!silent) showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
     } catch (e) {
-      if (!silent) showToast(e instanceof ApiError ? e.message : 'Could not record punch');
+      if (silent) autoBlockedUntilRef.current = Date.now() + 60_000; // don't re-fire auto punch for a minute
+      try {
+        const m = await getMyAttendance(); // revert the optimistic local state to the server's truth
+        useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
+      } catch { /* offline — keep local state; next open reconciles via getMyAttendance */ }
+      showToast(`${kind === 'in' ? 'Check-in' : 'Check-out'} NOT recorded — ${e instanceof ApiError ? e.message : 'network error'}`);
     }
   };
 
@@ -132,6 +180,7 @@ export default function Attendance() {
     const p = refreshPresence({ wifiOn, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
     awaySinceRef.current = nextAwaySince(p, awaySinceRef.current, Date.now());
     if (!p.present && !awayLongEnough(awaySinceRef.current, Date.now())) return; // unknown / not away long enough
+    if (Date.now() < autoBlockedUntilRef.current) return; // recent server rejection — wait before retrying
     const fired = runAutoPunch();
     if (fired) {
       const a = useAttendanceStore.getState().att;
@@ -230,12 +279,25 @@ export default function Attendance() {
 
         {isSuper && tab === 'team' ? (
           <>
+            {/* Day navigator — browse any past day's team attendance. */}
+            <View className="flex-row items-center justify-between mb-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 14, paddingHorizontal: 4, paddingVertical: 4, ...shadowSm }}>
+              <Pressable onPress={() => shiftTeamDay(-1)} hitSlop={8} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+                <ChevronLeft size={18} color={colors.ink} />
+              </Pressable>
+              <Pressable onPress={() => setTeamDate(todayKey())} disabled={teamDate === todayKey()} className="items-center">
+                <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>{dateLabel(teamDate)}</Text>
+                {teamDate !== todayKey() ? <Text style={{ color: colors.teal, fontSize: 9.5, fontWeight: '700' }}>tap for today</Text> : null}
+              </Pressable>
+              <Pressable onPress={() => shiftTeamDay(1)} disabled={teamDate === todayKey()} hitSlop={8} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', opacity: teamDate === todayKey() ? 0.25 : 1 }}>
+                <ChevronRight size={18} color={colors.ink} />
+              </Pressable>
+            </View>
             <View className="flex-row gap-2 mb-3">
               <Stat3 n={presentCount} label="Present" color={colors.success} bg={colors.success + '12'} border={colors.success + '33'} />
               <Stat3 n={absentCount} label="Absent" color={colors.coral} bg={colors.coral + '12'} border={colors.coral + '33'} />
               <Stat3 n={team.length} label="Total" color={colors.ink} bg={colors.card} border={colors.cardEdge} />
             </View>
-            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6, paddingHorizontal: 4 }}>TODAY · TEAM</Text>
+            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6, paddingHorizontal: 4 }}>{dateLabel(teamDate).toUpperCase()} · TEAM</Text>
             <View style={{ gap: 6 }}>
               {team.map((t) => {
                 const absent = !t.in;
@@ -391,6 +453,36 @@ export default function Attendance() {
               {reassign?.name} · {reassign?.branch}
             </Text>
             <ScrollView style={{ flexGrow: 0 }}>
+            {/* This person's recent days — present/absent at a glance for the admin. */}
+            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6 }}>RECENT ATTENDANCE · 14 DAYS</Text>
+            <View style={{ gap: 4, marginBottom: 14 }}>
+              {userHistory === null ? (
+                <Text style={{ color: colors.textMuted2, fontSize: 12, paddingVertical: 4 }}>Loading…</Text>
+              ) : userHistory.length === 0 ? (
+                <Text style={{ color: colors.textMuted2, fontSize: 12, paddingVertical: 4 }}>No attendance records yet.</Text>
+              ) : (
+                userHistory.map((e) => (
+                  <View key={e.date} className="flex-row items-center justify-between gap-2" style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: 10, backgroundColor: colors.canvas, borderWidth: 1, borderColor: e.inTime ? colors.cardEdge : colors.coral + '40' }}>
+                    <View className="flex-1">
+                      <Text style={{ color: colors.ink, fontSize: 11.5, fontWeight: '700' }}>{dateLabel(e.date)}</Text>
+                      {e.inTime
+                        ? <Text style={{ color: colors.warmMute, fontSize: 10.5 }}>In {fmt(new Date(e.inTime))} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>
+                        : <Text style={{ color: colors.coral, fontSize: 10.5, fontWeight: '800' }}>Absent</Text>}
+                    </View>
+                    {/* Corrections: fix a missed punch; only Manual days can be reverted to absent. */}
+                    {!e.inTime ? (
+                      <Pressable onPress={() => setMemberDay(e.date, true)} hitSlop={6} style={{ paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.success + '1A', borderWidth: 1, borderColor: colors.success + '55' }}>
+                        <Text style={{ color: colors.success, fontSize: 9.5, fontWeight: '800' }}>MARK PRESENT</Text>
+                      </Pressable>
+                    ) : e.via === 'Manual' ? (
+                      <Pressable onPress={() => setMemberDay(e.date, false)} hitSlop={6} style={{ paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.coral + '12', borderWidth: 1, borderColor: colors.coral + '44' }}>
+                        <Text style={{ color: colors.coral, fontSize: 9.5, fontWeight: '800' }}>MARK ABSENT</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </View>
             {/* Where this person marks attendance. Picking a branch scopes the office list below. */}
             <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6 }}>WORKING BRANCH</Text>
             <View style={{ gap: 6, marginBottom: 14 }}>

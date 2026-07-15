@@ -12,6 +12,7 @@ export * as chatsApi from './chats';
 export * as emailApi from './email';
 export * as callsApi from './calls';
 export * as adminApi from './admin';
+export * as alertsApi from './alerts';
 export * as notificationsApi from './notifications';
 export * as uploadsApi from './uploads';
 

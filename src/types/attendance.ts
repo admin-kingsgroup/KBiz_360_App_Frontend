@@ -1,4 +1,4 @@
-export type PunchMethod = 'Wi-Fi' | 'Geofence' | 'Face' | 'Auto';
+export type PunchMethod = 'Wi-Fi' | 'Geofence' | 'Face' | 'Auto' | 'Manual'; // Manual = admin correction
 
 export interface AttendanceRecord {
   inTime: Date | null;

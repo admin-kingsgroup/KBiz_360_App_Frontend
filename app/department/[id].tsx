@@ -110,11 +110,14 @@ export default function DepartmentDetail() {
                   ) : <ChevronRight size={16} color={colors.textMuted2} />}
                 </Pressable>
               ))}
-              <Pressable onPress={() => newGroup(s.branchId, s.deptId)} className="flex-row items-center justify-center gap-1.5"
-                style={{ paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: colors.ink, borderStyle: 'dashed' }}>
-                <Plus size={14} color={colors.ink} />
-                <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '800' }}>New group in {deptName} · {s.branchLabel}</Text>
-              </Pressable>
+              {/* Group creation is Super-Admin only — everyone else never sees the entry point. */}
+              {isSuper ? (
+                <Pressable onPress={() => newGroup(s.branchId, s.deptId)} className="flex-row items-center justify-center gap-1.5"
+                  style={{ paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: colors.ink, borderStyle: 'dashed' }}>
+                  <Plus size={14} color={colors.ink} />
+                  <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '800' }}>New group in {deptName} · {s.branchLabel}</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         ))}

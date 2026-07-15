@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshC
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, CheckCheck, Trash2, FolderPlus, X, ChevronDown, Check } from 'lucide-react-native';
+import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Trash2, FolderPlus, X, ChevronDown, Check } from 'lucide-react-native';
 import { EmailListItem } from '../../src/components/email';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
@@ -30,7 +30,6 @@ export default function EmailScreen() {
   const markRead = useEmailStore((s) => s.markRead);
   const moveToFolder = useEmailStore((s) => s.moveToFolder);
   const deleteForever = useEmailStore((s) => s.deleteForever);
-  const markAllRead = useEmailStore((s) => s.markAllRead);
   const smartFolders = useEmailStore((s) => s.smartFolders);
   const showToast = useUiStore((s) => s.showToast);
   const ms = useMicrosoftEmail();
@@ -152,10 +151,6 @@ export default function EmailScreen() {
           </Pressable>
         </View>
         <View className="flex-row items-center" style={{ gap: 8 }}>
-          <Pressable onPress={() => { void markAllRead(); showToast('Marked all as read'); }}
-            style={{ width: 38, height: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-            <CheckCheck size={17} color={colors.ink} />
-          </Pressable>
           <Pressable onPress={() => router.push('/email/compose')} className="flex-row items-center" style={{ gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.ink }}>
             <PenSquare size={15} color="#fff" />
             <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>Compose</Text>

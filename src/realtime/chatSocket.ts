@@ -3,6 +3,7 @@ import { getApiBaseUrl } from '../api/client';
 import { getAccessToken } from '../api/tokens';
 import { useMessagingStore } from '../store/messagingStore';
 import { useReminderBadgeStore } from '../store/reminderBadgeStore';
+import { usePulseStore } from '../store/pulseStore';
 import { callManager } from '../services/rtc/CallManager';
 
 // Single Socket.IO client for the whole app. Connects with the JWT, wires chat events into the
@@ -20,7 +21,7 @@ export function connectChatSocket(): void {
   // Audio calling: wire the WebRTC signaling (call:incoming/accept/reject/end/missed + offer/answer/ice).
   callManager.attach(socket);
 
-  socket.on('connect', () => { void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); });
+  socket.on('connect', () => { void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void usePulseStore.getState().refresh(); });
   socket.on('chat:receive', (m) => store().onReceive(m));
   socket.on('chat:delivered', (p) => store().onDelivered(p));
   socket.on('chat:read', (p) => store().onRead(p));
@@ -38,6 +39,15 @@ export function connectChatSocket(): void {
   // Reminders: refresh the tab badge when one is assigned to me / sent back for my review.
   socket.on('reminder:new', () => void useReminderBadgeStore.getState().refresh());
   socket.on('reminder:update', () => void useReminderBadgeStore.getState().refresh());
+
+  // System alerts: the broadcast carries only a channelId — refetch the access-filtered feed.
+  socket.on('alert:new', () => void usePulseStore.getState().refresh());
+  // A super-admin changed which alert channels I can see → re-derive access + refetch the feed.
+  socket.on('alert:visibility', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    void (require('../api/auth') as typeof import('../api/auth')).refreshMe();
+    void usePulseStore.getState().refresh();
+  });
 
   // A super-admin disabled this user's app access → log out immediately.
   socket.on('auth:revoked', () => {

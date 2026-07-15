@@ -42,8 +42,10 @@ export default function UserForm() {
     if (editUser) {
       setName(editUser.name);
       setEmail(editUser.email || '');
+      setPhone(editUser.phone ?? '');
       setRoleId(editUser.roleId ?? null);
       setBranchIds(editUser.branches || []);
+      setActive(editUser.status !== 'inactive');
     }
   }, [editUser]);
 

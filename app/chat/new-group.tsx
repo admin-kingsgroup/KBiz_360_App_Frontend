@@ -19,6 +19,16 @@ export default function NewGroup() {
   const showToast = useUiStore((s) => s.showToast);
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
   const users = useAccessStore((s) => s.users);
+  // Group creation is Super-Admin only. The entry points are hidden for everyone else, but the
+  // route is still reachable (deep link, stale UI) — bounce non-supers back.
+  const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
+  useEffect(() => {
+    if (!isSuper) {
+      showToast('Only Super Admin can create groups');
+      if (router.canGoBack()) router.back(); else router.replace('/(tabs)');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuper]);
   // Optional prefill when opened from a department ("+ New group in this department").
   const prefill = useLocalSearchParams<{ companyId?: string; branchId?: string; departmentId?: string; deptName?: string }>();
   const [name, setName] = useState('');

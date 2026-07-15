@@ -89,6 +89,17 @@ export const changeMyPassword = (currentPassword: string, newPassword: string): 
 export const setRolePermissions = (roleId: string, permissions: string[]): Promise<DirectoryRole> =>
   apiFetch(`/api/roles/${roleId}/permissions`, { method: 'PUT', body: { permissions } });
 
+// Super-admin: KBiz360 · BOM membership (profile → "KBiz360 Members"). The GET also ensures the
+// KBiz360 business has its single BOM branch, creating it on first call.
+export interface KbizMembership {
+  company: DirectoryCompany;
+  branch: DirectoryBranch;
+  users: (DirectoryUser & { member: boolean })[];
+}
+export const getKbizMembership = (): Promise<KbizMembership> => apiFetch('/api/kbiz/membership');
+export const setKbizMembership = (userId: string, member: boolean): Promise<{ id: string; member: boolean }> =>
+  apiFetch(`/api/kbiz/membership/${userId}`, { method: 'PUT', body: { member } });
+
 // ── mapping CRM directory → the frontend display shapes ──
 const ROLE_MAP: Record<string, RoleKey> = {
   super_admin: 'SUPER_ADMIN',
@@ -146,6 +157,8 @@ export function toUser(du: DirectoryUser): User {
     accessDepts: [],
     accessAlerts: [],
     scopeLine,
+    phone: du.phone ?? null,
+    status: du.status ?? null,
     position: du.position ?? null,
     roleName: humanizeRole(du.role), // actual CRM role label, e.g. "Company Manager"
     roleId: du.roleId ?? null,

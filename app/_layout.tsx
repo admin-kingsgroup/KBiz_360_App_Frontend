@@ -95,6 +95,7 @@ function GateController() {
       <Stack.Screen name="business/[id]" />
       <Stack.Screen name="department/[id]" />
       <Stack.Screen name="alert/[id]" />
+      <Stack.Screen name="alert/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="reminder/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="reminder/archive" />
       <Stack.Screen name="email/[id]" options={{ presentation: 'card' }} />

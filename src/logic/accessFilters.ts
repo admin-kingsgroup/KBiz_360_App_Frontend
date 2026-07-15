@@ -16,5 +16,9 @@ export function makeAccessFilters(access: AccessControl | null | undefined) {
       isSuper || (a.depts || []).includes(`${code}-${name}`) || (a.depts || []).includes(name),
     alertOK: (code: string | null, mod: string): boolean =>
       isSuper || (!!code && (a.alerts || []).includes(`${code}-${mod}`)) || (a.alerts || []).includes(mod),
+    // Branch sections in the System Alerts pane: a branch shows if the user holds the branch itself
+    // OR any alert grant scoped to it (e.g. "BOM-hr" alone must surface the BOM section).
+    alertBrOK: (code: string): boolean =>
+      isSuper || (a.branches || []).includes(code) || (a.alerts || []).some((g) => g.startsWith(`${code}-`)),
   };
 }

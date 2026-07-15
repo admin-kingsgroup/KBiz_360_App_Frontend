@@ -12,8 +12,9 @@ import { authApi, adminApi } from '../../src/api';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import type { User } from '../../src/types/user';
 
-// Users tab — faithful port of source UsersTab. Reads canonical accessStore.users.
-// Tap a user to edit; "other staff" aggregate rows just toast (source behavior preserved).
+// Users tab — reads canonical accessStore.users. Tapping a row opens a 1:1 chat; super-admins get
+// per-row actions: pencil = full editor (role/branches/password/status), briefcase = position,
+// switch = app access. "Other staff" aggregate rows just toast (source behavior preserved).
 export default function Users() {
   const router = useRouter();
   const users = useAccessStore((s) => s.users);
@@ -129,9 +130,12 @@ export default function Users() {
                     ? <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 10.5, marginTop: 2, fontWeight: '600' }}>{u.position}</Text>
                     : (u.roleName || u.scopeLine) ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5, marginTop: 2 }}>{u.roleName || u.scopeLine}</Text> : null}
                 </View>
-                {/* Super-admin: edit this user's position (for everyone, including self). */}
+                {/* Super-admin: full editor (role, branches, password, status) + position (job title). */}
                 {isSuper ? (
-                  <View onStartShouldSetResponder={() => true}>
+                  <View onStartShouldSetResponder={() => true} className="flex-row items-center">
+                    <Pressable onPress={() => router.push({ pathname: '/admin/user-form', params: { id: u.id } })} hitSlop={8} style={{ padding: 5 }}>
+                      <Edit3 size={15} color={colors.ink} />
+                    </Pressable>
                     <Pressable onPress={() => openPosition(u)} hitSlop={8} style={{ padding: 5 }}>
                       <BriefcaseBusiness size={15} color={colors.teal} />
                     </Pressable>
@@ -155,11 +159,14 @@ export default function Users() {
           })}
         </View>
 
-        <Pressable onPress={() => router.push('/admin/user-form')} className="flex-row items-center justify-center gap-1.5 mt-3"
-          style={{ paddingVertical: 13, borderRadius: 13, backgroundColor: colors.ink }}>
-          <Plus size={15} color="#fff" />
-          <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>Invite user · pick role & access</Text>
-        </Pressable>
+        {/* Creating users is super-admin only (the API enforces it) — hide the button from others. */}
+        {isSuper ? (
+          <Pressable onPress={() => router.push('/admin/user-form')} className="flex-row items-center justify-center gap-1.5 mt-3"
+            style={{ paddingVertical: 13, borderRadius: 13, backgroundColor: colors.ink }}>
+            <Plus size={15} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>Invite user · pick role & access</Text>
+          </Pressable>
+        ) : null}
         <Pressable onPress={signOut} className="flex-row items-center justify-center gap-2 mt-3"
           style={{ paddingVertical: 13, borderRadius: 13, borderWidth: 1, borderColor: colors.coral + '40' }}>
           <LogOut size={14} color={colors.danger} />

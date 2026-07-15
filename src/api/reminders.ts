@@ -23,7 +23,7 @@ export function listReminders(tab: ReminderTab = 'forme', viewAs?: RoleKey): Pro
   return apiFetch(`/api/reminders?${q}`);
 }
 
-export const createReminder = (body: { text: string; forId: string; when?: string; section?: string }): Promise<ReminderRecord> =>
+export const createReminder = (body: { text: string; forId: string; when?: string; section?: string; dueAt?: string }): Promise<ReminderRecord> =>
   apiFetch('/api/reminders', { method: 'POST', body });
 
 export const completeReminder = (id: string): Promise<PatchResult> =>

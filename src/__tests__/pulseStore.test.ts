@@ -1,8 +1,14 @@
 import { usePulseStore } from '../store/pulseStore';
-import { pulseEvents } from '../data/pulse';
+import type { PulseEvent } from '../data/pulse';
+
+const fixtures: PulseEvent[] = [
+  { id: 'pe1', channelId: 'tk_crm', source: 'Test', title: 'Event A', body: '', context: 'TK AMD', time: 3000, read: false },
+  { id: 'pe2', channelId: 'tk_crm', source: 'Test', title: 'Event B', body: '', context: 'TK AMD', time: 1000, read: false },
+  { id: 'pe3', channelId: 'tk_hr', source: 'Test', title: 'Event C', body: '', context: 'TK BOM', time: 2000, read: false },
+];
 
 describe('pulseStore — alert read-state', () => {
-  beforeEach(() => usePulseStore.getState().setEvents(pulseEvents.map((e) => ({ ...e }))));
+  beforeEach(() => usePulseStore.getState().setEvents(fixtures.map((e) => ({ ...e }))));
 
   it('eventsFor returns a channel\'s events newest-first', () => {
     const evs = usePulseStore.getState().eventsFor('tk_crm');

@@ -31,6 +31,7 @@ export interface BackendAccess {
   companyWide?: boolean;
   branchIds?: string[] | null;
   permissions?: string[];
+  alerts?: string[]; // system-alert channel grants ("BOM-hr"…), super-admin managed
   [k: string]: unknown;
 }
 export interface Session {
@@ -78,7 +79,7 @@ function toFrontendUser(bu: BackendUser, access: BackendAccess): User {
     branches: bu.branchIds ?? bu.branches ?? [],
     accessGroups: [],
     accessDepts: [],
-    accessAlerts: [],
+    accessAlerts: access.alerts ?? [], // → deriveAccess → alertOK gates the System Alerts channels
     scopeLine: access.roleName ?? bu.role,
     avatar: bu.avatar ? mediaUrl(bu.avatar) : null,
   };

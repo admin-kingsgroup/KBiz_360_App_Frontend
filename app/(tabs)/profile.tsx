@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Modal, TextInput, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera } from 'lucide-react-native';
+import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, FolderKanban } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -160,7 +160,11 @@ export default function Profile() {
             { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, onPress: () => router.push('/admin/businesses') },
             { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, onPress: () => router.push('/admin/users') },
             { key: 'roles', label: 'Roles & Permissions', sub: loaded ? `${counts.roles}-tier access hierarchy` : 'Access hierarchy', Icon: Shield, onPress: () => router.push('/admin/roles') },
-            ...(isSuper ? [{ key: 'chat-analytics', label: 'Chat Analytics', sub: 'Messaging insights & activity', Icon: Activity, onPress: () => router.push('/admin/chat-analytics') }] : []),
+            ...(isSuper ? [
+              { key: 'departments', label: 'Departments', sub: 'Create departments for a business or branch', Icon: FolderKanban, onPress: () => router.push('/admin/departments') },
+              { key: 'kbiz-members', label: 'KBiz360 Members', sub: 'Toggle who belongs to KBiz360 · BOM', Icon: Building2, onPress: () => router.push('/admin/kbiz-members') },
+              { key: 'chat-analytics', label: 'Chat Analytics', sub: 'Messaging insights & activity', Icon: Activity, onPress: () => router.push('/admin/chat-analytics') },
+            ] : []),
           ].map((row, i) => (
             <Pressable key={row.key} onPress={row.onPress} className="flex-row items-center gap-3 px-4 py-3.5"
               style={{ borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>

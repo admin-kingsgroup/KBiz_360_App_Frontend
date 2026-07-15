@@ -38,7 +38,7 @@ export default function AlertDetail() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
-      <Header title={channel.name} subtitle={`${biz?.name || 'System'} · ${channel.members.length} member${channel.members.length === 1 ? '' : 's'}`}
+      <Header title={channel.name} subtitle={channel.members.length ? `${biz?.name || 'System'} · ${channel.members.length} member${channel.members.length === 1 ? '' : 's'}` : `${biz?.name || 'System'}${channel.branch ? ` · ${channel.branch} branch` : ''}`}
         onBack={() => router.back()} right={<Pressable onPress={() => { markChannelRead(channel.id); showToast('Marked all read'); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable>} />
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
@@ -51,7 +51,7 @@ export default function AlertDetail() {
               <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 11, marginTop: 2 }}>{channel.description}</Text>
             </View>
           </View>
-          <View className="flex-row items-center gap-1.5 mt-3" style={{ flexWrap: 'wrap' }}>
+          {memberObjs.length > 0 ? <View className="flex-row items-center gap-1.5 mt-3" style={{ flexWrap: 'wrap' }}>
             <Text style={{ color: channel.color, fontSize: 9.5, fontWeight: '800', letterSpacing: 1 }}>VISIBLE TO</Text>
             {memberObjs.slice(0, 6).map((m) => (
               <View key={m.id} className="flex-row items-center gap-1" style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.6)' }}>
@@ -59,7 +59,7 @@ export default function AlertDetail() {
                 <Text style={{ color: colors.ink, fontSize: 10, fontWeight: '700' }}>{m.name.split(' ')[0]}</Text>
               </View>
             ))}
-          </View>
+          </View> : null}
         </View>
 
         <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 1.3, paddingHorizontal: 16, paddingBottom: 8 }}>{events.length} {events.length === 1 ? 'EVENT' : 'EVENTS'}</Text>

@@ -140,7 +140,8 @@ export default function Home() {
           </View>
         </View>
         <View className="flex-row items-center gap-2">
-          <Pressable onPress={() => router.push('/chat/new-group')} style={icon(colors.card)}><UsersRound size={16} color={colors.warmMute} /></Pressable>
+          {/* Group creation is Super-Admin only — everyone else never sees the entry point. */}
+          {isSuper ? <Pressable onPress={() => router.push('/chat/new-group')} style={icon(colors.card)}><UsersRound size={16} color={colors.warmMute} /></Pressable> : null}
           <Pressable onPress={() => router.push('/chat/search')} style={icon(colors.card)}><Search size={16} color={colors.warmMute} /></Pressable>
         </View>
       </View>
@@ -273,7 +274,7 @@ export default function Home() {
             {/* System Alerts */}
             <View style={{ width, height: pagerH }}>
               <ScrollView style={{ flex: 1 }}>
-                <SystemAlertsList activeBizId={activeBizId} access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} />
+                <SystemAlertsList activeBizId={activeBizId} access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} onCreate={() => router.push('/alert/new')} />
               </ScrollView>
             </View>
           </Animated.ScrollView>

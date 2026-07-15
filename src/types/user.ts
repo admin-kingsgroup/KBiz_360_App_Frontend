@@ -17,6 +17,8 @@ export interface User {
   accessAlerts: GrantId[];
   attendance?: boolean;
   scopeLine?: string;
+  phone?: string | null;       // CRM phone (prefills the user editor)
+  status?: string | null;      // CRM status ('active' | 'inactive') — inactive users cannot log in
   position?: string | null;    // app-set job title (e.g. "Senior Finance Manager"), distinct from role
   roleName?: string;           // human label of the ACTUAL CRM role (e.g. "Company Manager")
   roleId?: string | null;      // CRM role _id (for the user editor)

@@ -24,18 +24,15 @@ describe('Home segments — access filtering (View-As)', () => {
     expect(depts).toEqual(['AMD-Ticketing']);
   });
 
-  it('System Alerts: Employee(Nurul) sees only BOM crm channel', () => {
-    const f = makeAccessFilters(deriveAccess(byId('a8'))); // Nurul: BOM, BOM-crm
-    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.bizId === 'tk' ? null : ch.bizId, ch.module));
-    // branch-wise alert access: BOM-crm only
-    const bomVisible = pulseChannels.filter((ch) => ch.bizId === 'tk' && f.alertOK('BOM', ch.module)).map((ch) => ch.module);
-    expect(bomVisible).toEqual(['crm']);
-    expect(visible.every((ch) => ch.bizId === 'tk')).toBe(true); // Nurul only in tk
+  it('System Alerts: Employee(Nurul, BOM-crm) sees no attendance channels', () => {
+    const f = makeAccessFilters(deriveAccess(byId('a8'))); // Nurul: BOM, BOM-crm — no hr grant
+    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, ch.module));
+    expect(visible).toEqual([]);
   });
 
-  it('Super sees alert channels across all businesses', () => {
+  it('Super sees every registered alert channel', () => {
     const f = makeAccessFilters(deriveAccess(byId('a1')));
-    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(null, ch.module));
+    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, ch.module));
     expect(visible.length).toBe(pulseChannels.length);
   });
 });
