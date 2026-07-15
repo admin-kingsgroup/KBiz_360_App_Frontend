@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { User as UserIcon, Plus, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, X } from 'lucide-react-native';
+import { User as UserIcon, Plus, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
+import { pulseChannels } from '../../src/data/pulse';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { listUsers, toUser } from '../../src/api/directory';
@@ -27,6 +28,14 @@ export default function Users() {
   const [editing, setEditing] = useState<User | null>(null); // user whose position is being edited
   const [posInput, setPosInput] = useState('');
   const [savingPos, setSavingPos] = useState(false);
+  const [alertsUser, setAlertsUser] = useState<User | null>(null); // user whose alert channels are being edited
+  const [alertGrants, setAlertGrants] = useState<Record<string, string[]>>({}); // userId → grants like "BOM-accounts"
+
+  // The grantable channels — every branch-scoped channel in the registry ("BOM-hr",
+  // "BOM-accounts", "BOM-crm", …). Announcements are recipient-addressed, not granted.
+  const channelOptions = pulseChannels
+    .filter((c) => c.branch)
+    .map((c) => ({ grant: `${c.branch}-${c.module}`, name: c.name, icon: c.icon }));
 
   // Hydrate the canonical user list from the real CRM directory (read-only).
   useEffect(() => {
@@ -44,8 +53,20 @@ export default function Users() {
     let active = true;
     adminApi.getUserAccess().then((s) => { if (active) setAppAccess(s); }).catch(() => undefined);
     adminApi.getAttendanceTracking().then((s) => { if (active) setTracking(s); }).catch(() => undefined);
+    adminApi.getAlertVisibility().then((s) => { if (active) setAlertGrants(s); }).catch(() => undefined);
     return () => { active = false; };
   }, [isSuper]);
+
+  // Toggle one alert-channel grant for a user. Saves immediately (the server live-pushes
+  // 'alert:visibility' to that user, so their Home feed updates without a re-login).
+  const toggleAlertGrant = (userId: string, grant: string, on: boolean) => {
+    const current = alertGrants[userId] || [];
+    const next = on ? [...new Set([...current, grant])] : current.filter((g) => g !== grant);
+    setAlertGrants((s) => ({ ...s, [userId]: next })); // optimistic
+    adminApi.setAlertVisibility(userId, next)
+      .then((r) => setAlertGrants((s) => ({ ...s, [userId]: r.alerts ?? next })))
+      .catch(() => { setAlertGrants((s) => ({ ...s, [userId]: current })); showToast('Could not update alert access'); });
+  };
 
   // Toggle whether a user's attendance is taken (off = exempt, e.g. owners/directors who don't punch).
   const toggleTracking = (id: string, on: boolean) => {
@@ -139,6 +160,9 @@ export default function Users() {
                     <Pressable onPress={() => openPosition(u)} hitSlop={8} style={{ padding: 5 }}>
                       <BriefcaseBusiness size={15} color={colors.teal} />
                     </Pressable>
+                    <Pressable onPress={() => setAlertsUser(u)} hitSlop={8} style={{ padding: 5 }}>
+                      <Bell size={15} color={(alertGrants[u.id] || []).length ? colors.orange : colors.textMuted} />
+                    </Pressable>
                   </View>
                 ) : null}
                 {/* Super-admin app-access toggle (can't disable yourself). onStartShouldSetResponder
@@ -173,6 +197,38 @@ export default function Users() {
           <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '700' }}>Sign out → back to Login</Text>
         </Pressable>
       </ScrollView>
+
+      {/* System-alert channel access (super-admin): which channels this user sees on Home. */}
+      <Modal visible={!!alertsUser} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAlertsUser(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
+            <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
+              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>System Alerts</Text>
+              <Pressable onPress={() => setAlertsUser(null)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+            </View>
+            <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11.5, marginBottom: 10 }}>
+              {alertsUser?.name}{alertsUser?.roleName ? ` · ${alertsUser.roleName}` : ''}
+            </Text>
+            {channelOptions.map((opt, i) => (
+              <View key={opt.grant} className="flex-row items-center gap-3"
+                style={{ paddingVertical: 9, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
+                <Text style={{ fontSize: 16 }}>{opt.icon}</Text>
+                <Text style={{ flex: 1, color: colors.ink, fontSize: 13, fontWeight: '700' }}>{opt.name}</Text>
+                {alertsUser ? (
+                  <Switch
+                    value={(alertGrants[alertsUser.id] || []).includes(opt.grant)}
+                    onValueChange={(v) => toggleAlertGrant(alertsUser.id, opt.grant, v)}
+                    trackColor={{ true: colors.success, false: colors.cardEdge }}
+                  />
+                ) : null}
+              </View>
+            ))}
+            <Text style={{ color: colors.textMuted2, fontSize: 10.5, marginTop: 10 }}>
+              Changes apply instantly on the user&apos;s phone. Super-admins always see every channel regardless of these switches.
+            </Text>
+          </View>
+        </View>
+      </Modal>
 
       {/* Position editor (super-admin) */}
       <Modal visible={!!editing} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditing(null)}>

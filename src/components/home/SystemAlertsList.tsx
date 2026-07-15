@@ -11,9 +11,10 @@ import type { AccessControl } from '../../types';
 
 interface CardData { key: string; ch: PulseChannel; last: PulseEvent | null; unread: number; ctx: string; secId: string; }
 
-// System Alerts segment. Super-admins see every registered channel (attendance + announcements)
-// and can compose new announcements; everyone else sees ONLY announcements addressed to them
-// (the API sends nothing else) — no announcements → completely empty section. View-As-aware.
+// System Alerts segment. Super-admins see every registered channel (attendance + finance + crm
+// + announcements) and can compose new announcements; everyone else sees announcements addressed
+// to them PLUS the channels a super-admin granted them from Team & Users (the API is the real
+// gate — it only ever sends events for granted channels). View-As-aware.
 export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate }: { activeBizId: string; access: AccessControl | null; onOpenChannel: (ch: PulseChannel) => void; onCreate?: () => void }) {
   const { isSuper, bizOK, alertOK, alertBrOK } = makeAccessFilters(access);
   const pulseEvents = usePulseStore((s) => s.events);
@@ -34,9 +35,18 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
 
   const cards: CardData[] = [];
   if (!isSuper) {
-    const st = stats[announcementsChannel.id];
-    if (!st) return null;
-    cards.push({ key: announcementsChannel.id, ch: announcementsChannel, last: st.last, unread: st.unread, ctx: 'TK', secId: 'ann' });
+    // Announcements addressed to this user, then their granted channels (alertOK already
+    // filtered `visible` down to grants — a user with no grants sees announcements only).
+    const ann = stats[announcementsChannel.id];
+    if (ann) cards.push({ key: announcementsChannel.id, ch: announcementsChannel, last: ann.last, unread: ann.unread, ctx: 'TK', secId: 'ann' });
+    visible
+      .filter((ch) => ch.branch) // branch-scoped channels only; announcements handled above
+      .sort((a, b) => (a.branch || '').localeCompare(b.branch || '') || moduleRank(a.module) - moduleRank(b.module))
+      .forEach((ch) => {
+        const st = stats[ch.id];
+        cards.push({ key: ch.id, ch, last: st?.last || null, unread: st?.unread || 0, ctx: ch.branch || 'TK', secId: 'granted' });
+      });
+    if (cards.length === 0) return null;
   } else if (branchMode) {
     const tkChans = pulseChannels.filter((c) => c.bizId === 'tk').sort((a, b) => moduleRank(a.module) - moduleRank(b.module));
     const secs = [
