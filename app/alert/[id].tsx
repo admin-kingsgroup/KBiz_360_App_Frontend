@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -11,8 +11,9 @@ import { usePulseStore } from '../../src/store/pulseStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { timeAgo } from '../../src/utils/time';
 
-// Alert detail — faithful port of source PulseChannelScreen. Lists the channel's events;
-// tapping an event (or an action) marks it read in pulseStore, reflected on Home.
+// Alert detail — port of source PulseChannelScreen. Opening the channel marks ALL its events read
+// (Home's unread badge clears, like a chat thread); the events that were unread on entry keep their
+// "new" highlight for this visit so the user can still see what just arrived.
 export default function AlertDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -22,7 +23,19 @@ export default function AlertDetail() {
   const markChannelRead = usePulseStore((s) => s.markChannelRead);
   const showToast = useUiStore((s) => s.showToast);
 
-  useEffect(() => { /* mark channel read when leaving is optional; keep per-tap marking */ }, []);
+  // Mark read once the channel's events are actually loaded (a deep link can land here before the
+  // first /api/alerts fetch resolves); later events arriving mid-visit stay unread until tapped.
+  const newOnEntry = useRef<Set<string>>(new Set());
+  const markedOnEntry = useRef(false);
+  useEffect(() => {
+    if (markedOnEntry.current || !channel || events.length === 0) return;
+    markedOnEntry.current = true;
+    const unread = events.filter((e) => !e.read);
+    if (unread.length === 0) return;
+    newOnEntry.current = new Set(unread.map((e) => e.id));
+    markChannelRead(channel.id);
+  }, [channel, events, markChannelRead]);
+  const isNew = (e: { id: string; read: boolean }): boolean => !e.read || newOnEntry.current.has(e.id);
 
   if (!channel) {
     return (
@@ -70,8 +83,8 @@ export default function AlertDetail() {
             <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No events yet</Text>
           </View>
         ) : events.map((e) => (
-          <Pressable key={e.id} onPress={() => { if (!e.read) markEventRead(e.id); }} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: !e.read ? '#FAFBFF' : 'transparent' }}>
-            {!e.read ? <View style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: channel.color }} /> : null}
+          <Pressable key={e.id} onPress={() => { if (!e.read) markEventRead(e.id); }} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: isNew(e) ? '#FAFBFF' : 'transparent' }}>
+            {isNew(e) ? <View style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: channel.color }} /> : null}
             <View className="flex-row items-baseline justify-between gap-2">
               <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10, fontWeight: '700', flex: 1 }}>{e.source}</Text>
               <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '700' }}>{timeAgo(e.time)}</Text>
