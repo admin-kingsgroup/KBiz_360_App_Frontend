@@ -5,15 +5,16 @@ import { colors, shadow } from '../../theme';
 import { businesses as mockBusinesses, branches as mockBranches, businessDepts as mockDepts } from '../../data/businesses';
 import { DEPT_DESCRIPTIONS } from '../../constants/departments';
 import { makeAccessFilters } from '../../logic/accessFilters';
-import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch, Department } from '../../types';
 
 interface DItem { _key: string; name: string; icon: string; color: string; desc: string; bizId: string; branchCode?: string; _unread: number; }
 interface Section { id: string; label: string; color: string; ctx: string; time?: string; flag?: string; items: DItem[]; }
 
 // Departments segment. Data comes via props (real CRM directory) and falls back to the mock org data.
-// A business with branches → per-branch sections; otherwise per-business. `serverFiltered` skips the
-// client access filters because the backend already scoped the rows. View-As-aware otherwise.
+// Departments are listed ONCE per business (deduped by name — the same department existing in several
+// branches is one card); the branch split lives inside the department detail, which shows that
+// department's groups per branch. `serverFiltered` skips the client access filters because the
+// backend already scoped the rows. View-As-aware otherwise.
 export function DepartmentsList({
   activeBizId, access, onOpenDept,
   businesses = mockBusinesses, branches = mockBranches, businessDepts = mockDepts, serverFiltered = false,
@@ -39,17 +40,39 @@ export function DepartmentsList({
 
   let sections: Section[] = [];
   if (branchMode) {
+    // ONE flat list: each department appears once (deduped by name across branches).
+    // Visible if the user can see it in at least one branch they can access; unread
+    // sums across all branches. Tapping opens the detail, which splits by branch.
     const depts = businessDepts[activeBizId] || [];
-    sections = branchesForBiz(activeBizId).filter((br) => brOK(br.code)).map((br) => ({
-      id: br.id, label: `${br.code} · ${br.city}`, color: br.color, ctx: br.code, time: tzTime(br.tz), flag: br.flag,
-      items: depts.filter((d) => deptOK(br.code, d.name)).map((d) => ({ _key: `${br.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: activeBizId, branchCode: br.code, _unread: deptUnread(d.name, br.id) })),
-    }));
+    const accessibleBranches = branchesForBiz(activeBizId).filter((br) => brOK(br.code));
+    const seen = new Set<string>();
+    const items = depts
+      .filter((d) => {
+        const key = (d.name || '').trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        if (!accessibleBranches.some((br) => deptOK(br.code, d.name))) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((d) => ({ _key: `${activeBizId}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: activeBizId, _unread: deptUnread(d.name, null) }));
+    const biz = businesses.find((b) => b.id === activeBizId);
+    sections = [{ id: activeBizId, label: biz?.name ?? 'Departments', color: biz?.color ?? colors.ink, ctx: biz?.code ?? '', items }];
   } else {
     const bizList = (activeBizId === 'all' ? businesses : businesses.filter((b) => b.id === activeBizId)).filter((b) => bizOK(b.id));
-    sections = bizList.map((b) => ({
-      id: b.id, label: b.name, color: b.color, ctx: b.code,
-      items: (businessDepts[b.id] || []).filter((d) => deptOK(b.code, d.name)).map((d) => ({ _key: `${b.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: b.id, _unread: branchesForBiz(b.id).length ? deptUnread(d.name, null) : 0 })),
-    }));
+    sections = bizList.map((b) => {
+      const seen = new Set<string>();
+      return {
+        id: b.id, label: b.name, color: b.color, ctx: b.code,
+        items: (businessDepts[b.id] || [])
+          .filter((d) => {
+            const key = (d.name || '').trim().toLowerCase();
+            if (!key || seen.has(key) || !deptOK(b.code, d.name)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((d) => ({ _key: `${b.id}-${d.id}`, name: d.name, icon: d.icon, color: d.color, desc: DEPT_DESCRIPTIONS[d.name] || 'Department group', bizId: b.id, _unread: branchesForBiz(b.id).length ? deptUnread(d.name, null) : 0 })),
+      };
+    });
   }
   const allItems = sections.flatMap((s) => s.items);
   const unread = allItems.filter((d) => d._unread > 0);
