@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { ChevronLeft, MoreVertical, FileText } from 'lucide-react-native';
-import { colors } from '../../src/theme';
+import { colors, shadow } from '../../src/theme';
 import { pulseChannels } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
 import { reminderPeople } from '../../src/data/reminders';
@@ -102,9 +102,22 @@ export default function AlertDetail() {
             <Text style={{ fontSize: 32, marginBottom: 8 }}>🛌</Text>
             <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No events yet</Text>
           </View>
-        ) : events.map((e) => (
-          <Pressable key={e.id} onPress={() => { if (!e.read) markEventRead(e.id); }} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: isNew(e) ? '#FAFBFF' : 'transparent' }}>
-            {isNew(e) ? <View style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: channel.color }} /> : null}
+        ) : (
+        <View style={{ paddingHorizontal: 14, gap: 8 }}>
+        {events.map((e) => (
+          <Pressable
+            key={e.id}
+            onPress={() => { if (!e.read) markEventRead(e.id); }}
+            // Each alert is its own bordered card (same card language as Home) so consecutive
+            // events are clearly separated; "new" events keep the tinted bg + colored left bar.
+            style={[{
+              paddingHorizontal: 14, paddingVertical: 12,
+              borderRadius: 14, borderWidth: 1, overflow: 'hidden',
+              borderColor: isNew(e) ? channel.color + '55' : colors.cardEdge,
+              backgroundColor: isNew(e) ? '#FAFBFF' : colors.card,
+            }, shadow]}
+          >
+            {isNew(e) ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: channel.color }} /> : null}
             <View className="flex-row items-baseline justify-between gap-2">
               <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10, fontWeight: '700', flex: 1 }}>{e.source}</Text>
               <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '700' }}>{timeAgo(e.time)}</Text>
@@ -133,6 +146,8 @@ export default function AlertDetail() {
             ) : null}
           </Pressable>
         ))}
+        </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
