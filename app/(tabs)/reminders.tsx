@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl, Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Plus, Bell, Archive, X } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
@@ -23,6 +23,7 @@ const initialsOf = (name: string): string => name.split(/\s+/).filter(Boolean).s
 
 export default function Reminders() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const showToast = useUiStore((s) => s.showToast);
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
 
@@ -36,8 +37,33 @@ export default function Reminders() {
   // Directory for the reassign picker.
   useEffect(() => { listUsers().then(setPeople).catch(() => undefined); }, []);
 
+  // Offline snapshot: show the last-known list for the tab instantly on a cold/offline start,
+  // then let the network fetch replace it (and refresh the cache) when it succeeds.
+  const cacheKey = (tab: ReminderTab): string => `kb360_reminders_${tab}`;
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const AS = (await import('@react-native-async-storage/async-storage')).default;
+        const raw = await AS.getItem(cacheKey(TABS[f]));
+        if (alive && raw) setData((cur) => cur ?? (JSON.parse(raw) as ReminderListResponse));
+      } catch { /* no snapshot */ }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f]);
+
   const load = useCallback(async (tab: ReminderTab) => {
-    try { setData(await listReminders(tab)); } catch { /* offline / not signed in */ } finally { setLoading(false); }
+    try {
+      const fresh = await listReminders(tab);
+      setData(fresh);
+      void (async () => {
+        try {
+          const AS = (await import('@react-native-async-storage/async-storage')).default;
+          await AS.setItem(cacheKey(tab), JSON.stringify(fresh));
+        } catch { /* cache write is best-effort */ }
+      })();
+    } catch { /* offline / not signed in — keep the snapshot */ } finally { setLoading(false); }
     void useReminderBadgeStore.getState().refresh(); // keep the tab badge in sync
   }, []);
 
@@ -132,7 +158,7 @@ export default function Reminders() {
       {/* Reassign picker — choose a new assignee; resets the reminder to pending for them. */}
       <Modal visible={!!reassignFor} transparent animationType="slide" onRequestClose={() => setReassignFor(null)}>
         <Pressable onPress={() => setReassignFor(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, maxHeight: '72%' }}>
+          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16), maxHeight: '72%' }}>
             <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
             <View className="flex-row items-center justify-between px-5 pb-2">
               <View style={{ flex: 1 }}>
