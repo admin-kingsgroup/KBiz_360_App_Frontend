@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { View, Text, Pressable, ScrollView, Alert } from 'react-native';
+import { View, Text, Pressable, ScrollView, Alert, Linking, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -16,7 +16,7 @@ import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { getCurrentSsid } from '../src/services/wifi';
 import { ssidMatches } from '../src/logic/wifi';
-import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { syncAttendanceGeofencing, getBackgroundLocationState, type BackgroundLocationState } from '../src/services/backgroundAttendance';
 import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
 
@@ -77,6 +77,16 @@ export default function Attendance() {
     read();
     const t = setInterval(read, 15000);
     return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // Background-location state drives the "Allow all the time" banner; re-checked when the app
+  // returns from Settings (AppState active) so the banner clears the moment the user grants it.
+  const [bgLocation, setBgLocation] = useState<BackgroundLocationState>('granted');
+  useEffect(() => {
+    const check = (): void => { void getBackgroundLocationState().then(setBgLocation); };
+    check();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') { check(); void syncAttendanceGeofencing(); } });
+    return () => sub.remove();
   }, []);
 
   // Load the caller's office geofence(s), today's record, history, and the team view on open.
@@ -267,6 +277,24 @@ export default function Attendance() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
       <Header title="Attendance" subtitle="Auto first · face is backup" onBack={() => router.back()} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+        {/* Auto-punch needs "Allow all the time" location. Android 11+ never shows that option in
+            the in-app dialog — the user must flip it in Settings, so guide them there. */}
+        {bgLocation === 'denied' || bgLocation === 'undetermined' ? (
+          <Pressable
+            onPress={() => { void Linking.openSettings(); }}
+            className="flex-row items-center gap-2.5 p-3 mb-3"
+            style={{ borderRadius: 14, backgroundColor: colors.orange + '14', borderWidth: 1, borderColor: colors.orange + '40' }}
+          >
+            <MapPinOff size={18} color={colors.orange} />
+            <View className="flex-1">
+              <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>Auto check-in is off</Text>
+              <Text style={{ color: colors.warmMute, fontSize: 11, marginTop: 1 }}>
+                Set location to “Allow all the time” so the office geofence can punch you in even when the app is closed.
+              </Text>
+            </View>
+            <Text style={{ color: colors.orange, fontSize: 11.5, fontWeight: '800' }}>Settings</Text>
+          </Pressable>
+        ) : null}
         {isSuper ? (
           <View className="flex-row p-1 mb-3" style={{ borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
             {([['mine', 'My attendance'], ['team', 'Team · Admin']] as const).map(([k, l]) => (
