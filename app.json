@@ -3,7 +3,7 @@
     "name": "KBiz 360 - Smart Connect",
     "slug": "kbiz360-smart-connect",
     "scheme": "kbiz360",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
