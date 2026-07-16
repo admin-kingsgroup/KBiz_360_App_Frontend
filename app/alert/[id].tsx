@@ -10,6 +10,7 @@ import { businesses } from '../../src/data/businesses';
 import { reminderPeople } from '../../src/data/reminders';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { useUiStore } from '../../src/store/uiStore';
+import { apiFetch } from '../../src/api/client';
 import { mediaUrl } from '../../src/api/media';
 import { timeAgo } from '../../src/utils/time';
 
@@ -39,14 +40,15 @@ export default function AlertDetail() {
   }, [channel, events, markChannelRead]);
   const isNew = (e: { id: string; read: boolean }): boolean => !e.read || newOnEntry.current.has(e.id);
 
-  // Open the attachment in an in-app browser sheet. Linking.openURL never rejects for
-  // http(s) (a browser always handles it), so a HEAD preflight is what makes the
-  // failure toast truthful when the file is gone or the bucket denies access.
+  // Open the attachment in an in-app browser sheet. The auth-gated endpoint returns a
+  // short-lived signed URL (server checks channel visibility); events from older backends
+  // fall back to their stored URL. HEAD preflight keeps the failure toast truthful.
   const openAttachment = async (e: { id: string; read: boolean; attachment?: { url: string } }): Promise<void> => {
     if (!e.attachment) return;
     if (!e.read) markEventRead(e.id);
-    const url = mediaUrl(e.attachment.url);
     try {
+      const resolved = await apiFetch<{ url: string }>(`/api/alerts/attachment/${e.id}`).catch(() => null);
+      const url = mediaUrl(resolved?.url || e.attachment.url);
       const head = await fetch(url, { method: 'HEAD' }).catch(() => null);
       if (!head?.ok) { showToast('Could not open PDF'); return; }
       await WebBrowser.openBrowserAsync(url);
