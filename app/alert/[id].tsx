@@ -103,7 +103,7 @@ export default function AlertDetail() {
             <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No events yet</Text>
           </View>
         ) : (
-        <View style={{ paddingHorizontal: 14, gap: 8 }}>
+        <View style={{ paddingHorizontal: 14, gap: 10 }}>
         {events.map((e) => (
           <Pressable
             key={e.id}
@@ -112,8 +112,8 @@ export default function AlertDetail() {
             // events are clearly separated; "new" events keep the tinted bg + colored left bar.
             style={[{
               paddingHorizontal: 14, paddingVertical: 12,
-              borderRadius: 14, borderWidth: 1, overflow: 'hidden',
-              borderColor: isNew(e) ? channel.color + '55' : colors.cardEdge,
+              borderRadius: 14, borderWidth: 1.5, overflow: 'hidden',
+              borderColor: isNew(e) ? channel.color + '66' : '#DBD4C5',
               backgroundColor: isNew(e) ? '#FAFBFF' : colors.card,
             }, shadow]}
           >
