@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { colors } from '../../theme';
+import { reportError } from '../../services/crashReporter';
 
 interface Props { children: ReactNode; fallback?: ReactNode; }
 interface State { hasError: boolean; message?: string; }
@@ -13,8 +14,10 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, message: err instanceof Error ? err.message : 'Unexpected error' };
   }
   componentDidCatch(error: unknown, info: unknown) {
-    // Surface for diagnostics; a real app would forward to crash reporting here.
     console.error('[ErrorBoundary]', error, info);
+    // Forward to the backend so field crashes are visible (fire-and-forget, never throws).
+    const componentStack = (info as { componentStack?: string } | null)?.componentStack;
+    reportError(error, componentStack?.slice(0, 300));
   }
   reset = () => this.setState({ hasError: false, message: undefined });
   render() {

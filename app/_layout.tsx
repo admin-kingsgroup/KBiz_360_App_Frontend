@@ -14,6 +14,7 @@ import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAuthStore } from '../src/store/authStore';
 import { connectChatSocket, disconnectChatSocket } from '../src/realtime/chatSocket';
 import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { installGlobalCrashHandler, flushStoredCrash } from '../src/services/crashReporter';
 import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
 import { setupIosCallKeep } from '../src/services/iosCallKeep';
 import { registerPushToken } from '../src/services/notifications';
@@ -21,7 +22,9 @@ import { maybePromptBatteryOptimization } from '../src/services/batteryOptimizat
 import { useEmailStore } from '../src/store/emailStore';
 import { useMessagingStore } from '../src/store/messagingStore';
 import { useCallSessionStore } from '../src/store/callSessionStore';
-import { loadPrefs } from '../src/services/storage';
+import { loadPrefs, savePerms } from '../src/services/storage';
+import { getBackgroundLocationStatus } from '../src/services/locationPermission';
+import { locationPermSatisfied } from '../src/logic/permissionGate';
 import { authApi } from '../src/api';
 import { colors } from '../src/theme';
 import Constants from 'expo-constants';
@@ -30,6 +33,19 @@ import { setApiBaseUrl } from '../src/api';
 // Point the API client at the backend (configurable via app.json → expo.extra.apiUrl;
 // use your machine's LAN IP when testing on a physical device).
 setApiBaseUrl((Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? 'http://localhost:4000');
+
+// Background-location revocation guard: "Allow all the time" is mandatory (background geofence
+// attendance). Verified on every app open + foreground; a revoked/downgraded grant flips the
+// location perm OFF, which sends the gate back to the permissions screen until re-granted.
+// Downgrade-only — granting lives on the permissions screen (avoids the two racing).
+async function enforceBgLocation(): Promise<void> {
+  const st = await getBackgroundLocationStatus();
+  if (locationPermSatisfied(st)) return;
+  const store = useAttendanceStore.getState();
+  if (!store.perms.location) return;
+  store.setPerm('location', false);
+  void savePerms(useAttendanceStore.getState().perms);
+}
 
 // Root gate: redirects between (auth) login/permissions and (tabs) based on store state.
 // "View as" is NOT consulted here — it is access-overlay store state, never a routing input.
@@ -46,6 +62,7 @@ function GateController() {
   const signedIn = useAuthStore((s) => s.status === 'signedIn');
   useEffect(() => {
     if (!signedIn) { disconnectChatSocket(); return; }
+    void enforceBgLocation();
     connectChatSocket();
     void registerPushToken(); // Expo push token → background message/reminder notifications (every launch, so returning users stay registered)
     void registerFcmToken(); // raw FCM token → native full-screen call UI (Android)
@@ -54,6 +71,7 @@ function GateController() {
     void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
+        void enforceBgLocation(); // location revoked in Settings while backgrounded → back to the gate
         connectChatSocket();
         void useMessagingStore.getState().loadConversations(); // refresh chat list on return (server is source of truth)
         void useEmailStore.getState().refreshUnread(); // Email tab badge
@@ -112,6 +130,10 @@ export default function RootLayout() {
   // re-requested ("asked once" preserved across restart).
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
+    // Crash reporting: catch fatal JS errors (stashed and flushed next launch) + send any
+    // report left behind by a previous crash.
+    installGlobalCrashHandler();
+    void flushStoredCrash();
     let active = true;
     Promise.all([loadPrefs(), authApi.restoreSession()]).then(([p]) => {
       if (!active) return;
