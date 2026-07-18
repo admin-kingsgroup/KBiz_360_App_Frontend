@@ -98,6 +98,8 @@ export default function NewGroup() {
   const deptLabel = (d: DirectoryDepartment): string => d.name || d.code || 'Department';
 
   const create = async (): Promise<void> => {
+    // eslint-disable-next-line no-console
+    console.log('[new-group] create tapped', { name: name.trim(), companyId, branchId, departmentId, members: selected.size, deptOptions: departments.length });
     if (!name.trim()) { showToast('Group name required'); return; }
     if (!companyId) { showToast('Select a business'); return; }
     if (!branchId) { showToast('Select a branch'); return; }
@@ -108,8 +110,11 @@ export default function NewGroup() {
       const conv = await createGroup({ name: name.trim(), memberIds: [...selected], companyId, branchId, departmentId });
       await useMessagingStore.getState().loadConversations();
       router.replace({ pathname: '/chat/[id]', params: { id: conv.id } });
-    } catch {
-      showToast('Could not create group');
+    } catch (e) {
+      // Surface the server's actual reason — a generic toast hides real failures.
+      // eslint-disable-next-line no-console
+      console.log('[new-group] create failed:', e);
+      showToast(e instanceof Error && e.message ? e.message : 'Could not create group');
       setCreating(false);
     }
   };
