@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Modal, FlatList } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { X, CalendarClock, ChevronDown, Search as SearchIcon, Check } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
@@ -26,6 +26,7 @@ interface Person { id: string; name: string; initials: string; color: string; av
 
 export default function NewReminder() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const showToast = useUiStore((s) => s.showToast);
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
   const me = useAccessStore((s) => s.user);
@@ -69,15 +70,19 @@ export default function NewReminder() {
 
   const save = async () => {
     if (!text.trim()) { showToast('Add reminder text'); return; }
-    if (!dueAt) { showToast('Pick a date & time'); return; }
+    // Recompute at press time — the memoized dueAt goes stale while the form sits open, so a
+    // reminder could otherwise be created already-due and fire its local notification instantly.
+    const due = preset === 'custom' ? customDue : presetDue(preset);
+    if (!due) { showToast('Pick a date & time'); return; }
+    if (due.getTime() <= Date.now()) { showToast('That time has passed — pick a new one'); return; }
     if (saving) return;
     setSaving(true);
     try {
-      const label = formatWhenLabel(dueAt);
-      const rec = await createReminder({ text: text.trim(), forId, when: label, dueAt: dueAt.toISOString(), section: 'today' });
+      const label = formatWhenLabel(due);
+      const rec = await createReminder({ text: text.trim(), forId, when: label, dueAt: due.toISOString(), section: 'today' });
       const isSelf = forId === meId;
       // Self-reminders also fire locally at the due time (works offline; the server push is the backup).
-      if (isSelf) void scheduleLocal('⏰ Reminder', rec.text ?? '', { type: 'reminder', id: rec.id }, secondsUntil(dueAt));
+      if (isSelf) void scheduleLocal('⏰ Reminder', rec.text ?? '', { type: 'reminder', id: rec.id }, secondsUntil(due));
       showToast(isSelf ? `Reminder set · ${label}` : `Reminder set for ${selected.name.split(' ')[0]} · ${label}`);
       router.back();
     } catch {
@@ -147,7 +152,7 @@ export default function NewReminder() {
       {/* Assignee picker — searchable directory list, Myself pinned first */}
       <Modal visible={assigneeOpen} transparent animationType="slide" onRequestClose={() => setAssigneeOpen(false)}>
         <Pressable onPress={() => setAssigneeOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, maxHeight: '75%' }}>
+          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16), maxHeight: '75%' }}>
             <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
             <View className="flex-row items-center justify-between px-5 pb-2">
               <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Remind who?</Text>

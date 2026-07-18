@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, M
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Phone } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Phone, Clock, Check, CheckCheck } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -13,7 +13,7 @@ import { VoiceMessage } from '../../src/components/chat';
 import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
-import { useMessagingStore, type StoredMessage } from '../../src/store/messagingStore';
+import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
 import { getConversation, getPinned, type ChatConversation, type ChatAttachment, type ChatMessage } from '../../src/api/chat';
 import { uploadFile, mediaUrl, toAttachment, humanSize } from '../../src/api/media';
 import { listUsers, toUser } from '../../src/api/directory';
@@ -101,15 +101,20 @@ export default function ChatDetail() {
     return () => clearInterval(t);
   }, [conv?.type, conv?.otherUserId]);
 
-  // The other person's job title (if set) — shown before presence in a direct chat header.
+  // The other person's job title (if set) — its own header line above presence, so a long title
+  // can never truncate the "last seen …" text away.
   const otherPosition = !isGroup ? (users.find((u) => u.id === conv?.otherUserId)?.position ?? null) : null;
+  // Live presence always beats the conversation's stale online/lastSeen snapshot — the snapshot is
+  // only the fallback when no live entry has arrived at all.
+  const convLastSeen = toEpochMs(conv?.lastSeen);
+  const offlineAt = otherPresence?.lastSeen ?? convLastSeen;
   const presenceLabel = typingUsers.length ? 'typing…'
-    : otherPresence?.status === 'in_call' ? 'in a call'
-      : otherPresence?.status === 'online' || conv?.online ? 'online'
-        : otherPresence?.lastSeen ? lastSeenLabel(otherPresence.lastSeen) : 'last seen recently';
-  const subtitle = isGroup
-    ? `${conv?.memberCount ?? 0} members`
-    : otherPosition && !typingUsers.length ? `${otherPosition} · ${presenceLabel}` : presenceLabel;
+    : otherPresence
+      ? otherPresence.status === 'in_call' ? 'in a call'
+        : otherPresence.status === 'online' ? 'online'
+          : offlineAt ? lastSeenLabel(offlineAt) : 'last seen recently'
+      : conv?.online ? 'online' : convLastSeen ? lastSeenLabel(convLastSeen) : 'last seen recently';
+  const subtitle = isGroup ? `${conv?.memberCount ?? 0} members` : presenceLabel;
 
   const onChangeText = (t: string): void => {
     setText(t);
@@ -188,6 +193,7 @@ export default function ChatDetail() {
           <Avatar initials={(title[0] ?? '?').toUpperCase()} color={isGroup ? colors.purple : colors.blue} size={36} uri={conv?.image ? mediaUrl(conv.image) : null} />
           <View className="flex-1">
             <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{title}</Text>
+            {otherPosition ? <Text numberOfLines={1} style={{ color: colors.textMuted2, fontSize: 9.5, fontWeight: '700' }}>{otherPosition}</Text> : null}
             <Text numberOfLines={1} style={{ color: typingUsers.length ? colors.teal : colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{subtitle}</Text>
           </View>
         </Pressable>
@@ -432,8 +438,9 @@ function SystemNotice({ text }: { text: string }) {
 function Bubble({ m, isGroup, nameOf, onPress, onOpenImage, onRetry }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onOpenImage: (uri: string) => void; onRetry: (clientId: string) => void }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
-  const tick = m.pending ? '🕓' : m.status === 'read' ? '✓✓' : m.status === 'delivered' ? '✓✓' : '✓';
+  // WhatsApp tick glyphs: pending → clock, sent → ✓, delivered → ✓✓ muted, read → ✓✓ blue.
   const tickColor = m.status === 'read' ? '#4F8BFF' : 'rgba(255,255,255,0.55)';
+  const TickIcon = m.pending ? Clock : m.status === 'sent' ? Check : CheckCheck;
   const hasMedia = !deleted && m.type !== 'text' && m.attachments.length > 0;
   return (
     <View className="mb-2.5" style={{ maxWidth: '80%', alignSelf: mine ? 'flex-end' : 'flex-start' }}>
@@ -453,7 +460,7 @@ function Bubble({ m, isGroup, nameOf, onPress, onOpenImage, onRetry }: { m: Stor
         <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 3, paddingHorizontal: 4 }}>
           {m.edited && !deleted ? <Text style={{ color: mine ? 'rgba(255,255,255,0.45)' : colors.textMuted2, fontSize: 8.5 }}>edited</Text> : null}
           <Text style={{ color: mine ? 'rgba(255,255,255,0.5)' : colors.textMuted2, fontSize: 9.5, fontWeight: '700' }}>{hhmm(m.createdAt)}</Text>
-          {mine && !deleted && !m.failed ? <Text style={{ color: tickColor, fontSize: 9.5, fontWeight: '800' }}>{tick}</Text> : null}
+          {mine && !deleted && !m.failed ? <TickIcon size={12} color={tickColor} /> : null}
         </View>
         {mine && m.failed ? (
           <Pressable onPress={() => m.clientId && onRetry(m.clientId)} style={{ alignSelf: 'flex-end', paddingHorizontal: 4 }}>

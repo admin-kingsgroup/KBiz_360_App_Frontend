@@ -1,18 +1,25 @@
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, Pressable, ScrollView, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Lock, Navigation, Wifi, Bell, CheckCircle2, type LucideIcon } from 'lucide-react-native';
+import { Lock, Navigation, Wifi, Bell, CheckCircle2, Settings, type LucideIcon } from 'lucide-react-native';
 import { colors, shadowSm } from '../../src/theme';
 import { PERMISSIONS } from '../../src/constants/permissions';
 import type { PermKey } from '../../src/constants/permissions';
 import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { savePerms } from '../../src/services/storage';
 import { requestNotificationPermission, registerPushToken } from '../../src/services/notifications';
+import { getBackgroundLocationStatus, requestBackgroundLocation, openLocationSettings } from '../../src/services/locationPermission';
+import { locationPermSatisfied, type BgLocationStatus } from '../../src/logic/permissionGate';
 
-// Faithful port of source PermissionGate. Behavior preserved exactly:
-//  - request(key): fires the real OS prompt in the BACKGROUND (deferred to attendance/notification
-//    phases) but ALWAYS grants immediately, so the gate never traps the user.
-//  - No skip/deny path exists in source — all three must be ON to enter.
-//  - perms persist (AsyncStorage) so the gate is "asked once" across restarts.
+// Port of source PermissionGate with ONE deliberate deviation from source: LOCATION is now a real
+// OS grant. The source version always granted immediately so the gate never trapped the user; here
+// the location row only turns ON when the OS reports background ("Allow all the time") location,
+// because background geofence attendance is mandatory — the gate DOES trap until it is granted.
+//  - Notifications use the real OS prompt (as before); network has no OS prompt.
+//  - If the OS won't prompt again (hard deny / "While using the app"), we show an Open Settings
+//    path and auto-recheck when the app returns to the foreground.
+//  - perms persist (AsyncStorage) so the gate is "asked once" across restarts; the root layout
+//    re-verifies location on every app open and downgrades if it was revoked in Settings.
 // The root gate auto-redirects to (tabs) once all perms are granted.
 const ICONS: Record<'navigation' | 'wifi' | 'bell', LucideIcon> = {
   navigation: Navigation, wifi: Wifi, bell: Bell,
@@ -22,14 +29,22 @@ export default function Permissions() {
   const perms = useAttendanceStore((s) => s.perms);
   const setPerm = useAttendanceStore((s) => s.setPerm);
   const allOn = PERMISSIONS.every((p) => perms[p.key]);
+  // Set after a location grant attempt fails — drives the "Allow all the time" hint + Open Settings.
+  const [locBlocked, setLocBlocked] = useState<BgLocationStatus | null>(null);
 
   const grant = async (key: PermKey) => {
-    // Notifications use the real OS prompt (Phase 10). Location's OS prompt is handled by the
-    // geofence hook on the Attendance screen; network has no OS prompt.
+    // Notifications and location use the real OS prompts; network has no OS prompt.
     if (key === 'notifications') {
       const ok = await requestNotificationPermission();
       setPerm('notifications', ok);
       if (ok) void registerPushToken(); // register Expo push token for message/call/reminder pushes
+    } else if (key === 'location') {
+      // Background ("Allow all the time") location is mandatory — attendance must keep punching
+      // with the app closed. Anything less keeps the row OFF and the user outside the app.
+      const st = await requestBackgroundLocation();
+      const ok = locationPermSatisfied(st);
+      setPerm('location', ok);
+      setLocBlocked(ok ? null : st);
     } else {
       setPerm(key, true);
     }
@@ -39,6 +54,25 @@ export default function Permissions() {
     void savePerms(useAttendanceStore.getState().perms);
   };
   const allowAll = async () => { for (const p of PERMISSIONS) { if (!perms[p.key]) await grant(p.key); } };
+
+  // Returning from Settings (or the Android 11+ settings-style prompt): re-check and auto-grant so
+  // the user isn't stuck tapping Allow again. Only upgrades; the root layout owns downgrades.
+  useEffect(() => {
+    const recheck = async () => {
+      if (useAttendanceStore.getState().perms.location) return;
+      const st = await getBackgroundLocationStatus();
+      if (locationPermSatisfied(st)) {
+        useAttendanceStore.getState().setPerm('location', true);
+        setLocBlocked(null);
+        void savePerms(useAttendanceStore.getState().perms);
+      } else {
+        // Refresh the hint only if it is already showing (don't nag before the first attempt).
+        setLocBlocked((prev) => (prev == null ? prev : st));
+      }
+    };
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') void recheck(); });
+    return () => sub.remove();
+  }, []);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
@@ -81,6 +115,21 @@ export default function Permissions() {
             );
           })}
         </View>
+
+        {locBlocked != null && (
+          <View className="mx-5 mt-3" style={{ padding: 12, borderRadius: 12, backgroundColor: colors.coral + '14' }}>
+            <Text style={{ color: colors.coral, fontSize: 11.5, fontWeight: '700', lineHeight: 16 }}>
+              {locBlocked === 'foreground-only'
+                ? 'Location is set to “While using the app”. Attendance needs “Allow all the time” so check-in works even when the app is closed.'
+                : 'Location permission is off. Attendance needs location set to “Allow all the time” so check-in works even when the app is closed.'}
+            </Text>
+            <Pressable onPress={openLocationSettings} className="flex-row items-center justify-center gap-1.5 mt-2.5"
+              style={{ paddingVertical: 10, borderRadius: 12, backgroundColor: colors.ink }}>
+              <Settings size={14} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Open Settings · set “Allow all the time”</Text>
+            </Pressable>
+          </View>
+        )}
 
         {!allOn && (
           <View className="flex-row items-start gap-2 mx-5 mt-3" style={{ padding: 12, borderRadius: 12, backgroundColor: colors.coral + '14' }}>

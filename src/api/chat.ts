@@ -1,6 +1,6 @@
 import { apiFetch } from './client';
 
-export interface LastMessage { messageId: string | null; text: string; type: string; senderId: string; at: string }
+export interface LastMessage { messageId: string | null; text: string; type: string; senderId: string; at: string; id?: string | null; status?: 'sent' | 'delivered' | 'read' | null }
 export interface ChatConversation {
   id: string;
   type: 'direct' | 'group';
@@ -8,7 +8,7 @@ export interface ChatConversation {
   image: string | null;
   otherUserId?: string;
   online?: boolean;
-  lastSeen?: string | null;
+  lastSeen?: number | null; // epoch ms (older servers sent an ISO string — normalize via toEpochMs at consumers)
   memberCount: number;
   unread: number;
   muted: boolean;

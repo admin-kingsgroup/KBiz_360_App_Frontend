@@ -5,6 +5,9 @@ import type { ChatConversation, ChatMessage, ChatReaction, ChatAttachment } from
 
 export type StoredMessage = ChatMessage & { pending?: boolean; failed?: boolean };
 export interface PresenceInfo { status: 'online' | 'offline' | 'in_call'; lastSeen: number | null }
+// Receipt events: `statuses` (new contract) carries the server's authoritative aggregate status per
+// affected message; `messageIds` alone is the legacy fallback (mixed-deploy safety).
+export interface ReceiptPayload { conversationId: string; by?: string; messageIds: string[]; at?: number; statuses?: { id: string; status: 'sent' | 'delivered' | 'read' }[] }
 export interface OutboxItem {
   clientId: string;
   conversationId: string;
@@ -53,13 +56,13 @@ interface MessagingState {
   markRead: (conversationId: string) => Promise<void>;
 
   onReceive: (m: ChatMessage & { clientId?: string }) => void;
-  onDelivered: (p: { conversationId: string; messageIds: string[] }) => void;
-  onRead: (p: { conversationId: string; messageIds: string[] }) => void;
+  onDelivered: (p: ReceiptPayload) => void;
+  onRead: (p: ReceiptPayload) => void;
   onEdit: (p: { id: string; conversationId: string; text: string; editedAt: string }) => void;
   onDelete: (p: { id: string; conversationId: string }) => void;
   onReaction: (p: { id: string; conversationId: string; reactions: ChatReaction[] }) => void;
   onTyping: (conversationId: string, userId: string, typing: boolean) => void;
-  onPresence: (p: { userId: string; status?: string; lastSeen?: number | null; online?: boolean }) => void;
+  onPresence: (p: { userId: string; status?: string; lastSeen?: number | string | null; online?: boolean }) => void;
 
   _upsert: (conversationId: string, msg: StoredMessage) => void;
   _flush: (clientId: string) => Promise<void>;
@@ -69,6 +72,42 @@ const sortConvs = (cs: ChatConversation[]): ChatConversation[] =>
   [...cs].sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
 const newClientId = (): string => `c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 const typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+// lastSeen arrives as epoch ms (contract) but older servers leaked ISO strings — normalize to epoch ms.
+export const toEpochMs = (v: number | string | null | undefined): number | null => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') { const t = Date.parse(v); return Number.isNaN(t) ? null : t; }
+  return null;
+};
+
+const STATUS_RANK = { sent: 0, delivered: 1, read: 2 } as const;
+// Apply a receipt event. New contract: `statuses` is the server's authoritative aggregate per message,
+// applied with a monotonic guard (a tick never moves down — protects against out-of-order sockets).
+// Legacy fallback (no statuses): upgrade the listed messageIds to `fallback`, same guard.
+// The matching conversation's lastMessage.status is upgraded too so list ticks flip live.
+const applyReceipt = (
+  s: Pick<MessagingState, 'messages' | 'conversations'>,
+  p: ReceiptPayload,
+  fallback: 'delivered' | 'read',
+): Pick<MessagingState, 'messages' | 'conversations'> => {
+  const byId = new Map((p.statuses ?? []).map((e) => [e.id, e.status]));
+  const next = (id: string): 'sent' | 'delivered' | 'read' | undefined =>
+    byId.size ? byId.get(id) : p.messageIds.includes(id) ? fallback : undefined;
+  const messages = {
+    ...s.messages,
+    [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => {
+      const st = next(m.id);
+      return st && STATUS_RANK[st] > STATUS_RANK[m.status] ? { ...m, status: st } : m;
+    }),
+  };
+  const conversations = s.conversations.map((c) => {
+    if (c.id !== p.conversationId || !c.lastMessage) return c;
+    const st = next(c.lastMessage.id ?? c.lastMessage.messageId ?? '');
+    const cur = c.lastMessage.status;
+    return st && STATUS_RANK[st] > (cur ? STATUS_RANK[cur] : -1) ? { ...c, lastMessage: { ...c.lastMessage, status: st } } : c;
+  });
+  return { messages, conversations };
+};
 
 export const useMessagingStore = create<MessagingState>()(
   persist(
@@ -123,7 +162,7 @@ export const useMessagingStore = create<MessagingState>()(
           const map = await chatApi.getPresence(ids);
           set((s) => {
             const presence = { ...s.presence };
-            for (const [id, p] of Object.entries(map)) presence[id] = { status: (p.status as PresenceInfo['status']) ?? 'offline', lastSeen: p.lastSeen ?? null };
+            for (const [id, p] of Object.entries(map)) presence[id] = { status: p.status === 'online' || p.status === 'in_call' ? p.status : 'offline', lastSeen: toEpochMs(p.lastSeen) };
             return { presence };
           });
         } catch { /* offline — keep what we have */ }
@@ -159,7 +198,7 @@ export const useMessagingStore = create<MessagingState>()(
         // Media requires connectivity to upload; the chat screen handles upload + offline errors.
         const saved = await chatApi.sendMessage({ conversationId, type: input.type, text: input.text, attachments: input.attachments });
         get()._upsert(conversationId, { ...saved, pending: false });
-        set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId ? { ...c, lastMessage: { messageId: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt }, lastActivityAt: saved.createdAt } : c))) }));
+        set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
       },
 
       retry: async (clientId) => {
@@ -200,7 +239,7 @@ export const useMessagingStore = create<MessagingState>()(
             const active = s.activeConversationId;
             const conversations = s.conversations.map((c) =>
               c.id === m.conversationId
-                ? { ...c, lastMessage: { messageId: m.id, text: m.text, type: m.type, senderId: m.senderId, at: m.createdAt }, lastActivityAt: m.createdAt, unread: m.senderId === my || active === m.conversationId ? c.unread : c.unread + 1 }
+                ? { ...c, lastMessage: { messageId: m.id, id: m.id, text: m.text, type: m.type, senderId: m.senderId, at: m.createdAt, status: m.status ?? 'sent' }, lastActivityAt: m.createdAt, unread: m.senderId === my || active === m.conversationId ? c.unread : c.unread + 1 }
                 : c,
             );
             return { conversations: sortConvs(conversations) };
@@ -208,8 +247,8 @@ export const useMessagingStore = create<MessagingState>()(
         }
         if (get().activeConversationId === m.conversationId && m.senderId !== my) void get().markRead(m.conversationId);
       },
-      onDelivered: (p) => set((s) => ({ messages: { ...s.messages, [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => (p.messageIds.includes(m.id) && m.status === 'sent' ? { ...m, status: 'delivered' } : m)) } })),
-      onRead: (p) => set((s) => ({ messages: { ...s.messages, [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => (p.messageIds.includes(m.id) ? { ...m, status: 'read' } : m)) } })),
+      onDelivered: (p) => set((s) => applyReceipt(s, p, 'delivered')),
+      onRead: (p) => set((s) => applyReceipt(s, p, 'read')),
       onEdit: (p) => set((s) => ({ messages: { ...s.messages, [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => (m.id === p.id ? { ...m, text: p.text, edited: true, editedAt: p.editedAt } : m)) } })),
       onDelete: (p) => set((s) => ({ messages: { ...s.messages, [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => (m.id === p.id ? { ...m, deletedForEveryone: true, text: '', attachments: [] } : m)) } })),
       onReaction: (p) => set((s) => ({ messages: { ...s.messages, [p.conversationId]: (s.messages[p.conversationId] ?? []).map((m) => (m.id === p.id ? { ...m, reactions: p.reactions } : m)) } })),
@@ -219,7 +258,11 @@ export const useMessagingStore = create<MessagingState>()(
         set((s) => { const cur = new Set(s.typing[conversationId] ?? []); if (typing) cur.add(userId); else cur.delete(userId); return { typing: { ...s.typing, [conversationId]: [...cur] } }; });
         if (typing) typingTimers[key] = setTimeout(() => get().onTyping(conversationId, userId, false), 5000);
       },
-      onPresence: (p) => set((s) => ({ presence: { ...s.presence, [p.userId]: { status: (p.status as PresenceInfo['status']) ?? (p.online ? 'online' : 'offline'), lastSeen: p.lastSeen ?? null } } })),
+      onPresence: (p) => set((s) => {
+        // Guard the status cast (unknown strings → offline unless the legacy `online` flag says otherwise).
+        const status: PresenceInfo['status'] = p.status === 'online' || p.status === 'offline' || p.status === 'in_call' ? p.status : p.online ? 'online' : 'offline';
+        return { presence: { ...s.presence, [p.userId]: { status, lastSeen: toEpochMs(p.lastSeen) } } };
+      }),
 
       _upsert: (conversationId, msg) => {
         set((s) => {
@@ -243,7 +286,7 @@ export const useMessagingStore = create<MessagingState>()(
           // Carry the clientId so _upsert REPLACES the optimistic row (the REST response omits it) —
           // otherwise the saved message is appended as a duplicate bubble with a clashing key.
           get()._upsert(item.conversationId, { ...saved, clientId, pending: false, failed: false });
-          set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === item.conversationId ? { ...c, lastMessage: { messageId: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt }, lastActivityAt: saved.createdAt } : c))) }));
+          set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === item.conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
         } catch {
           // keep queued; mark the optimistic bubble failed so the user can retry
           set((s) => ({ messages: { ...s.messages, [item.conversationId]: (s.messages[item.conversationId] ?? []).map((m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m)) } }));
