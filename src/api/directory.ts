@@ -60,6 +60,8 @@ export const listRoles = (): Promise<DirectoryRole[]> => apiFetch('/api/roles');
 // Super-admin: create a business (written to the CRM companies collection, visible in the ERP too).
 export const createCompany = (name: string): Promise<DirectoryCompany> =>
   apiFetch('/api/companies', { method: 'POST', body: { name } });
+export const createBranch = (body: { companyId: string; name: string; code: string; city?: string; country?: string; isHO?: boolean }): Promise<DirectoryBranch> =>
+  apiFetch('/api/branches', { method: 'POST', body });
 
 // Super-admin: create / edit / delete app departments (companyId required; branchId null = all branches).
 export interface AppDepartment { id: string; name: string; companyId: string | null; branchId: string | null; icon: string | null; color: string | null }

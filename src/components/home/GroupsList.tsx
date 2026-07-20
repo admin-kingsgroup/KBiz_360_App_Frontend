@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { View, Text, Pressable } from 'react-native';
-import { ChevronDown, ChevronRight, Clock, Lock, MessageCircle } from 'lucide-react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
+import { Clock, Lock, MessageCircle } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
 import { makeAccessFilters } from '../../logic/accessFilters';
@@ -34,9 +34,8 @@ export function GroupsList({
   const bizOK: typeof f.bizOK = serverFiltered ? yes : f.bizOK;
   const brOK: typeof f.brOK = serverFiltered ? yes : f.brOK;
   const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const isOpen = (k: string, d: boolean) => (k in open ? open[k] : d);
-  const toggle = (k: string, d: boolean) => setOpen((o) => ({ ...o, [k]: !(k in o ? o[k] : d) }));
+  // Selected branch chip per business (defaults to the first branch that has groups).
+  const [selBranch, setSelBranch] = useState<Record<string, string>>({});
 
   // The Groups tab lists the real group chats the user belongs to (created under a branch's
   // department), grouped by branch — opened directly by conversation id. Browsing/creating groups by
@@ -57,16 +56,12 @@ export function GroupsList({
     return { id: b.id, label: b.name, color: b.color, subs };
   });
   const allItems = blocks.flatMap((bl) => bl.subs.flatMap((s) => s.items));
-  const unreadCount = allItems.filter((g) => (g.unread || 0) > 0).length;
 
   if (allItems.length === 0) {
     return isSuper
       ? <Empty icon={<MessageCircle size={36} color={colors.coolText3} />} title="No groups yet" sub="Set up this business in Profile → Businesses" />
       : <Empty icon={<Lock size={34} color={colors.coolText3} />} title="No groups in your access" sub="Ask your admin to grant the groups you need." />;
   }
-
-  const manyBiz = blocks.length > 1;
-  const bizDefaultOpen = !manyBiz;
 
   const GroupCard = (g: GItem) => (
     <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
@@ -86,56 +81,53 @@ export function GroupsList({
 
   return (
     <View className="px-4 pt-3 pb-6" style={{ gap: 8 }}>
-      {unreadCount > 0 ? (
-        <View style={{ gap: 6 }}>
-          <Header dot={colors.primary} title="Unread" count={unreadCount} />
-          {blocks.map((bl) => bl.subs.map((s) => {
-            const u = s.items.filter((g) => (g.unread || 0) > 0);
-            if (u.length === 0) return null;
-            return (
-              <View key={`u-${bl.id}-${s.code}`} style={{ gap: 6 }}>
-                <SubLabel color={s.color} text={`${manyBiz ? bl.label + ' · ' : ''}${s.code} · ${u.length}`} />
-                {u.map(GroupCard)}
-              </View>
-            );
-          }))}
-        </View>
-      ) : null}
-
       {blocks.map((bl) => {
-        const subsR = bl.subs.map((s) => ({ ...s, items: s.items.filter((g) => !g.unread) })).filter((s) => s.items.length > 0);
-        if (subsR.length === 0) return null;
-        const total = subsR.reduce((n, s) => n + s.items.length, 0);
-        const bizKey = `b:${bl.id}`;
-        const bizOpen = isOpen(bizKey, bizDefaultOpen);
+        const subs = bl.subs; // every branch that has groups (read + unread)
+        if (subs.length === 0) return null;
+        const total = subs.reduce((n, s) => n + s.items.length, 0);
+        // Which branch chip is picked — default to the first branch with groups.
+        const sel = selBranch[bl.id] ?? subs[0].code;
+        const active = subs.find((s) => s.code === sel) ?? subs[0];
         return (
-          <View key={bl.id} style={{ gap: 6 }}>
-            <Pressable onPress={() => toggle(bizKey, bizDefaultOpen)} className="flex-row items-center gap-1.5 px-1 mt-1" style={{ paddingVertical: 4 }}>
-              {bizOpen ? <ChevronDown size={17} color={colors.ink} /> : <ChevronRight size={17} color={colors.ink} />}
+          <View key={bl.id} style={{ gap: 8 }}>
+            {/* Business header */}
+            <View className="flex-row items-center gap-1.5 px-1 mt-1">
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: bl.color }} />
               <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{bl.label}</Text>
               <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {total} groups</Text>
-            </Pressable>
-            {bizOpen && subsR.map((s) => {
-              const brKey = `${bl.id}:${s.code}`;
-              const brOpen = isOpen(brKey, true);
-              return (
-                <View key={brKey} style={{ gap: 6 }}>
-                  <Pressable onPress={() => toggle(brKey, true)} className="flex-row items-center gap-1.5 px-1 pl-3 mt-1" style={{ paddingVertical: 4 }}>
-                    {brOpen ? <ChevronDown size={15} color={colors.coolText} /> : <ChevronRight size={15} color={colors.coolText} />}
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: s.color }} />
-                    <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '700' }}>{s.code} · {s.city}</Text>
-                    <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {s.items.length}</Text>
-                    {s.time ? (
-                      <View className="flex-row items-center gap-1 ml-auto" style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.primarySoft }}>
-                        <Clock size={11} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{s.flag} {s.time}</Text>
+            </View>
+
+            {/* Branch chips — the badge is the branch's UNREAD count (hidden when there are none). */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}>
+              {subs.map((s) => {
+                const on = s.code === active.code;
+                const unread = s.items.reduce((n, g) => n + (g.unread || 0), 0);
+                return (
+                  <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [bl.id]: s.code }))} className="flex-row items-center"
+                    style={{ height: 36, paddingHorizontal: 14, borderRadius: 999, gap: 7, backgroundColor: on ? colors.primary : colors.coolMuted }}>
+                    <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 13, fontWeight: '600' }}>{s.code}</Text>
+                    {unread > 0 ? (
+                      <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? '#fff' : colors.primary }}>
+                        <Text style={{ color: on ? colors.primary : '#fff', fontSize: 10.5, fontWeight: '700' }}>{unread}</Text>
                       </View>
                     ) : null}
                   </Pressable>
-                  {brOpen && s.items.map(GroupCard)}
-                </View>
-              );
-            })}
+                );
+              })}
+            </ScrollView>
+
+            {/* Selected branch's local time */}
+            {active.time ? (
+              <View className="flex-row items-center gap-1.5 px-1">
+                <Clock size={12} color={colors.primary} />
+                <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>{active.flag} {active.time} · {active.city}</Text>
+              </View>
+            ) : null}
+
+            {/* Groups of the selected branch (unread ones keep their own per-card badge) */}
+            <View style={{ gap: 8 }}>
+              {active.items.map(GroupCard)}
+            </View>
           </View>
         );
       })}
@@ -143,23 +135,6 @@ export function GroupsList({
   );
 }
 
-function Header({ dot, title, count }: { dot: string; title: string; count: number }) {
-  return (
-    <View className="flex-row items-center gap-1.5 px-1">
-      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dot }} />
-      <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {count}</Text>
-    </View>
-  );
-}
-function SubLabel({ color, text }: { color: string; text: string }) {
-  return (
-    <View className="flex-row items-center gap-1.5 px-1 pl-3">
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
-      <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>{text}</Text>
-    </View>
-  );
-}
 function Unread({ n }: { n: number }) {
   return <View style={{ minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{n}</Text></View>;
 }
