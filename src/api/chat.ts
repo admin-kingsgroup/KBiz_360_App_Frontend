@@ -109,6 +109,7 @@ export const getOrCreateDepartmentGroup = (branchId: string, departmentId: strin
   apiFetch('/api/groups/department', { method: 'POST', body: { branchId, departmentId, name } });
 export const updateGroup = (id: string, patch: { name?: string; description?: string; image?: string }): Promise<ChatConversation> =>
   apiFetch(`/api/groups/${id}`, { method: 'PUT', body: patch });
+export const deleteGroup = (id: string): Promise<{ ok: boolean }> => apiFetch(`/api/groups/${id}`, { method: 'DELETE' });
 export const addGroupMembers = (id: string, memberIds: string[]): Promise<ChatConversation> => apiFetch(`/api/groups/${id}/members`, { method: 'POST', body: { memberIds } });
 export const removeGroupMember = (id: string, memberId: string): Promise<{ ok: boolean }> => apiFetch(`/api/groups/${id}/members/${memberId}`, { method: 'DELETE' });
 export const promoteGroupAdmin = (id: string, memberId: string): Promise<{ ok: boolean }> => apiFetch(`/api/groups/${id}/admins`, { method: 'POST', body: { memberId } });

@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ChevronLeft, ChevronRight, Plus, X, Building2 } from 'lucide-react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { ChevronLeft, ChevronRight, X, Building2 } from 'lucide-react-native';
 import { colors } from '../../src/theme';
-import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { ApiError } from '../../src/api/client';
 import { listCompanies, listBranches, createCompany, type DirectoryCompany, type DirectoryBranch } from '../../src/api/directory';
@@ -16,7 +15,6 @@ const PALETTE = ['#9A6CF0', '#4F8BFF', '#37B6A4', '#E8A13A', '#E3674E', '#2FB36B
 // Super admins can create a new business (written to the CRM companies collection).
 export default function Businesses() {
   const router = useRouter();
-  const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
   const showToast = useUiStore((s) => s.showToast);
   const [companies, setCompanies] = useState<DirectoryCompany[]>([]);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
@@ -37,6 +35,13 @@ export default function Businesses() {
     return () => { active.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Arriving from the "+" create hub (Home) auto-opens the New-business form.
+  const params = useLocalSearchParams<{ create?: string }>();
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (params.create === '1' && !autoOpened.current) { autoOpened.current = true; setCreating(true); }
+  }, [params.create]);
 
   const saveBusiness = () => {
     const name = nameInput.trim();
@@ -59,11 +64,7 @@ export default function Businesses() {
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Businesses</Text>
           <Text style={{ color: colors.coolText, fontSize: 12 }}>{loading ? 'Loading…' : `${companies.length} shown`}</Text>
         </View>
-        {isSuper ? (
-          <Pressable onPress={() => setCreating(true)} hitSlop={6} className="flex-row items-center gap-1" style={{ height: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primary, marginRight: 8 }}>
-            <Plus size={15} color="#fff" /><Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>New</Text>
-          </Pressable>
-        ) : null}
+        {/* Business creation moved to the "+" create hub on Home. */}
       </View>
 
       {loading ? (
@@ -86,11 +87,6 @@ export default function Businesses() {
           })}
           {companies.length === 0 ? (
             <View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No businesses in your scope</Text></View>
-          ) : null}
-          {isSuper ? (
-            <Pressable onPress={() => setCreating(true)} className="flex-row items-center justify-center gap-1.5 mt-1" style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary }}>
-              <Plus size={17} color="#fff" /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>New business</Text>
-            </Pressable>
           ) : null}
         </ScrollView>
       )}

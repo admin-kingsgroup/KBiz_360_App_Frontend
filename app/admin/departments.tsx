@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Modal, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ChevronLeft, Plus, Trash2, X, Check } from 'lucide-react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { ChevronLeft, Trash2, X, Check } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import {
@@ -40,6 +40,14 @@ export default function ManageDepartments() {
 
   const startNew = (): void => setForm({ id: null, name: '', companyId: companies[0]?.id ?? null, branchId: null, color: SWATCHES[0] });
   const startEdit = (d: AppDepartment): void => setForm({ id: d.id, name: d.name, companyId: d.companyId, branchId: d.branchId, color: d.color || SWATCHES[0] });
+
+  // Arriving from the "+" create hub (Home) auto-opens the New-department form once companies load.
+  const params = useLocalSearchParams<{ create?: string }>();
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (params.create === '1' && !autoOpened.current && companies.length) { autoOpened.current = true; startNew(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.create, companies]);
   const branchesForCompany = form ? branches.filter((b) => !form.companyId || b.companyId === form.companyId) : [];
 
   const save = async (): Promise<void> => {
@@ -89,11 +97,7 @@ export default function ManageDepartments() {
               <Pressable onPress={() => remove(d)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable>
             </View>
           ))}
-          {rows.length === 0 ? <Text style={{ color: colors.coolText, fontSize: 13.5, textAlign: 'center', paddingVertical: 24 }}>No custom departments yet.</Text> : null}
-
-          <Pressable onPress={startNew} className="flex-row items-center justify-center gap-1.5 mt-1" style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary }}>
-            <Plus size={17} color="#fff" /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>New department</Text>
-          </Pressable>
+          {rows.length === 0 ? <Text style={{ color: colors.coolText, fontSize: 13.5, textAlign: 'center', paddingVertical: 24 }}>No custom departments yet. Use the “+” on Home to create one.</Text> : null}
         </ScrollView>
       )}
 

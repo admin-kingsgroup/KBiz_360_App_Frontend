@@ -3,10 +3,11 @@ import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-na
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, useAnimatedRef, interpolate, Extrapolation, runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, Eye, UsersRound, Plus, MessageCircle, Mic, UserCheck, UserX } from 'lucide-react-native';
+import { Search, Eye, Plus, MessageCircle, Mic, UserCheck, UserX } from 'lucide-react-native';
 import { KBLogo, Toast, Skeleton, SkeletonList } from '../../src/components/ui';
 import { ChatListItem } from '../../src/components/chat';
 import { GroupsList, DepartmentsList, SystemAlertsList } from '../../src/components/home';
+import { CreateMenu } from '../../src/components/home/CreateMenu';
 import { colors } from '../../src/theme';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -19,6 +20,12 @@ import { getMyAttendance } from '../../src/api/attendance';
 import { mediaUrl } from '../../src/api/media';
 import type { PresenceInfo } from '../../src/store/messagingStore';
 import { ROLE_DEFS } from '../../src/constants/roles';
+
+// "HH:MM" wall-clock for an ISO timestamp (attendance chip).
+const hhmm = (iso: string): string => {
+  const d = new Date(iso);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
 
 // Map a real conversation → the row shape ChatListItem renders.
 const relTime = (iso: string): string => {
@@ -62,13 +69,14 @@ export default function Home() {
   const [seg, setSeg] = useState<Segment>('chats');
   // "Unread" filter chip (client-side; mirrors the mockup's chips row).
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false); // Super-Admin "+" create hub
   // Today's attendance for the header Present/Absent chip. Refetched every time Home gains focus,
   // so punching on the Attendance screen (or the background geofence) updates the chip on return.
-  const [attToday, setAttToday] = useState<{ present: boolean; exempt: boolean } | null>(null);
+  const [attToday, setAttToday] = useState<{ present: boolean; exempt: boolean; inTime: string | null; outTime: string | null } | null>(null);
   useFocusEffect(useCallback(() => {
     let alive = true;
     getMyAttendance()
-      .then((m) => { if (alive) setAttToday({ present: !!m.inTime, exempt: !!m.exempt }); })
+      .then((m) => { if (alive) setAttToday({ present: !!m.inTime, exempt: !!m.exempt, inTime: m.inTime, outTime: m.outTime }); })
       .catch(() => undefined); // offline → keep last known state
     return () => { alive = false; };
   }, []));
@@ -173,14 +181,20 @@ export default function Home() {
           </View>
         </View>
         <View className="flex-row items-center" style={{ gap: 6 }}>
-          {/* Group creation is Super-Admin only — everyone else never sees the entry point. */}
-          {isSuper ? <Pressable onPress={() => router.push('/chat/new-group')} style={ibtn}><UsersRound size={22} color={colors.ink} strokeWidth={2} /></Pressable> : null}
+          {/* Single "+" create hub — group / user / department / business / alert. Super-Admin only;
+              every individual "New …" button was removed in favour of this menu. */}
+          {isSuper ? <Pressable onPress={() => setCreateOpen(true)} style={ibtn}><Plus size={24} color={colors.ink} strokeWidth={2.4} /></Pressable> : null}
           {/* Today's attendance at a glance — green Present / red Absent; tap to open Attendance.
               Hidden for exempt users (attendance not tracked) and until the first fetch resolves. */}
           {attToday && !attToday.exempt ? (
             <Pressable onPress={() => router.push('/attendance')} className="flex-row items-center" style={{ height: 36, paddingHorizontal: 12, gap: 6, borderRadius: 999, marginLeft: 2, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
               {attToday.present ? <UserCheck size={16} color={colors.primary} /> : <UserX size={16} color={colors.danger} />}
-              <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 13, fontWeight: '700' }}>{attToday.present ? 'Present' : 'Absent'}</Text>
+              {/* Show today's check-in → check-out times when present; "Absent" until the first punch. */}
+              <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 13, fontWeight: '700' }}>
+                {attToday.inTime
+                  ? (attToday.outTime ? `${hhmm(attToday.inTime)} – ${hhmm(attToday.outTime)}` : `In ${hhmm(attToday.inTime)}`)
+                  : 'Absent'}
+              </Text>
             </Pressable>
           ) : null}
         </View>
@@ -356,21 +370,14 @@ export default function Home() {
                   onOpenDept={(d) => router.push({ pathname: '/department/[id]', params: { id: d._key, biz: d.bizId, name: d.name } })}
                 />
                 )}
-                {isSuper ? (
-                  <View className="px-4 pb-6 pt-1">
-                    <Pressable onPress={() => router.push('/admin/departments')} className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 12, borderRadius: 999, borderWidth: 1.5, borderColor: colors.primary, borderStyle: 'dashed', backgroundColor: colors.card }}>
-                      <Plus size={17} color={colors.primary} />
-                      <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>Create / manage departments</Text>
-                    </Pressable>
-                  </View>
-                ) : null}
               </ScrollView>
             </View>
 
             {/* System Alerts */}
             <View style={{ width, height: pagerH }}>
               <ScrollView style={{ flex: 1 }}>
-                <SystemAlertsList activeBizId="tk" access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} onCreate={() => router.push('/alert/new')} />
+                {/* Alert creation moved to the "+" create hub — no inline create button here. */}
+                <SystemAlertsList activeBizId="tk" access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} />
               </ScrollView>
             </View>
           </Animated.ScrollView>
@@ -378,6 +385,7 @@ export default function Home() {
       </View>
 
       <Toast message={toast} onHide={() => showToast(null)} />
+      {isSuper ? <CreateMenu visible={createOpen} onClose={() => setCreateOpen(false)} /> : null}
     </SafeAreaView>
   );
 }

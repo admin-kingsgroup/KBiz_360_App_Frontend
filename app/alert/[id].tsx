@@ -5,7 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { ChevronLeft, MoreVertical, FileText } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
-import { pulseChannels } from '../../src/data/pulse';
+import { channelById } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
 import { reminderPeople } from '../../src/data/reminders';
 import { usePulseStore } from '../../src/store/pulseStore';
@@ -20,7 +20,7 @@ import { timeAgo } from '../../src/utils/time';
 export default function AlertDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const channel = pulseChannels.find((c) => c.id === id);
+  const channel = channelById(id ?? '');
   const events = usePulseStore((s) => s.events).filter((e) => e.channelId === id).sort((a, b) => b.time - a.time);
   const markEventRead = usePulseStore((s) => s.markEventRead);
   const markChannelRead = usePulseStore((s) => s.markChannelRead);

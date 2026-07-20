@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical, ChevronRight, MessageCircle, Plus } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, ChevronRight, MessageCircle } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
 import { businesses as mockBusinesses } from '../../src/data/businesses';
 import { DEPT_DESCRIPTIONS } from '../../src/constants/departments';
@@ -60,8 +60,6 @@ export default function DepartmentDetail() {
     .filter(Boolean) as { branchId: string; deptId: string; branchLabel: string; color: string; icon: string; groups: { id: string; name: string; unread: number; preview: string | null }[] }[];
 
   const openChat = (id: string) => router.push({ pathname: '/chat/[id]', params: { id } });
-  const newGroup = (branchId: string, deptId: string) =>
-    router.push({ pathname: '/chat/new-group', params: { companyId: bizId ?? '', branchId, departmentId: deptId, deptName } });
 
   const totalGroups = sections.reduce((n, s) => n + s.groups.length, 0);
   const deptColor = sections[0]?.color ?? colors.blue;
@@ -110,14 +108,7 @@ export default function DepartmentDetail() {
                   ) : <ChevronRight size={18} color={colors.coolText3} />}
                 </Pressable>
               ))}
-              {/* Group creation is Super-Admin only — everyone else never sees the entry point. */}
-              {isSuper ? (
-                <Pressable onPress={() => newGroup(s.branchId, s.deptId)} className="flex-row items-center justify-center gap-1.5"
-                  style={{ paddingVertical: 12, borderRadius: 14, borderWidth: 1.5, borderColor: colors.primary, borderStyle: 'dashed' }}>
-                  <Plus size={16} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>New group in {deptName} · {s.branchLabel}</Text>
-                </Pressable>
-              ) : null}
+              {/* Group creation lives in the "+" create hub on Home (Super-Admin) — no inline button here. */}
             </View>
           </View>
         ))}

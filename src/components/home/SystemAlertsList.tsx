@@ -3,7 +3,7 @@ import { View, Text, Pressable } from 'react-native';
 import { Bell, Paperclip, Plus } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { businesses, branches } from '../../data/businesses';
-import { announcementsChannel, pulseChannels, moduleRank, branchOf, type PulseChannel, type PulseEvent } from '../../data/pulse';
+import { announcementsChannel, userAlertsChannel, pulseChannels, moduleRank, branchOf, type PulseChannel, type PulseEvent } from '../../data/pulse';
 import { usePulseStore } from '../../store/pulseStore';
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { timeAgo } from '../../utils/time';
@@ -34,6 +34,10 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
   const branchMode = activeBizId === 'tk';
 
   const cards: CardData[] = [];
+  // Personal "User Alerts" — every user has one (their own check-ins/outs etc.). Always shown first.
+  const ua = stats[userAlertsChannel.id];
+  cards.push({ key: userAlertsChannel.id, ch: userAlertsChannel, last: ua?.last ?? null, unread: ua?.unread ?? 0, ctx: 'You', secId: 'user' });
+
   if (!isSuper) {
     // Announcements addressed to this user, then their granted channels (alertOK already
     // filtered `visible` down to grants — a user with no grants sees announcements only).
@@ -46,7 +50,6 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
         const st = stats[ch.id];
         cards.push({ key: ch.id, ch, last: st?.last || null, unread: st?.unread || 0, ctx: ch.branch || 'TK', secId: 'granted' });
       });
-    if (cards.length === 0) return null;
   } else if (branchMode) {
     const tkChans = pulseChannels.filter((c) => c.bizId === 'tk').sort((a, b) => moduleRank(a.module) - moduleRank(b.module));
     const secs = [
@@ -125,11 +128,11 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
             <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>Unread</Text>
             <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {unreadCards.length}</Text>
           </View>
-          {unreadCards.map((c) => AlertCard(c, !c.ch.branch))}
+          {unreadCards.map((c) => AlertCard(c, c.secId === 'user' ? false : !c.ch.branch))}
         </View>
       ) : null}
       <View style={{ gap: 6 }}>
-        {cards.filter((c) => c.unread === 0).map((c) => AlertCard(c, !c.ch.branch))}
+        {cards.filter((c) => c.unread === 0).map((c) => AlertCard(c, c.secId === 'user' ? false : !c.ch.branch))}
       </View>
     </View>
   );

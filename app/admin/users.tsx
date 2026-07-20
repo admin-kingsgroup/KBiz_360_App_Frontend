@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { User as UserIcon, Plus, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X } from 'lucide-react-native';
+import { User as UserIcon, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { pulseChannels } from '../../src/data/pulse';
@@ -184,14 +184,7 @@ export default function Users() {
           })}
         </View>
 
-        {/* Creating users is super-admin only (the API enforces it) — hide the button from others. */}
-        {isSuper ? (
-          <Pressable onPress={() => router.push('/admin/user-form')} className="flex-row items-center justify-center gap-1.5 mt-3"
-            style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary }}>
-            <Plus size={17} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Invite user · pick role & access</Text>
-          </Pressable>
-        ) : null}
+        {/* User creation moved to the "+" create hub on Home — no inline invite button here. */}
         <Pressable onPress={signOut} className="flex-row items-center justify-center gap-2 mt-3"
           style={{ height: 50, borderRadius: 999, borderWidth: 1.5, borderColor: colors.danger + '55', backgroundColor: colors.card }}>
           <LogOut size={17} color={colors.danger} />

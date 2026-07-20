@@ -41,6 +41,16 @@ export const announcementsChannel: PulseChannel = {
   description: 'Updates from the admin team', members: [],
 };
 
+// Personal "User Alerts" — every user has one; it holds alerts ABOUT them (their check-in /
+// check-out today, etc.) and only they can see it. Kept OUT of `pulseChannels` so the grant/branch
+// visibility loops never pick it up; it's rendered explicitly and resolved via `channelById`.
+// Id matches the backend's USER_ALERTS_CHANNEL_ID.
+export const userAlertsChannel: PulseChannel = {
+  id: 'user_alerts', bizId: 'tk', module: 'hr',
+  name: 'User Alerts', icon: '🔔', color: '#128C7E', tint: '#E7F3F2',
+  description: 'Your personal alerts — check-in, check-out & more', members: [],
+};
+
 // Only backend-registered channels are shown. The source app also generated one mock channel per
 // (business × enabled module) — those had no backend counterpart and rendered as permanent dummy
 // cards, so they were dropped. Re-add channels here only when the backend defines them
@@ -51,6 +61,12 @@ export const pulseChannels: PulseChannel[] = [
   ...financeAlertChannels,
   ...attendanceAlertChannels,
 ];
+
+// Resolve any channel by id — the registered channels plus the personal User Alerts channel.
+// Used by the alert detail screen (which must render user_alerts too, though it isn't in the
+// grant-visible list).
+export const channelById = (id: string): PulseChannel | undefined =>
+  id === userAlertsChannel.id ? userAlertsChannel : pulseChannels.find((c) => c.id === id);
 
 // Demo events removed — alerts now start empty until real events are wired in.
 export const pulseEvents: PulseEvent[] = [];

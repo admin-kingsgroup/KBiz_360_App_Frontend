@@ -1,6 +1,6 @@
 import '../global.css';
 import { useEffect, useState } from 'react';
-import { View, AppState } from 'react-native';
+import { View, AppState, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -152,7 +152,14 @@ export default function RootLayout() {
         <KeyboardProvider>
           <ErrorBoundary>
             <OfflineBanner />
-            {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
+            {/* App-wide: tapping empty space dismisses the keyboard. TouchableWithoutFeedback only
+                becomes the touch responder for taps NOT claimed by a child (inputs, buttons, scroll
+                views, gesture handlers all claim first) — so it never blocks interaction or scrolling. */}
+            <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
+              <View style={{ flex: 1 }}>
+                {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
+              </View>
+            </TouchableWithoutFeedback>
             {/* Global call overlays — render over any screen and survive navigation (call state
                 lives in callSessionStore). Active first so an incoming call layers above it. */}
             <ActiveCallOverlay />

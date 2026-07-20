@@ -61,6 +61,7 @@ export function connectChatSocket(): void {
   socket.on('presence:update', (p: { userId: string; status?: string; lastSeen?: number | string | null }) => store().onPresence(p));
   socket.on('chat:conversationNew', () => void store().loadConversations());
   socket.on('chat:conversationUpdated', () => void store().loadConversations());
+  socket.on('chat:conversationDeleted', () => void store().loadConversations());
 
   // Reminders: refresh the tab badge when one is assigned to me / sent back for my review.
   socket.on('reminder:new', () => void useReminderBadgeStore.getState().refresh());

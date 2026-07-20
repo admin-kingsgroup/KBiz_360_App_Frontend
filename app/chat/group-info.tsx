@@ -8,7 +8,7 @@ import { colors } from '../../src/theme';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { getConversation, updateGroup, addGroupMembers, removeGroupMember, promoteGroupAdmin, type ChatConversation } from '../../src/api/chat';
+import { getConversation, updateGroup, addGroupMembers, removeGroupMember, promoteGroupAdmin, deleteGroup, type ChatConversation } from '../../src/api/chat';
 import { listUsers, toUser } from '../../src/api/directory';
 
 export default function GroupInfo() {
@@ -71,6 +71,9 @@ export default function GroupInfo() {
   const leave = async (): Promise<void> => {
     try { await removeGroupMember(convId, meId); await useMessagingStore.getState().loadConversations(); router.replace('/(tabs)'); } catch { showToast('Could not leave group'); }
   };
+  const del = async (): Promise<void> => {
+    try { await deleteGroup(convId); await useMessagingStore.getState().loadConversations(); showToast('Group deleted'); router.replace('/(tabs)'); } catch { showToast('Could not delete group'); }
+  };
   const toggle = (uid: string): void => setSelected((s) => { const n = new Set(s); if (n.has(uid)) n.delete(uid); else n.add(uid); return n; });
 
   const confirmRemove = (uid: string): void => Alert.alert('Remove member', `Remove ${nameOf(uid)} from "${conv?.name ?? 'this group'}"?`, [
@@ -80,6 +83,10 @@ export default function GroupInfo() {
   const confirmLeave = (): void => Alert.alert('Leave group', 'You will no longer receive messages from this group.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Leave', style: 'destructive', onPress: () => void leave() },
+  ]);
+  const confirmDelete = (): void => Alert.alert('Delete group', `Delete "${conv?.name ?? 'this group'}" for everyone? This removes the group and all its messages and cannot be undone.`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: () => void del() },
   ]);
 
   return (
@@ -148,6 +155,14 @@ export default function GroupInfo() {
             <LogOut size={17} color={colors.danger} />
             <Text style={{ color: colors.danger, fontSize: 14, fontWeight: '700' }}>Leave group</Text>
           </Pressable>
+
+          {/* Delete — admins / creator / super only. Removes the group + all messages for everyone. */}
+          {canManage ? (
+            <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2" style={{ marginTop: 10, height: 50, borderRadius: 999, backgroundColor: colors.danger }}>
+              <Trash2 size={17} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Delete group</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
       )}
 
