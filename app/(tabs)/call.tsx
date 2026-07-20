@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, PhoneCall } from 'lucide-react-native';
-import { Avatar } from '../../src/components/ui';
 import { CallListItem } from '../../src/components/call';
 import { colors } from '../../src/theme';
-import { useMessagingStore } from '../../src/store/messagingStore';
 import { useCallSessionStore } from '../../src/store/callSessionStore';
 import { callManager } from '../../src/services/rtc/CallManager';
 import { callHistory, type CallLogDTO, type CallMediaType } from '../../src/api/calls';
-import { listUsers, type DirectoryUser } from '../../src/api/directory';
 import type { CallRecord, CallFilter } from '../../src/types';
 
 const PALETTE = [colors.purple, colors.blue, colors.teal, colors.orange, colors.coral, colors.ink];
@@ -35,22 +32,18 @@ const FILTERS: { key: CallFilter; label: string }[] = [
 
 export default function CallScreen() {
   const router = useRouter();
-  const myId = useMessagingStore((s) => s.myUserId);
-  const presence = useMessagingStore((s) => s.presence);
 
   const [filter, setFilter] = useState<CallFilter>('all');
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState<CallLogDTO[]>([]);
-  const [contacts, setContacts] = useState<DirectoryUser[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [h, u] = await Promise.all([callHistory({ limit: 100 }), listUsers().catch(() => [] as DirectoryUser[])]);
+      const h = await callHistory({ limit: 100 });
       setHistory(h.calls);
-      setContacts(u.filter((x) => x.id !== myId));
     } catch { /* offline / not signed in — keep current */ }
-  }, [myId]);
+  }, []);
 
   // Refetch on focus so a call you just finished (or a missed call) shows in RECENT immediately.
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -69,35 +62,34 @@ export default function CallScreen() {
   }, [history, filter, search]);
 
   const missed = useMemo(() => history.filter((h) => h.status === 'missed').length, [history]);
-  const favourites = useMemo(
-    () => [...contacts].sort((a, b) => Number(presence[b.id]?.status === 'online') - Number(presence[a.id]?.status === 'online')).slice(0, 6),
-    [contacts, presence],
-  );
 
   const startCall = (id: string, name: string, type: CallMediaType = 'voice') => { void callManager.startOutgoing({ id, name }, type); };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-      <View className="flex-row items-center justify-between px-4 pt-2 pb-3">
-        <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 26, fontWeight: '700', letterSpacing: -0.5 }}>Calls</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
+      {/* White header bar (standard chrome) */}
+      <View className="flex-row items-center justify-between px-4" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3 }}>Calls</Text>
       </View>
 
-      <View className="flex-row items-center mx-4" style={{ gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-        <Search size={16} color={colors.textMuted} />
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search calls" placeholderTextColor={colors.textMuted}
-          autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 14 }} />
+      {/* Grey pill search (Home search language) */}
+      <View className="flex-row items-center mx-4" style={{ gap: 12, paddingHorizontal: 16, height: 48, marginTop: 12, borderRadius: 999, backgroundColor: colors.coolMuted }}>
+        <Search size={19} color={colors.coolText3} strokeWidth={2.2} />
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search calls" placeholderTextColor={colors.coolText3}
+          autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 15 }} />
       </View>
 
-      <View className="flex-row px-4" style={{ gap: 8, paddingVertical: 12 }}>
+      {/* Filter chips — grey, green when active */}
+      <View className="flex-row px-4" style={{ gap: 8, paddingVertical: 10 }}>
         {FILTERS.map((f) => {
           const on = filter === f.key;
           const badge = f.key === 'missed' ? missed : 0;
           return (
-            <Pressable key={f.key} onPress={() => setFilter(f.key)} className="flex-row items-center" style={{ gap: 5, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? colors.ink : colors.card, borderWidth: 1, borderColor: on ? colors.ink : colors.cardEdge }}>
-              <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '700' }}>{f.label}</Text>
+            <Pressable key={f.key} onPress={() => setFilter(f.key)} className="flex-row items-center" style={{ gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
+              <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{f.label}</Text>
               {badge > 0 ? (
-                <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: on ? '#fff' : colors.danger, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: on ? colors.ink : '#fff', fontSize: 10, fontWeight: '800' }}>{badge}</Text>
+                <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: on ? '#fff' : '#EF4444', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: on ? colors.primary : '#fff', fontSize: 10, fontWeight: '700' }}>{badge}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -108,42 +100,23 @@ export default function CallScreen() {
       <FlatList
         data={records}
         keyExtractor={(c) => c.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.ink} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         renderItem={({ item }) => (
           <CallListItem call={item} onPress={() => router.push({ pathname: '/call/[id]', params: { id: item.id } })} onCallBack={() => startCall(item.contact.id, item.contact.name, item.type)} />
         )}
         contentContainerStyle={{ paddingBottom: 24 }}
         ListHeaderComponent={
-          <View style={{ paddingTop: 4 }}>
-            {filter === 'all' && !search && favourites.length ? (
-              <View style={{ paddingTop: 2 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, paddingHorizontal: 16, marginBottom: 6 }}>FAVOURITES</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 12 }}>
-                  {favourites.map((c) => {
-                    const online = presence[c.id]?.status === 'online';
-                    return (
-                      <Pressable key={c.id} onPress={() => startCall(c.id, c.name, 'voice')} style={{ alignItems: 'center', width: 52 }}>
-                        <View>
-                          <Avatar initials={initialsOf(c.name)} color={colorFor(c.id)} size={42} />
-                          {online ? <View style={{ position: 'absolute', right: 0, bottom: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.success, borderWidth: 2, borderColor: colors.canvas }} /> : null}
-                        </View>
-                        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 10.5, fontWeight: '600', marginTop: 5 }}>{c.name.split(' ')[0]}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null}
-
-            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 0.5, paddingHorizontal: 16, paddingTop: 18, paddingBottom: 8 }}>
-              {filter === 'missed' ? 'MISSED' : 'RECENT'}
-            </Text>
-          </View>
+          <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
+            {filter === 'missed' ? 'MISSED' : 'RECENT'}
+          </Text>
         }
         ListEmptyComponent={
-          <View style={{ alignItems: 'center', justifyContent: 'center', paddingTop: 50 }}>
-            <PhoneCall size={38} color={colors.cardEdge} />
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600', marginTop: 12 }}>{search ? 'No matching calls' : 'No calls yet'}</Text>
+          <View style={{ alignItems: 'center', justifyContent: 'center', paddingTop: 48, paddingHorizontal: 32 }}>
+            <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+              <PhoneCall size={40} color={colors.primary} />
+            </View>
+            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginTop: 16 }}>{search ? 'No matching calls' : 'No calls yet'}</Text>
+            {!search ? <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>Start a voice call from any chat — your history appears here</Text> : null}
           </View>
         }
       />

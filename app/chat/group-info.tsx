@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, Modal, ActivityIndicator, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, Modal, ActivityIndicator, ScrollView, Alert, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, UserPlus, Shield, Trash2, LogOut, Check, X, Pencil, Search } from 'lucide-react-native';
@@ -83,60 +83,60 @@ export default function GroupInfo() {
   ]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-        <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>Group info</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
+      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+        <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Group info</Text>
       </View>
 
       {loading ? (
-        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.ink} /></View>
+        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.primary} /></View>
       ) : !conv ? (
-        <View className="flex-1 items-center justify-center"><Text style={{ color: colors.textMuted }}>Group not found</Text></View>
+        <View className="flex-1 items-center justify-center"><Text style={{ color: colors.coolText }}>Group not found</Text></View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16 }}>
           {/* Group identity */}
           <View className="items-center" style={{ marginBottom: 18 }}>
-            <View style={{ width: 76, height: 76, borderRadius: 24, backgroundColor: colors.purple, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontSize: 30, fontWeight: '800' }}>{(conv.name[0] ?? 'G').toUpperCase()}</Text>
+            <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: colors.purple, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 32, fontWeight: '800' }}>{(conv.name[0] ?? 'G').toUpperCase()}</Text>
             </View>
             {editingName ? (
               <View className="flex-row items-center gap-2" style={{ marginTop: 12 }}>
-                <TextInput value={nameInput} onChangeText={setNameInput} autoFocus style={{ borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, fontSize: 16, fontWeight: '700', color: colors.ink, minWidth: 180 }} />
-                <Pressable onPress={saveName}><Check size={20} color={colors.teal} /></Pressable>
+                <TextInput value={nameInput} onChangeText={setNameInput} autoFocus style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9, fontSize: 16, fontWeight: '600', color: colors.ink, minWidth: 180 }} />
+                <Pressable onPress={saveName}><Check size={22} color={colors.primary} /></Pressable>
               </View>
             ) : (
               <Pressable disabled={!canManage} onPress={() => { setNameInput(conv.name); setEditingName(true); }} className="flex-row items-center gap-1.5" style={{ marginTop: 12 }}>
-                <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800' }}>{conv.name}</Text>
-                {canManage ? <Pencil size={14} color={colors.textMuted} /> : null}
+                <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700' }}>{conv.name}</Text>
+                {canManage ? <Pencil size={15} color={colors.coolText3} /> : null}
               </Pressable>
             )}
-            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{conv.memberCount} members</Text>
+            <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 3 }}>{conv.memberCount} members</Text>
           </View>
 
           {/* Add members */}
           {canManage ? (
-            <Pressable onPress={() => setAddOpen(true)} className="flex-row items-center gap-3 px-3 py-3" style={{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 14, marginBottom: 12 }}>
-              <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.teal, alignItems: 'center', justifyContent: 'center' }}><UserPlus size={18} color="#fff" /></View>
-              <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '700' }}>Add members</Text>
+            <Pressable onPress={() => setAddOpen(true)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-3 py-3" style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, marginBottom: 12 }}>
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><UserPlus size={20} color="#fff" /></View>
+              <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>Add members</Text>
             </Pressable>
           ) : null}
 
           {/* Members */}
-          <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>MEMBERS</Text>
-          <View style={{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
+          <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, paddingHorizontal: 2 }}>MEMBERS</Text>
+          <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
             {sorted.map((m, i) => (
-              <View key={m.userId} className="flex-row items-center gap-3 px-3 py-2.5" style={{ borderTopWidth: i ? 1 : 0, borderTopColor: colors.cardEdge }}>
-                <Avatar initials={(nameOf(m.userId)[0] ?? '?').toUpperCase()} color={colors.blue} size={36} uri={avatarOf(m.userId)} />
+              <View key={m.userId} className="flex-row items-center gap-3 px-3 py-3" style={{ borderTopWidth: i ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
+                <Avatar initials={(nameOf(m.userId)[0] ?? '?').toUpperCase()} color={colors.blue} size={44} uri={avatarOf(m.userId)} />
                 <View className="flex-1">
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{m.userId === meId ? 'You' : nameOf(m.userId)}</Text>
-                  {positionOf(m.userId) ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5, marginTop: 1 }}>{positionOf(m.userId)}</Text> : null}
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{m.userId === meId ? 'You' : nameOf(m.userId)}</Text>
+                  {positionOf(m.userId) ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{positionOf(m.userId)}</Text> : null}
                 </View>
-                {m.role === 'admin' ? <View style={{ backgroundColor: colors.purple + '1A', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 }}><Text style={{ color: colors.purple, fontSize: 10, fontWeight: '800' }}>Admin</Text></View> : null}
+                {m.role === 'admin' ? <View style={{ backgroundColor: colors.purple + '1A', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999 }}><Text style={{ color: colors.purple, fontSize: 10.5, fontWeight: '700' }}>Admin</Text></View> : null}
                 {canManage && m.userId !== meId ? (
                   <View className="flex-row items-center gap-1">
-                    {m.role !== 'admin' ? <Pressable onPress={() => promote(m.userId)} hitSlop={6} style={{ padding: 6 }}><Shield size={16} color={colors.textMuted} /></Pressable> : null}
-                    <Pressable onPress={() => confirmRemove(m.userId)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={16} color={colors.danger} /></Pressable>
+                    {m.role !== 'admin' ? <Pressable onPress={() => promote(m.userId)} hitSlop={6} style={{ padding: 6 }}><Shield size={17} color={colors.coolText3} /></Pressable> : null}
+                    <Pressable onPress={() => confirmRemove(m.userId)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable>
                   </View>
                 ) : null}
               </View>
@@ -144,9 +144,9 @@ export default function GroupInfo() {
           </View>
 
           {/* Leave */}
-          <Pressable onPress={confirmLeave} className="flex-row items-center justify-center gap-2" style={{ marginTop: 16, paddingVertical: 13, borderRadius: 13, borderWidth: 1, borderColor: colors.coral + '40' }}>
-            <LogOut size={15} color={colors.danger} />
-            <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '700' }}>Leave group</Text>
+          <Pressable onPress={confirmLeave} className="flex-row items-center justify-center gap-2" style={{ marginTop: 16, height: 50, borderRadius: 999, borderWidth: 1.5, borderColor: colors.danger + '55', backgroundColor: colors.card }}>
+            <LogOut size={17} color={colors.danger} />
+            <Text style={{ color: colors.danger, fontSize: 14, fontWeight: '700' }}>Leave group</Text>
           </Pressable>
         </ScrollView>
       )}
@@ -159,17 +159,17 @@ export default function GroupInfo() {
         >
           {/* tap the dimmed area above the sheet to dismiss */}
           <Pressable style={{ flex: 1 }} onPress={() => { setAddOpen(false); setSelected(new Set()); }} />
-          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, height: '80%', paddingBottom: 12 }}>
-            <View className="flex-row items-center justify-between px-4 py-3" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-              <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>Add members{selected.size ? ` · ${selected.size}` : ''}</Text>
+          <View style={{ backgroundColor: colors.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, height: '80%', paddingBottom: 12 }}>
+            <View className="flex-row items-center justify-between px-4 py-3" style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>Add members{selected.size ? ` · ${selected.size}` : ''}</Text>
               <View className="flex-row items-center gap-3">
-                <Pressable onPress={addSelected}><Text style={{ color: colors.teal, fontSize: 13, fontWeight: '800' }}>Add</Text></Pressable>
-                <Pressable onPress={() => { setAddOpen(false); setSelected(new Set()); }}><X size={18} color={colors.textMuted} /></Pressable>
+                <Pressable onPress={addSelected} hitSlop={8}><Text style={{ color: colors.primary, fontSize: 15, fontWeight: '700' }}>Add</Text></Pressable>
+                <Pressable onPress={() => { setAddOpen(false); setSelected(new Set()); }} hitSlop={8} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={17} color={colors.coolText} /></Pressable>
               </View>
             </View>
-            <View className="flex-row items-center gap-2 mx-4 my-2" style={{ backgroundColor: colors.canvas, borderRadius: 10, paddingHorizontal: 10 }}>
-              <Search size={14} color={colors.textMuted} />
-              <TextInput value={query} onChangeText={setQuery} placeholder="Search people" placeholderTextColor={colors.textMuted} style={{ flex: 1, paddingVertical: 8, fontSize: 13, color: colors.ink }} />
+            <View className="flex-row items-center gap-2 mx-4 my-3" style={{ backgroundColor: colors.coolMuted, borderRadius: 999, paddingHorizontal: 14 }}>
+              <Search size={17} color={colors.coolText3} strokeWidth={2.2} />
+              <TextInput value={query} onChangeText={setQuery} placeholder="Search people" placeholderTextColor={colors.coolText3} style={{ flex: 1, paddingVertical: 11, fontSize: 15, color: colors.ink }} />
             </View>
             <FlatList
               style={{ flex: 1 }}
@@ -178,15 +178,15 @@ export default function GroupInfo() {
               contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              ListEmptyComponent={<Text style={{ color: colors.textMuted, fontSize: 12, padding: 16, textAlign: 'center' }}>Everyone is already in this group</Text>}
+              ListEmptyComponent={<Text style={{ color: colors.coolText, fontSize: 13, padding: 16, textAlign: 'center' }}>Everyone is already in this group</Text>}
               renderItem={({ item: u }) => {
                 const on = selected.has(u.id);
                 return (
-                  <Pressable onPress={() => toggle(u.id)} className="flex-row items-center gap-3 px-2 py-2.5" style={{ borderRadius: 12, backgroundColor: on ? colors.ink + '0D' : 'transparent' }}>
-                    <Avatar initials={(u.name[0] ?? '?').toUpperCase()} color={colors.blue} size={34} uri={u.avatar} />
-                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600', flex: 1 }}>{u.name}</Text>
-                    <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? colors.ink : colors.cardEdge, backgroundColor: on ? colors.ink : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                      {on ? <Check size={13} color="#fff" /> : null}
+                  <Pressable onPress={() => toggle(u.id)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-2 py-2.5" style={{ borderRadius: 12, backgroundColor: on ? colors.primarySoft : 'transparent' }}>
+                    <Avatar initials={(u.name[0] ?? '?').toUpperCase()} color={colors.blue} size={44} uri={u.avatar} />
+                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{u.name}</Text>
+                    <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {on ? <Check size={14} color="#fff" /> : null}
                     </View>
                   </Pressable>
                 );

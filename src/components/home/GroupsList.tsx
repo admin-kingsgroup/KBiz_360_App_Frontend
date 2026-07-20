@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { ChevronDown, ChevronRight, Clock, Lock, MessageCircle } from 'lucide-react-native';
-import { colors, shadow } from '../../theme';
+import { colors } from '../../theme';
 import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { colorForId } from '../../logic/directory';
@@ -61,23 +61,23 @@ export function GroupsList({
 
   if (allItems.length === 0) {
     return isSuper
-      ? <Empty icon={<MessageCircle size={32} color={colors.textMuted2} />} title="No groups yet" sub="Set up this business in Profile → Businesses" />
-      : <Empty icon={<Lock size={30} color={colors.textMuted2} />} title="No groups in your access" sub="Ask your admin to grant the groups you need." />;
+      ? <Empty icon={<MessageCircle size={36} color={colors.coolText3} />} title="No groups yet" sub="Set up this business in Profile → Businesses" />
+      : <Empty icon={<Lock size={34} color={colors.coolText3} />} title="No groups in your access" sub="Ask your admin to grant the groups you need." />;
   }
 
   const manyBiz = blocks.length > 1;
   const bizDefaultOpen = !manyBiz;
 
   const GroupCard = (g: GItem) => (
-    <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} className="flex-row items-center gap-2.5 p-2.5"
-      style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16 }, shadow]}>
-      <View style={{ width: 38, height: 38, borderRadius: 14, backgroundColor: g.color, opacity: g.preview ? 1 : 0.55, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{g.icon}</Text>
+    <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
+      style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
+      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: g.color, opacity: g.preview ? 1 : 0.55, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{g.icon}</Text>
       </View>
       <View className="flex-1">
-        <Text numberOfLines={1} style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{g.name}</Text>
-        <View className="flex-row justify-between items-center gap-2 mt-0.5">
-          <Text numberOfLines={1} style={{ flex: 1, color: g.preview ? colors.warmMute : '#bdb3a0', fontSize: 11, fontStyle: g.preview ? 'normal' : 'italic' }}>{g.preview || 'No recent messages · tap to start'}</Text>
+        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{g.name}</Text>
+        <View className="flex-row justify-between items-center gap-2" style={{ marginTop: 2 }}>
+          <Text numberOfLines={1} style={{ flex: 1, color: g.preview ? colors.coolText : colors.coolText3, fontSize: 13, fontStyle: g.preview ? 'normal' : 'italic' }}>{g.preview || 'No recent messages · tap to start'}</Text>
           {g.unread ? <Unread n={g.unread} /> : null}
         </View>
       </View>
@@ -88,7 +88,7 @@ export function GroupsList({
     <View className="px-4 pt-3 pb-6" style={{ gap: 8 }}>
       {unreadCount > 0 ? (
         <View style={{ gap: 6 }}>
-          <Header dot={colors.coral} title="Unread" count={unreadCount} />
+          <Header dot={colors.primary} title="Unread" count={unreadCount} />
           {blocks.map((bl) => bl.subs.map((s) => {
             const u = s.items.filter((g) => (g.unread || 0) > 0);
             if (u.length === 0) return null;
@@ -110,25 +110,25 @@ export function GroupsList({
         const bizOpen = isOpen(bizKey, bizDefaultOpen);
         return (
           <View key={bl.id} style={{ gap: 6 }}>
-            <Pressable onPress={() => toggle(bizKey, bizDefaultOpen)} className="flex-row items-center gap-1.5 px-1 mt-1">
-              {bizOpen ? <ChevronDown size={15} color={colors.ink} /> : <ChevronRight size={15} color={colors.ink} />}
+            <Pressable onPress={() => toggle(bizKey, bizDefaultOpen)} className="flex-row items-center gap-1.5 px-1 mt-1" style={{ paddingVertical: 4 }}>
+              {bizOpen ? <ChevronDown size={17} color={colors.ink} /> : <ChevronRight size={17} color={colors.ink} />}
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: bl.color }} />
-              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{bl.label}</Text>
-              <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {total} groups</Text>
+              <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{bl.label}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {total} groups</Text>
             </Pressable>
             {bizOpen && subsR.map((s) => {
               const brKey = `${bl.id}:${s.code}`;
               const brOpen = isOpen(brKey, true);
               return (
                 <View key={brKey} style={{ gap: 6 }}>
-                  <Pressable onPress={() => toggle(brKey, true)} className="flex-row items-center gap-1.5 px-1 pl-3 mt-1">
-                    {brOpen ? <ChevronDown size={13} color={colors.warmMute} /> : <ChevronRight size={13} color={colors.warmMute} />}
+                  <Pressable onPress={() => toggle(brKey, true)} className="flex-row items-center gap-1.5 px-1 pl-3 mt-1" style={{ paddingVertical: 4 }}>
+                    {brOpen ? <ChevronDown size={15} color={colors.coolText} /> : <ChevronRight size={15} color={colors.coolText} />}
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: s.color }} />
-                    <Text style={{ color: colors.ink, fontSize: 11.5, fontWeight: '800' }}>{s.code} · {s.city}</Text>
-                    <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {s.items.length}</Text>
+                    <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '700' }}>{s.code} · {s.city}</Text>
+                    <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {s.items.length}</Text>
                     {s.time ? (
-                      <View className="flex-row items-center gap-1 ml-auto" style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.teal + '14' }}>
-                        <Clock size={9} color={colors.teal} /><Text style={{ color: colors.teal, fontSize: 9.5, fontWeight: '700' }}>{s.flag} {s.time}</Text>
+                      <View className="flex-row items-center gap-1 ml-auto" style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+                        <Clock size={11} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{s.flag} {s.time}</Text>
                       </View>
                     ) : null}
                   </Pressable>
@@ -147,8 +147,8 @@ function Header({ dot, title, count }: { dot: string; title: string; count: numb
   return (
     <View className="flex-row items-center gap-1.5 px-1">
       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dot }} />
-      <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13, fontWeight: '600' }}>{title}</Text>
-      <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {count}</Text>
+      <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {count}</Text>
     </View>
   );
 }
@@ -156,19 +156,19 @@ function SubLabel({ color, text }: { color: string; text: string }) {
   return (
     <View className="flex-row items-center gap-1.5 px-1 pl-3">
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
-      <Text style={{ color: colors.warmMute, fontSize: 11, fontWeight: '700' }}>{text}</Text>
+      <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>{text}</Text>
     </View>
   );
 }
 function Unread({ n }: { n: number }) {
-  return <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '800' }}>{n}</Text></View>;
+  return <View style={{ minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{n}</Text></View>;
 }
 function Empty({ icon, title, sub }: { icon: ReactNode; title: string; sub: string }) {
   return (
     <View className="items-center px-6" style={{ paddingVertical: 64 }}>
       <View className="mb-3">{icon}</View>
-      <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>{sub}</Text>
+      <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
     </View>
   );
 }

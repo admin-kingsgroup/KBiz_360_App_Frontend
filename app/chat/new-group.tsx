@@ -120,23 +120,23 @@ export default function NewGroup() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-        <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>New group</Text>
-        <Pressable onPress={create} disabled={creating} style={{ backgroundColor: colors.ink, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, opacity: creating ? 0.6 : 1 }}>
-          <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>{creating ? 'Creating…' : 'Create'}</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
+      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+        <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700', flex: 1 }}>New group</Text>
+        <Pressable onPress={create} disabled={creating} style={{ backgroundColor: colors.primary, height: 38, paddingHorizontal: 18, borderRadius: 999, alignItems: 'center', justifyContent: 'center', opacity: creating ? 0.6 : 1 }}>
+          <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>{creating ? 'Creating…' : 'Create'}</Text>
         </Pressable>
       </View>
 
       <View className="px-4 pt-3 pb-1">
-        <TextInput value={name} onChangeText={setName} placeholder="Group name" placeholderTextColor={colors.textMuted}
-          style={{ borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.ink, backgroundColor: '#fff', fontWeight: '700' }} />
+        <TextInput value={name} onChangeText={setName} placeholder="Group name" placeholderTextColor={colors.coolText3}
+          style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15.5, color: colors.ink, fontWeight: '500' }} />
 
         {/* Business (the group lives under business → branch → department) */}
-        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>BUSINESS</Text>
+        <Text style={labelStyle}>BUSINESS</Text>
         {companies.length === 0 ? (
-          <Text style={{ color: colors.textMuted2, fontSize: 12 }}>No businesses available</Text>
+          <Text style={{ color: colors.coolText3, fontSize: 13 }}>No businesses available</Text>
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
             {companies.map((c) => (
@@ -146,9 +146,9 @@ export default function NewGroup() {
         )}
 
         {/* Branch (only the selected business's branches) */}
-        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>BRANCH</Text>
+        <Text style={labelStyle}>BRANCH</Text>
         {branchesForCompany.length === 0 ? (
-          <Text style={{ color: colors.textMuted2, fontSize: 12 }}>{companyId ? 'No branches for this business' : 'Select a business first'}</Text>
+          <Text style={{ color: colors.coolText3, fontSize: 13 }}>{companyId ? 'No branches for this business' : 'Select a business first'}</Text>
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
             {branchesForCompany.map((b) => (
@@ -160,9 +160,9 @@ export default function NewGroup() {
         {/* Department (a group lives under a branch's department) */}
         {branchId ? (
           <>
-            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>DEPARTMENT</Text>
+            <Text style={labelStyle}>DEPARTMENT</Text>
             {departments.length === 0 ? (
-              <Text style={{ color: colors.textMuted2, fontSize: 12 }}>No departments for this branch. Create one in Departments → Manage.</Text>
+              <Text style={{ color: colors.coolText3, fontSize: 13 }}>No departments for this branch. Create one in Departments → Manage.</Text>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
                 {departments.map((d) => (
@@ -173,21 +173,21 @@ export default function NewGroup() {
           </>
         ) : null}
 
-        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>
+        <Text style={labelStyle}>
           ADD MEMBERS {selected.size > 0 ? `· ${selected.size} selected` : ''}
         </Text>
-        <View className="flex-row items-center gap-2" style={{ backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: colors.cardEdge, paddingHorizontal: 12 }}>
-          <Search size={14} color={colors.textMuted} />
-          <TextInput value={query} onChangeText={setQuery} placeholder="Search people" placeholderTextColor={colors.textMuted} style={{ flex: 1, paddingVertical: 9, fontSize: 13.5, color: colors.ink }} />
+        <View className="flex-row items-center gap-2" style={{ backgroundColor: colors.coolMuted, borderRadius: 999, paddingHorizontal: 14 }}>
+          <Search size={17} color={colors.coolText3} strokeWidth={2.2} />
+          <TextInput value={query} onChangeText={setQuery} placeholder="Search people" placeholderTextColor={colors.coolText3} style={{ flex: 1, paddingVertical: 11, fontSize: 15, color: colors.ink }} />
         </View>
       </View>
 
       {loading ? (
-        <View className="items-center" style={{ paddingVertical: 40 }}><ActivityIndicator color={colors.ink} /></View>
+        <View className="items-center" style={{ paddingVertical: 40 }}><ActivityIndicator color={colors.primary} /></View>
       ) : !branchId ? (
         <View className="items-center px-8" style={{ paddingVertical: 40 }}>
-          <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', textAlign: 'center' }}>Select a branch to choose members</Text>
-          <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>You can add anyone from that branch, plus company Directors.</Text>
+          <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700', textAlign: 'center' }}>Select a branch to choose members</Text>
+          <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 5, textAlign: 'center' }}>You can add anyone from that branch, plus company Directors.</Text>
         </View>
       ) : (
         <FlatList
@@ -196,18 +196,18 @@ export default function NewGroup() {
           contentContainerStyle={{ padding: 12, gap: 4 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          ListEmptyComponent={<Text style={{ color: colors.textMuted, fontSize: 12, padding: 16, textAlign: 'center' }}>No one to add from this branch</Text>}
+          ListEmptyComponent={<Text style={{ color: colors.coolText, fontSize: 13, padding: 16, textAlign: 'center' }}>No one to add from this branch</Text>}
           renderItem={({ item: u }) => {
             const on = selected.has(u.id);
             return (
-              <Pressable onPress={() => toggle(u.id)} className="flex-row items-center gap-3 px-2 py-2.5" style={{ borderRadius: 12, backgroundColor: on ? colors.ink + '0D' : 'transparent' }}>
-                <Avatar initials={(u.name[0] ?? '?').toUpperCase()} color={colors.blue} size={36} uri={u.avatar} />
+              <Pressable onPress={() => toggle(u.id)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-2 py-2.5" style={{ borderRadius: 12, backgroundColor: on ? colors.primarySoft : 'transparent' }}>
+                <Avatar initials={(u.name[0] ?? '?').toUpperCase()} color={colors.blue} size={44} uri={u.avatar} />
                 <View className="flex-1">
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{u.name}</Text>
-                  {u.role ? <Text style={{ color: colors.textMuted, fontSize: 10.5 }}>{u.role}</Text> : null}
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{u.name}</Text>
+                  {u.role ? <Text style={{ color: colors.coolText, fontSize: 12 }}>{u.role}</Text> : null}
                 </View>
-                <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? colors.ink : colors.cardEdge, backgroundColor: on ? colors.ink : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                  {on ? <Check size={13} color="#fff" /> : null}
+                <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {on ? <Check size={14} color="#fff" /> : null}
                 </View>
               </Pressable>
             );
@@ -218,14 +218,15 @@ export default function NewGroup() {
   );
 }
 
+const labelStyle = { color: colors.coolText, fontSize: 11, fontWeight: '700' as const, letterSpacing: 0.5, marginTop: 14, marginBottom: 6 };
+
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={{
-      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
-      backgroundColor: active ? colors.ink : '#fff',
-      borderWidth: 1, borderColor: active ? colors.ink : colors.cardEdge,
+      height: 34, paddingHorizontal: 14, borderRadius: 999, alignItems: 'center', justifyContent: 'center',
+      backgroundColor: active ? colors.primary : colors.coolMuted,
     }}>
-      <Text style={{ color: active ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: active ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
 }

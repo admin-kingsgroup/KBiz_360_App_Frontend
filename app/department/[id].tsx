@@ -68,16 +68,16 @@ export default function DepartmentDetail() {
   const deptIcon = sections[0]?.icon ?? (deptName.trim()[0] ?? '•').toUpperCase();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
       <Hdr title={deptName} subtitle={biz ? `${biz.name} · ${desc}` : desc} onBack={() => router.back()}
-        right={isSuper ? <Pressable onPress={() => router.push('/admin/departments')} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable> : undefined} />
+        right={isSuper ? <Pressable onPress={() => router.push('/admin/departments')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={20} color={colors.ink} /></Pressable> : undefined} />
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
         <View style={{ margin: 14, padding: 16, borderRadius: 16, backgroundColor: deptColor + '18' }} className="flex-row items-center gap-3">
           <View style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: deptColor, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{deptIcon}</Text></View>
           <View className="flex-1">
-            <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800', letterSpacing: -0.4 }}>{deptName}</Text>
-            <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 11.5, marginTop: 2 }}>{desc}</Text>
-            <Text style={{ color: deptColor, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 6 }}>
+            <Text style={{ color: colors.ink, fontSize: 19, fontWeight: '700', letterSpacing: -0.4 }}>{deptName}</Text>
+            <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 12.5, marginTop: 2 }}>{desc}</Text>
+            <Text style={{ color: deptColor, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.7, marginTop: 6 }}>
               {totalGroups} GROUP{totalGroups === 1 ? '' : 'S'} · {sections.length} BRANCH{sections.length === 1 ? '' : 'ES'}
             </Text>
           </View>
@@ -85,37 +85,37 @@ export default function DepartmentDetail() {
 
         {sections.length === 0 ? (
           <View className="items-center px-6" style={{ paddingVertical: 48 }}>
-            <MessageCircle size={28} color={colors.textMuted2} />
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 10 }}>No branches in your access</Text>
-            <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>This department has no branches you can see.</Text>
+            <MessageCircle size={30} color={colors.coolText3} />
+            <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '700', marginTop: 10 }}>No branches in your access</Text>
+            <Text style={{ color: colors.coolText3, fontSize: 12.5, marginTop: 4, textAlign: 'center' }}>This department has no branches you can see.</Text>
           </View>
         ) : sections.map((s) => (
           <View key={s.branchId} style={{ marginBottom: 6 }}>
-            <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 }}>{s.branchLabel.toUpperCase()}</Text>
+            <Text style={{ color: colors.coolText3, fontSize: 10.5, fontWeight: '800', letterSpacing: 1.2, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 }}>{s.branchLabel.toUpperCase()}</Text>
             <View style={{ paddingHorizontal: 14, gap: 8 }}>
               {s.groups.map((grp) => (
                 <Pressable key={grp.id} onPress={() => openChat(grp.id)} className="flex-row items-center gap-3 p-3"
-                  style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16 }, shadow]}>
-                  <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: s.color, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{s.icon}</Text>
+                  style={[{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }, shadow]}>
+                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: s.color, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{s.icon}</Text>
                   </View>
                   <View className="flex-1">
-                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>{grp.name}</Text>
-                    <Text numberOfLines={1} style={{ color: grp.preview ? colors.warmMute : '#bdb3a0', fontSize: 11, fontStyle: grp.preview ? 'normal' : 'italic', marginTop: 1 }}>{grp.preview || 'No messages yet'}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{grp.name}</Text>
+                    <Text numberOfLines={1} style={{ color: grp.preview ? colors.coolText : colors.coolText3, fontSize: 12.5, fontStyle: grp.preview ? 'normal' : 'italic', marginTop: 1 }}>{grp.preview || 'No messages yet'}</Text>
                   </View>
                   {grp.unread > 0 ? (
-                    <View style={{ minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '800' }}>{grp.unread}</Text>
+                    <View style={{ minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '800' }}>{grp.unread}</Text>
                     </View>
-                  ) : <ChevronRight size={16} color={colors.textMuted2} />}
+                  ) : <ChevronRight size={18} color={colors.coolText3} />}
                 </Pressable>
               ))}
               {/* Group creation is Super-Admin only — everyone else never sees the entry point. */}
               {isSuper ? (
                 <Pressable onPress={() => newGroup(s.branchId, s.deptId)} className="flex-row items-center justify-center gap-1.5"
-                  style={{ paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: colors.ink, borderStyle: 'dashed' }}>
-                  <Plus size={14} color={colors.ink} />
-                  <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '800' }}>New group in {deptName} · {s.branchLabel}</Text>
+                  style={{ paddingVertical: 12, borderRadius: 14, borderWidth: 1.5, borderColor: colors.primary, borderStyle: 'dashed' }}>
+                  <Plus size={16} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>New group in {deptName} · {s.branchLabel}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -128,9 +128,9 @@ export default function DepartmentDetail() {
 
 function Hdr({ title, subtitle, onBack, right }: { title: string; subtitle?: string; onBack: () => void; right?: ReactNode }) {
   return (
-    <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-      <Pressable onPress={onBack} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-      <View className="flex-1"><Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{title}</Text>{subtitle ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{subtitle}</Text> : null}</View>
+    <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      <Pressable onPress={onBack} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+      <View className="flex-1"><Text numberOfLines={1} style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>{title}</Text>{subtitle ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{subtitle}</Text> : null}</View>
       {right}
     </View>
   );

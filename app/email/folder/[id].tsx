@@ -46,14 +46,14 @@ export default function SmartFolderScreen() {
   ]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
+      <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View className="flex-1">
-          <Text numberOfLines={1} style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>{folder?.name ?? 'Folder'}</Text>
-          {folder?.from?.length ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>Auto-files mail from {folder.from.join(', ')}</Text> : null}
+          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>{folder?.name ?? 'Folder'}</Text>
+          {folder?.from?.length ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>Auto-files mail from {folder.from.join(', ')}</Text> : null}
         </View>
-        <Pressable onPress={confirmDelete} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Trash2 size={17} color={colors.danger} /></Pressable>
+        <Pressable onPress={confirmDelete} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Trash2 size={19} color={colors.danger} /></Pressable>
       </View>
 
       <FlatList
@@ -61,15 +61,15 @@ export default function SmartFolderScreen() {
         keyExtractor={(e) => e.id}
         renderItem={({ item }) => <EmailListItem email={item} folder={item.folder} onPress={() => router.push(`/email/${item.id}`)} />}
         contentContainerStyle={emails.length === 0 ? { flex: 1 } : { paddingBottom: 12 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.ink} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
         onEndReachedThreshold={0.4}
         onEndReached={() => void loadMore()}
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: 18 }} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 18 }} /> : null}
         ListEmptyComponent={
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60 }}>
-            <InboxIcon size={40} color={colors.cardEdge} />
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600', marginTop: 12 }}>{loading ? 'Loading…' : 'No mail filed here yet'}</Text>
-            {!loading ? <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center', paddingHorizontal: 32 }}>New mail from the matching senders will appear here automatically.</Text> : null}
+            <InboxIcon size={42} color={colors.coolText3} />
+            <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '600', marginTop: 12 }}>{loading ? 'Loading…' : 'No mail filed here yet'}</Text>
+            {!loading ? <Text style={{ color: colors.coolText3, fontSize: 12.5, marginTop: 4, textAlign: 'center', paddingHorizontal: 32 }}>New mail from the matching senders will appear here automatically.</Text> : null}
           </View>
         }
       />

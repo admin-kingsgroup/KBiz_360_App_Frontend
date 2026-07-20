@@ -27,20 +27,20 @@ export default function ViewAs() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center justify-between px-5 pt-3 pb-3">
-        <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800' }}>View as…</Text>
-        <Pressable onPress={() => router.back()} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F2EC' }}><X size={14} color={colors.textMuted} /></Pressable>
+        <Text style={{ color: colors.ink, fontSize: 19, fontWeight: '700' }}>View as…</Text>
+        <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={16} color={colors.coolText} /></Pressable>
       </View>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 6 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 8 }}>
         <Pressable onPress={() => pick(null)} className="flex-row items-center gap-3 p-3"
-          style={{ borderRadius: 14, borderWidth: 1, borderColor: !viewAsUser ? colors.ink : colors.cardEdge, backgroundColor: colors.card }}>
-          <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.ink }}><Eye size={16} color="#fff" /></View>
+          style={{ borderRadius: 14, borderWidth: 1, borderColor: !viewAsUser ? colors.primary : colors.coolDivider, backgroundColor: !viewAsUser ? colors.primarySoft : colors.card }}>
+          <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}><Eye size={18} color="#fff" /></View>
           <View className="flex-1">
-            <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>Your view{realUser ? ` · ${realUser.name}` : ''}</Text>
-            <Text style={{ color: colors.warmMute, fontSize: 10.5 }}>Exit preview — see everything you can access</Text>
+            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>Your view{realUser ? ` · ${realUser.name}` : ''}</Text>
+            <Text style={{ color: colors.coolText, fontSize: 12 }}>Exit preview — see everything you can access</Text>
           </View>
-          {!viewAsUser ? <Check size={16} color={colors.success} /> : null}
+          {!viewAsUser ? <Check size={18} color={colors.primary} /> : null}
         </Pressable>
 
         {users.map((u) => {
@@ -48,16 +48,16 @@ export default function ViewAs() {
           const rd = ROLE_DEFS[u.role];
           return (
             <Pressable key={u.id} onPress={() => pick(u.id)} className="flex-row items-center gap-3 p-3"
-              style={{ borderRadius: 14, borderWidth: 1, borderColor: on ? colors.purple : colors.cardEdge, backgroundColor: colors.card }}>
-              <Avatar initials={u.initials} color={u.color} size={36} />
+              style={{ borderRadius: 14, borderWidth: 1, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primarySoft : colors.card }}>
+              <Avatar initials={u.initials} color={u.color} size={40} />
               <View className="flex-1">
-                <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>{u.name}</Text>
-                <Text numberOfLines={1} style={{ color: colors.warmMute, fontSize: 10.5 }}>{u.scopeLine || rd.label}</Text>
+                <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{u.name}</Text>
+                <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{u.scopeLine || rd.label}</Text>
               </View>
-              <View style={{ backgroundColor: rd.color, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}>
-                <Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800' }}>{rd.badge}</Text>
+              <View style={{ backgroundColor: rd.color, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999 }}>
+                <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{rd.badge}</Text>
               </View>
-              {on ? <Check size={15} color={colors.purple} /> : null}
+              {on ? <Check size={17} color={colors.primary} /> : null}
             </Pressable>
           );
         })}

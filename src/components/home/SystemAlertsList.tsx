@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Bell, Paperclip, Plus } from 'lucide-react-native';
-import { colors, shadow } from '../../theme';
+import { colors } from '../../theme';
 import { businesses, branches } from '../../data/businesses';
 import { announcementsChannel, pulseChannels, moduleRank, branchOf, type PulseChannel, type PulseEvent } from '../../data/pulse';
 import { usePulseStore } from '../../store/pulseStore';
@@ -77,9 +77,9 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
   // Super-admins: compose an announcement and pick who sees it.
   const createBtn = isSuper && onCreate ? (
     <Pressable onPress={onCreate} className="flex-row items-center justify-center gap-1.5"
-      style={{ borderRadius: 14, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.cardEdge, paddingVertical: 11, backgroundColor: '#fff' }}>
-      <Plus size={15} color={colors.textMuted} />
-      <Text style={{ color: colors.textMuted, fontSize: 12.5, fontWeight: '800' }}>New alert</Text>
+      style={{ borderRadius: 999, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary, paddingVertical: 12, backgroundColor: colors.card }}>
+      <Plus size={17} color={colors.primary} />
+      <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>New alert</Text>
     </Pressable>
   ) : null;
 
@@ -87,29 +87,29 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
     return (
       <View className="px-4 pt-3 pb-6" style={{ gap: 8 }}>
         {createBtn}
-        <Empty icon={<Bell size={32} color={colors.textMuted2} />} title="No system alerts yet" sub="Alert channels appear as modules go live." />
+        <Empty icon={<Bell size={36} color={colors.coolText3} />} title="No system alerts yet" sub="Alert channels appear as modules go live." />
       </View>
     );
   }
 
   const AlertCard = (c: CardData, showCtx: boolean) => (
-    <Pressable key={c.key} onPress={() => onOpenChannel(c.ch)} className="flex-row items-center gap-2.5 p-2.5"
-      style={[{ backgroundColor: c.ch.tint, borderColor: c.ch.color + '40', borderWidth: 1, borderRadius: 16, overflow: 'hidden' }, shadow]}>
-      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: c.ch.color }} />
-      <View style={{ width: 38, height: 38, borderRadius: 13, backgroundColor: c.ch.color + '26', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 17 }}>{c.ch.icon}</Text></View>
+    <Pressable key={c.key} onPress={() => onOpenChannel(c.ch)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
+      style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
+      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: c.ch.color }} />
+      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.ch.color + '26', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 20 }}>{c.ch.icon}</Text></View>
       <View className="flex-1">
         <View className="flex-row justify-between items-baseline gap-2">
-          <Text numberOfLines={1} style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13.5, fontWeight: '600', flex: 1 }}>{showCtx ? `${c.ctx} · ${c.ch.name}` : c.ch.name}</Text>
-          {c.last ? <Text style={{ color: '#bdb3a0', fontSize: 10, fontWeight: '600' }}>{timeAgo(c.last.time)}</Text> : null}
+          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600', flex: 1 }}>{showCtx ? `${c.ctx} · ${c.ch.name}` : c.ch.name}</Text>
+          {c.last ? <Text style={{ color: c.unread > 0 ? colors.primary : colors.coolText3, fontSize: 12, fontWeight: c.unread > 0 ? '700' : '500' }}>{timeAgo(c.last.time)}</Text> : null}
         </View>
         {c.last ? (
-          <View className="flex-row justify-between items-center gap-2 mt-0.5">
-            {c.last.attachment ? <Paperclip size={11} color={colors.warmMute} /> : null}
-            <Text numberOfLines={1} style={{ flex: 1, color: colors.warmMute, fontSize: 11 }}>{c.last.title}</Text>
-            {c.unread > 0 ? <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '800' }}>{c.unread}</Text></View> : null}
+          <View className="flex-row justify-between items-center gap-2" style={{ marginTop: 2 }}>
+            {c.last.attachment ? <Paperclip size={13} color={colors.coolText} /> : null}
+            <Text numberOfLines={1} style={{ flex: 1, color: c.unread > 0 ? colors.ink : colors.coolText, fontSize: 13, fontWeight: c.unread > 0 ? '500' : '400' }}>{c.last.title}</Text>
+            {c.unread > 0 ? <View style={{ minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{c.unread}</Text></View> : null}
           </View>
         ) : (
-          <Text numberOfLines={1} style={{ color: c.ch.color, fontSize: 10, marginTop: 2 }}>{c.ch.description}</Text>
+          <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{c.ch.description}</Text>
         )}
       </View>
     </Pressable>
@@ -121,9 +121,9 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
       {unreadCards.length > 0 ? (
         <View style={{ gap: 6 }}>
           <View className="flex-row items-center gap-1.5 px-1">
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.coral }} />
-            <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13, fontWeight: '600' }}>Unread</Text>
-            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {unreadCards.length}</Text>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
+            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>Unread</Text>
+            <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {unreadCards.length}</Text>
           </View>
           {unreadCards.map((c) => AlertCard(c, !c.ch.branch))}
         </View>
@@ -139,8 +139,8 @@ function Empty({ icon, title, sub }: { icon: ReactNode; title: string; sub: stri
   return (
     <View className="items-center px-6" style={{ paddingVertical: 64 }}>
       <View className="mb-3">{icon}</View>
-      <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>{sub}</Text>
+      <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
     </View>
   );
 }

@@ -3,8 +3,8 @@ import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-na
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, useAnimatedRef, interpolate, Extrapolation, runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, Eye, UsersRound, Plus } from 'lucide-react-native';
-import { KBLogo, Pill, Toast, Skeleton, SkeletonList } from '../../src/components/ui';
+import { Search, Eye, UsersRound, Plus, MessageCircle, Mic, UserCheck, UserX } from 'lucide-react-native';
+import { KBLogo, Toast, Skeleton, SkeletonList } from '../../src/components/ui';
 import { ChatListItem } from '../../src/components/chat';
 import { GroupsList, DepartmentsList, SystemAlertsList } from '../../src/components/home';
 import { colors } from '../../src/theme';
@@ -13,7 +13,9 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useAuthStore } from '../../src/store/authStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
+import { usePulseStore } from '../../src/store/pulseStore';
 import type { ChatConversation } from '../../src/api/chat';
+import { getMyAttendance } from '../../src/api/attendance';
 import { mediaUrl } from '../../src/api/media';
 import type { PresenceInfo } from '../../src/store/messagingStore';
 import { ROLE_DEFS } from '../../src/constants/roles';
@@ -49,7 +51,7 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
 
 type Segment = 'chats' | 'groups' | 'depts' | 'pulse';
 const SEGMENTS: { k: Segment; l: string }[] = [
-  { k: 'chats', l: 'Chats' }, { k: 'groups', l: 'Groups' }, { k: 'depts', l: 'Departments' }, { k: 'pulse', l: 'System Alerts' },
+  { k: 'chats', l: 'Chats' }, { k: 'groups', l: 'Groups' }, { k: 'depts', l: 'Departments' }, { k: 'pulse', l: 'Alerts' },
 ];
 
 // Home — Phase 5: Chats segment only. Other segments are scaffolded (Phase 6).
@@ -58,6 +60,18 @@ const SEGMENTS: { k: Segment; l: string }[] = [
 export default function Home() {
   const router = useRouter();
   const [seg, setSeg] = useState<Segment>('chats');
+  // "Unread" filter chip (client-side; mirrors the mockup's chips row).
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  // Today's attendance for the header Present/Absent chip. Refetched every time Home gains focus,
+  // so punching on the Attendance screen (or the background geofence) updates the chip on return.
+  const [attToday, setAttToday] = useState<{ present: boolean; exempt: boolean } | null>(null);
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    getMyAttendance()
+      .then((m) => { if (alive) setAttToday({ present: !!m.inTime, exempt: !!m.exempt }); })
+      .catch(() => undefined); // offline → keep last known state
+    return () => { alive = false; };
+  }, []));
   // Swipeable segments (WhatsApp-style): a horizontal paging ScrollView holds the four panes; tapping
   // a tab scrolls to it, and settling on a pane after a swipe updates the active tab + underline.
   const { width } = useWindowDimensions();
@@ -134,23 +148,58 @@ export default function Home() {
   }));
   void realUser;
 
+  // Unread badges on the segment tabs — number of unread items per segment (NOT the total count).
+  // Chats/Groups = conversations with unread; Alerts = unread alert events. Departments has no
+  // cheap unread source here, so it stays badge-less.
+  const unreadEvents = usePulseStore((s) => s.events).filter((e) => !e.read).length;
+  const tabUnread: Record<Segment, number> = {
+    chats: chats.filter((c) => c.unread > 0).length,
+    groups: groupConvs.filter((g) => (g.unread || 0) > 0).length,
+    depts: 0,
+    pulse: unreadEvents,
+  };
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-      {/* Brand bar */}
-      <View className="flex-row items-center justify-between px-4 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <View className="flex-row items-center gap-2">
-          <KBLogo size={22} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
+      {/* Brand bar — white, sans-serif title, transparent icon buttons (mockup header) */}
+      <View className="flex-row items-center justify-between" style={{ backgroundColor: colors.card, paddingHorizontal: 16, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <View className="flex-row items-center" style={{ gap: 12 }}>
+          <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+            <KBLogo size={24} />
+          </View>
           <View>
-            <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 14, fontWeight: '600', letterSpacing: -0.3 }}>KBiz 360</Text>
-            <Text style={{ fontFamily: 'Fraunces', color: colors.warmMute, fontSize: 10.5, marginTop: 1 }}>Smart Connect</Text>
+            <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3, lineHeight: 24 }}>KBiz 360</Text>
+            <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 1 }}>Smart Connect</Text>
           </View>
         </View>
-        <View className="flex-row items-center gap-2">
+        <View className="flex-row items-center" style={{ gap: 6 }}>
           {/* Group creation is Super-Admin only — everyone else never sees the entry point. */}
-          {isSuper ? <Pressable onPress={() => router.push('/chat/new-group')} style={icon(colors.card)}><UsersRound size={16} color={colors.warmMute} /></Pressable> : null}
-          <Pressable onPress={() => router.push('/chat/search')} style={icon(colors.card)}><Search size={16} color={colors.warmMute} /></Pressable>
+          {isSuper ? <Pressable onPress={() => router.push('/chat/new-group')} style={ibtn}><UsersRound size={22} color={colors.ink} strokeWidth={2} /></Pressable> : null}
+          {/* Today's attendance at a glance — green Present / red Absent; tap to open Attendance.
+              Hidden for exempt users (attendance not tracked) and until the first fetch resolves. */}
+          {attToday && !attToday.exempt ? (
+            <Pressable onPress={() => router.push('/attendance')} className="flex-row items-center" style={{ height: 36, paddingHorizontal: 12, gap: 6, borderRadius: 999, marginLeft: 2, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
+              {attToday.present ? <UserCheck size={16} color={colors.primary} /> : <UserX size={16} color={colors.danger} />}
+              <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 13, fontWeight: '700' }}>{attToday.present ? 'Present' : 'Absent'}</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
+
+      {/* Search bar — grey pill (mockup), whole bar opens the search screen. Chats segment only:
+          it searches people + chat messages, so it's noise on Groups/Departments/Alerts. */}
+      {seg === 'chats' ? (
+      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
+        <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ height: 50, borderRadius: 999, backgroundColor: colors.coolMuted, paddingHorizontal: 16, gap: 12 }}>
+          <Search size={20} color={colors.coolText3} strokeWidth={2.2} />
+          <Text style={{ color: colors.coolText3, fontSize: 15, flex: 1 }}>Search chats...</Text>
+          {/* Mic goes straight to voice search — the search screen starts listening on arrival */}
+          <Pressable onPress={() => router.push({ pathname: '/chat/search', params: { voice: '1' } })} hitSlop={10}>
+            <Mic size={19} color={colors.coolText} strokeWidth={2.2} />
+          </Pressable>
+        </Pressable>
+      </View>
+      ) : null}
 
       {/* View-As banner */}
       {viewAsUser ? (
@@ -165,52 +214,79 @@ export default function Home() {
         </View>
       ) : null}
 
-      {/* Business pills (access-filtered, View-As-aware). Hidden on System Alerts — every
-          alert channel is TK, so the ALL/TK/… switcher is noise there (the alerts pane is
-          pinned to the TK branch view below). */}
+      {/* Filter chips. Chats: plain All / Unread (the DM list isn't business-scoped, so business
+          pills would be inert here). Groups/Departments: the business pills that actually filter
+          those panes (access-filtered, View-As-aware). Hidden on System Alerts. */}
       {seg !== 'pulse' ? (
-        <View className="px-4 pt-3 pb-1.5">
-          <View className="flex-row flex-wrap gap-1.5">
-            {!dir.loaded && pills.length === 0
-              ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} w={62} h={30} r={999} />)
-              : pills.map((p) => (
-                <Pill key={p.id} label={p.code} color={p.color} active={activeBizId === p.id} unread={p.unread || 0} onPress={() => setBiz(p.id)} />
-              ))}
-          </View>
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
+          {seg === 'chats' ? (
+            <>
+              <Pressable onPress={() => setUnreadOnly(false)} style={[chip, { backgroundColor: !unreadOnly ? colors.primary : colors.coolMuted }]}>
+                <Text style={{ color: !unreadOnly ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>All</Text>
+              </Pressable>
+              <Pressable onPress={() => setUnreadOnly(true)} style={[chip, { backgroundColor: unreadOnly ? colors.primary : colors.coolMuted }]}>
+                <Text style={{ color: unreadOnly ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>Unread</Text>
+              </Pressable>
+            </>
+          ) : !dir.loaded && pills.length === 0 ? (
+            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} w={64} h={34} r={999} />)
+          ) : (
+            pills.map((p) => {
+              const on = activeBizId === p.id;
+              return (
+                <Pressable key={p.id} onPress={() => setBiz(p.id)} style={[chip, { backgroundColor: on ? colors.primary : colors.coolMuted }]}>
+                  <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{p.id === 'all' ? 'All' : p.code}</Text>
+                </Pressable>
+              );
+            })
+          )}
+        </ScrollView>
       ) : null}
 
       {/* Segment tabs — tap to switch; the underline slides live as you swipe the panes below */}
-      <View className="flex-row gap-4 px-4 pt-1" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        {SEGMENTS.map((s, i) => {
-          const on = s.k === seg;
-          return (
-            <Pressable
-              key={s.k}
-              onPress={() => goToSeg(s.k)}
-              className="pb-1.5"
-              onLayout={(e) => {
-                const { x, width: w } = e.nativeEvent.layout;
-                setTabLayouts((prev) => {
-                  if (prev[i] && prev[i]!.x === x && prev[i]!.width === w) return prev;
-                  const n = prev.slice();
-                  n[i] = { x, width: w };
-                  return n;
-                });
-              }}
-            >
-              <Text style={{ fontFamily: 'Fraunces', fontSize: 14, color: on ? colors.ink : colors.warmMute, fontWeight: on ? '700' : '400' }}>{s.l}</Text>
-            </Pressable>
-          );
-        })}
-        {tabsReady ? (
-          <Animated.View
-            style={[
-              { position: 'absolute', left: 0, bottom: 0, height: 2, borderRadius: 2, backgroundColor: colors.ink },
-              underlineStyle,
-            ]}
-          />
-        ) : null}
+      <View style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 14, alignItems: 'flex-end' }}
+        >
+          {SEGMENTS.map((s, i) => {
+            const on = s.k === seg;
+            const unread = tabUnread[s.k];
+            return (
+              <Pressable
+                key={s.k}
+                onPress={() => goToSeg(s.k)}
+                className="flex-row items-center"
+                style={{ gap: 6, height: 44 }}
+                onLayout={(e) => {
+                  const { x, width: w } = e.nativeEvent.layout;
+                  setTabLayouts((prev) => {
+                    if (prev[i] && prev[i]!.x === x && prev[i]!.width === w) return prev;
+                    const n = prev.slice();
+                    n[i] = { x, width: w };
+                    return n;
+                  });
+                }}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '600', color: on ? colors.primary : colors.coolText }}>{s.l}</Text>
+                {unread > 0 ? (
+                  <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{unread > 99 ? '99+' : unread}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+          {tabsReady ? (
+            <Animated.View
+              style={[
+                { position: 'absolute', left: 0, bottom: 0, height: 3, borderRadius: 3, backgroundColor: colors.primary },
+                underlineStyle,
+              ]}
+            />
+          ) : null}
+        </ScrollView>
       </View>
 
       {/* Swipeable content — swipe left/right to move between Chats · Groups · Departments · System Alerts */}
@@ -225,16 +301,26 @@ export default function Home() {
             onScroll={onPagerScroll}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Chats */}
-            <View style={{ width, height: pagerH }}>
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: 8, gap: 6 }}>
-                {chats.length === 0 ? (
-                  <View className="items-center" style={{ paddingVertical: 56 }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No conversations yet</Text>
-                    <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>Open Profile → Team &amp; Users and tap someone to start chatting.</Text>
+            {/* Chats — flat full-width white rows on the cool canvas (mockup list), flush under the tabs */}
+            <View style={{ width, height: pagerH, backgroundColor: colors.coolBg }}>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
+                {(unreadOnly ? chats.filter((c) => c.unread > 0) : chats).length === 0 ? (
+                  <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
+                    <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                      <MessageCircle size={50} color={colors.primary} />
+                    </View>
+                    <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{unreadOnly ? 'No unread chats' : 'No conversations'}</Text>
+                    <Text style={{ color: colors.coolText, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>Your conversations will appear here.</Text>
+                    <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: colors.primary }}>
+                      <Plus size={20} color="#fff" />
+                      <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
+                    </Pressable>
                   </View>
-                ) : null}
-                {chats.map((c) => <ChatListItem key={c.id} chat={c} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })} />)}
+                ) : (
+                  (unreadOnly ? chats.filter((c) => c.unread > 0) : chats).map((c, i) => (
+                    <ChatListItem key={c.id} chat={c} topDivider={i > 0} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })} />
+                  ))
+                )}
               </ScrollView>
             </View>
 
@@ -272,9 +358,9 @@ export default function Home() {
                 )}
                 {isSuper ? (
                   <View className="px-4 pb-6 pt-1">
-                    <Pressable onPress={() => router.push('/admin/departments')} className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 12, borderRadius: 13, borderWidth: 1, borderColor: colors.ink, borderStyle: 'dashed' }}>
-                      <Plus size={15} color={colors.ink} />
-                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>Create / manage departments</Text>
+                    <Pressable onPress={() => router.push('/admin/departments')} className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 12, borderRadius: 999, borderWidth: 1.5, borderColor: colors.primary, borderStyle: 'dashed', backgroundColor: colors.card }}>
+                      <Plus size={17} color={colors.primary} />
+                      <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>Create / manage departments</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -296,4 +382,6 @@ export default function Home() {
   );
 }
 
-const icon = (bg: string) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: bg, borderWidth: 1, borderColor: colors.cardEdge });
+// Transparent 40px header icon button + 34px filter chip (mockup dimensions).
+const ibtn = { width: 40, height: 40, borderRadius: 20, alignItems: 'center' as const, justifyContent: 'center' as const };
+const chip = { height: 34, paddingHorizontal: 16, borderRadius: 999, alignItems: 'center' as const, justifyContent: 'center' as const };

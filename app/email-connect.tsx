@@ -41,8 +41,8 @@ export default function EmailConnect() {
   }, [code, error, router]);
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.canvas }}>
-      <ActivityIndicator color={colors.ink} />
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolBg }}>
+      <ActivityIndicator color={colors.primary} />
     </View>
   );
 }

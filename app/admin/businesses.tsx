@@ -51,44 +51,45 @@ export default function Businesses() {
   const branchCount = (companyId: string) => branches.filter((b) => b.companyId === companyId).length;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: colors.card }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
+      {/* Standard white header */}
+      <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View className="flex-1">
-          <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>Businesses</Text>
-          <Text style={{ color: colors.warmMute, fontSize: 10.5 }}>{loading ? 'Loading…' : `${companies.length} shown`}</Text>
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Businesses</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12 }}>{loading ? 'Loading…' : `${companies.length} shown`}</Text>
         </View>
         {isSuper ? (
-          <Pressable onPress={() => setCreating(true)} hitSlop={6} className="flex-row items-center gap-1 px-3" style={{ paddingVertical: 8, borderRadius: 10, backgroundColor: colors.ink, marginRight: 8 }}>
-            <Plus size={14} color="#fff" /><Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '800' }}>New</Text>
+          <Pressable onPress={() => setCreating(true)} hitSlop={6} className="flex-row items-center gap-1" style={{ height: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primary, marginRight: 8 }}>
+            <Plus size={15} color="#fff" /><Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>New</Text>
           </Pressable>
         ) : null}
       </View>
 
       {loading ? (
         <View className="items-center" style={{ paddingVertical: 56 }}>
-          <ActivityIndicator color={colors.ink} />
-          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 10 }}>Loading businesses…</Text>
+          <ActivityIndicator color={colors.primary} />
+          <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 10 }}>Loading businesses…</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 14, gap: 8 }}>
+        <ScrollView contentContainerStyle={{ padding: 14, gap: 10 }}>
           {companies.map((c, i) => {
             const color = PALETTE[i % PALETTE.length];
             const n = branchCount(c.id);
             return (
-              <Pressable key={c.id} onPress={() => router.push({ pathname: '/business/[id]', params: { id: c.id } })} className="flex-row items-center gap-3 p-3" style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-                <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>{codeFromName(c.name)}</Text></View>
-                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{c.name}</Text><Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{n} branch{n === 1 ? '' : 'es'}{c.status ? ` · ${c.status}` : ''}</Text></View>
-                <ChevronRight size={14} color={colors.textMuted} />
+              <Pressable key={c.id} onPress={() => router.push({ pathname: '/business/[id]', params: { id: c.id } })} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
+                <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{codeFromName(c.name)}</Text></View>
+                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{c.name}</Text><Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{n} branch{n === 1 ? '' : 'es'}{c.status ? ` · ${c.status}` : ''}</Text></View>
+                <ChevronRight size={18} color={colors.coolText3} />
               </Pressable>
             );
           })}
           {companies.length === 0 ? (
-            <View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.textMuted, fontSize: 13 }}>No businesses in your scope</Text></View>
+            <View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No businesses in your scope</Text></View>
           ) : null}
           {isSuper ? (
-            <Pressable onPress={() => setCreating(true)} className="flex-row items-center justify-center gap-1.5 mt-1" style={{ paddingVertical: 13, borderRadius: 13, backgroundColor: colors.ink }}>
-              <Plus size={15} color="#fff" /><Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>New business</Text>
+            <Pressable onPress={() => setCreating(true)} className="flex-row items-center justify-center gap-1.5 mt-1" style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary }}>
+              <Plus size={17} color="#fff" /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>New business</Text>
             </Pressable>
           ) : null}
         </ScrollView>
@@ -97,17 +98,17 @@ export default function Businesses() {
       {/* Create business */}
       <Modal visible={creating} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setCreating(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18 }}>
             <View className="flex-row items-center justify-between" style={{ marginBottom: 12 }}>
-              <View className="flex-row items-center gap-1.5"><Building2 size={15} color={colors.ink} /><Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>New business</Text></View>
-              <Pressable onPress={() => setCreating(false)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+              <View className="flex-row items-center gap-2"><Building2 size={18} color={colors.primary} /><Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>New business</Text></View>
+              <Pressable onPress={() => setCreating(false)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
             </View>
-            <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 }}>BUSINESS NAME</Text>
-            <TextInput value={nameInput} onChangeText={setNameInput} autoFocus placeholder="e.g. Travkings Logistics" placeholderTextColor={colors.textMuted}
-              style={{ borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.ink, fontWeight: '700' }} />
-            <Text style={{ color: colors.textMuted2, fontSize: 10, marginTop: 8 }}>The business is added to the company directory and the ERP. Branches can be attached from the ERP.</Text>
-            <Pressable onPress={saveBusiness} disabled={saving} style={{ marginTop: 14, backgroundColor: colors.ink, borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: saving ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{saving ? 'Creating…' : 'Create business'}</Text>
+            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 }}>BUSINESS NAME</Text>
+            <TextInput value={nameInput} onChangeText={setNameInput} autoFocus placeholder="e.g. Travkings Logistics" placeholderTextColor={colors.coolText3}
+              style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, fontWeight: '500' }} />
+            <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 8 }}>The business is added to the company directory and the ERP. Branches can be attached from the ERP.</Text>
+            <Pressable onPress={saveBusiness} disabled={saving} style={{ marginTop: 16, backgroundColor: colors.primary, borderRadius: 999, height: 48, alignItems: 'center', justifyContent: 'center', opacity: saving ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{saving ? 'Creating…' : 'Create business'}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

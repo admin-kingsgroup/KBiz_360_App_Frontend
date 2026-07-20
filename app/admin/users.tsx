@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { User as UserIcon, Plus, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X } from 'lucide-react-native';
@@ -117,51 +117,52 @@ export default function Users() {
   const signOut = () => { void authApi.logout(); showToast('Signed out'); };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: colors.card }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
+      {/* Standard white header */}
+      <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View>
-          <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>Team & Users</Text>
-          <Text style={{ color: colors.warmMute, fontSize: 10.5 }}>{users.length} shown</Text>
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Team & Users</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12 }}>{users.length} shown</Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 32 }}>
         {loading && users.length === 0 ? (
           <View className="items-center" style={{ paddingVertical: 40 }}>
-            <ActivityIndicator color={colors.ink} />
-            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 10 }}>Loading team…</Text>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 10 }}>Loading team…</Text>
           </View>
         ) : null}
-        <View className="flex-row items-center gap-1.5 mb-1">
-          <UserIcon size={11} color={colors.textMuted} />
-          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 }}>ALL USERS · {users.length}</Text>
+        <View className="flex-row items-center gap-1.5 mb-2 px-1">
+          <UserIcon size={12} color={colors.coolText} />
+          <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>ALL USERS · {users.length}</Text>
         </View>
 
-        <View style={{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
+        <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
           {users.map((u, i) => {
             return (
-              <Pressable key={u.id} onPress={() => openUser(u.id, u.name)} className="flex-row items-center gap-2.5 px-3.5 py-2.5"
-                style={{ borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
-                <Avatar initials={u.initials} color={u.color} size={36} uri={u.avatar} />
+              <Pressable key={u.id} onPress={() => openUser(u.id, u.name)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-3.5 py-3"
+                style={{ borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
+                <Avatar initials={u.initials} color={u.color} size={44} uri={u.avatar} />
                 <View className="flex-1">
-                  <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>{u.name}</Text>
+                  <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{u.name}</Text>
                   {/* Show the POSITION (job title) when set; otherwise the real CRM role (e.g. "Company Manager"). */}
                   {u.position
-                    ? <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 10.5, marginTop: 2, fontWeight: '600' }}>{u.position}</Text>
-                    : (u.roleName || u.scopeLine) ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5, marginTop: 2 }}>{u.roleName || u.scopeLine}</Text> : null}
+                    ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 1 }}>{u.position}</Text>
+                    : (u.roleName || u.scopeLine) ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 1 }}>{u.roleName || u.scopeLine}</Text> : null}
                 </View>
                 {/* Super-admin: full editor (role, branches, password, status) + position (job title). */}
                 {isSuper ? (
                   <View onStartShouldSetResponder={() => true} className="flex-row items-center">
-                    <Pressable onPress={() => router.push({ pathname: '/admin/user-form', params: { id: u.id } })} hitSlop={8} style={{ padding: 5 }}>
-                      <Edit3 size={15} color={colors.ink} />
+                    <Pressable onPress={() => router.push({ pathname: '/admin/user-form', params: { id: u.id } })} hitSlop={8} style={{ padding: 6 }}>
+                      <Edit3 size={17} color={colors.ink} />
                     </Pressable>
-                    <Pressable onPress={() => openPosition(u)} hitSlop={8} style={{ padding: 5 }}>
-                      <BriefcaseBusiness size={15} color={colors.teal} />
+                    <Pressable onPress={() => openPosition(u)} hitSlop={8} style={{ padding: 6 }}>
+                      <BriefcaseBusiness size={17} color={colors.primary} />
                     </Pressable>
-                    <Pressable onPress={() => setAlertsUser(u)} hitSlop={8} style={{ padding: 5 }}>
-                      <Bell size={15} color={(alertGrants[u.id] || []).length ? colors.orange : colors.textMuted} />
+                    <Pressable onPress={() => setAlertsUser(u)} hitSlop={8} style={{ padding: 6 }}>
+                      <Bell size={17} color={(alertGrants[u.id] || []).length ? colors.orange : colors.coolText3} />
                     </Pressable>
                   </View>
                 ) : null}
@@ -172,11 +173,11 @@ export default function Users() {
                     <Switch
                       value={appAccess[u.id] !== false}
                       onValueChange={(v) => toggleAccess(u.id, v)}
-                      trackColor={{ true: colors.success, false: colors.cardEdge }}
+                      trackColor={{ true: colors.primary, false: colors.coolDivider }}
                     />
                   </View>
                 ) : !isSuper ? (
-                  <Edit3 size={13} color={colors.textMuted} />
+                  <Edit3 size={15} color={colors.coolText3} />
                 ) : null}
               </Pressable>
             );
@@ -186,44 +187,44 @@ export default function Users() {
         {/* Creating users is super-admin only (the API enforces it) — hide the button from others. */}
         {isSuper ? (
           <Pressable onPress={() => router.push('/admin/user-form')} className="flex-row items-center justify-center gap-1.5 mt-3"
-            style={{ paddingVertical: 13, borderRadius: 13, backgroundColor: colors.ink }}>
-            <Plus size={15} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>Invite user · pick role & access</Text>
+            style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary }}>
+            <Plus size={17} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Invite user · pick role & access</Text>
           </Pressable>
         ) : null}
         <Pressable onPress={signOut} className="flex-row items-center justify-center gap-2 mt-3"
-          style={{ paddingVertical: 13, borderRadius: 13, borderWidth: 1, borderColor: colors.coral + '40' }}>
-          <LogOut size={14} color={colors.danger} />
-          <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '700' }}>Sign out → back to Login</Text>
+          style={{ height: 50, borderRadius: 999, borderWidth: 1.5, borderColor: colors.danger + '55', backgroundColor: colors.card }}>
+          <LogOut size={17} color={colors.danger} />
+          <Text style={{ color: colors.danger, fontSize: 14, fontWeight: '700' }}>Sign out</Text>
         </Pressable>
       </ScrollView>
 
       {/* System-alert channel access (super-admin): which channels this user sees on Home. */}
       <Modal visible={!!alertsUser} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAlertsUser(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18 }}>
             <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
-              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>System Alerts</Text>
-              <Pressable onPress={() => setAlertsUser(null)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>System Alerts</Text>
+              <Pressable onPress={() => setAlertsUser(null)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
             </View>
-            <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11.5, marginBottom: 10 }}>
+            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 10 }}>
               {alertsUser?.name}{alertsUser?.roleName ? ` · ${alertsUser.roleName}` : ''}
             </Text>
             {channelOptions.map((opt, i) => (
               <View key={opt.grant} className="flex-row items-center gap-3"
-                style={{ paddingVertical: 9, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
-                <Text style={{ fontSize: 16 }}>{opt.icon}</Text>
-                <Text style={{ flex: 1, color: colors.ink, fontSize: 13, fontWeight: '700' }}>{opt.name}</Text>
+                style={{ paddingVertical: 10, borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
+                <Text style={{ fontSize: 18 }}>{opt.icon}</Text>
+                <Text style={{ flex: 1, color: colors.ink, fontSize: 14, fontWeight: '600' }}>{opt.name}</Text>
                 {alertsUser ? (
                   <Switch
                     value={(alertGrants[alertsUser.id] || []).includes(opt.grant)}
                     onValueChange={(v) => toggleAlertGrant(alertsUser.id, opt.grant, v)}
-                    trackColor={{ true: colors.success, false: colors.cardEdge }}
+                    trackColor={{ true: colors.primary, false: colors.coolDivider }}
                   />
                 ) : null}
               </View>
             ))}
-            <Text style={{ color: colors.textMuted2, fontSize: 10.5, marginTop: 10 }}>
+            <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 10 }}>
               Changes apply instantly on the user&apos;s phone. Super-admins always see every channel regardless of these switches.
             </Text>
           </View>
@@ -233,12 +234,12 @@ export default function Users() {
       {/* Position editor (super-admin) */}
       <Modal visible={!!editing} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditing(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18 }}>
             <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
-              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>Position</Text>
-              <Pressable onPress={() => setEditing(null)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>Position</Text>
+              <Pressable onPress={() => setEditing(null)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
             </View>
-            <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11.5, marginBottom: 12 }}>
+            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 12 }}>
               {editing?.name}{editing?.roleName ? ` · ${editing.roleName}` : ''}
             </Text>
             <TextInput
@@ -246,30 +247,30 @@ export default function Users() {
               onChangeText={setPosInput}
               autoFocus
               placeholder="e.g. Senior Finance Manager"
-              placeholderTextColor={colors.textMuted}
-              style={{ borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.ink, fontWeight: '600' }}
+              placeholderTextColor={colors.coolText3}
+              style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, fontWeight: '500' }}
               onSubmitEditing={savePosition}
               returnKeyType="done"
             />
-            <Text style={{ color: colors.textMuted2, fontSize: 10.5, marginTop: 8 }}>This is a display title only — it does not change the user&apos;s role or access. Leave blank to clear.</Text>
+            <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 8 }}>This is a display title only — it does not change the user&apos;s role or access. Leave blank to clear.</Text>
 
             {/* Attendance tracking toggle (saves immediately) */}
-            <View className="flex-row items-center gap-3" style={{ marginTop: 14, paddingTop: 14, borderTopColor: colors.cardEdge, borderTopWidth: 1 }}>
+            <View className="flex-row items-center gap-3" style={{ marginTop: 14, paddingTop: 14, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
               <View className="flex-1">
-                <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '700' }}>Take attendance</Text>
-                <Text style={{ color: colors.textMuted2, fontSize: 10.5, marginTop: 2 }}>Off = exempt (no check-in/out, hidden from the team list).</Text>
+                <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>Take attendance</Text>
+                <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 2 }}>Off = exempt (no check-in/out, hidden from the team list).</Text>
               </View>
               {editing ? (
                 <Switch
                   value={tracking[editing.id] !== false}
                   onValueChange={(v) => toggleTracking(editing.id, v)}
-                  trackColor={{ true: colors.success, false: colors.cardEdge }}
+                  trackColor={{ true: colors.primary, false: colors.coolDivider }}
                 />
               ) : null}
             </View>
 
-            <Pressable onPress={savePosition} disabled={savingPos} style={{ marginTop: 14, backgroundColor: colors.ink, borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: savingPos ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{savingPos ? 'Saving…' : 'Save position'}</Text>
+            <Pressable onPress={savePosition} disabled={savingPos} style={{ marginTop: 16, backgroundColor: colors.primary, borderRadius: 999, height: 48, alignItems: 'center', justifyContent: 'center', opacity: savingPos ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{savingPos ? 'Saving…' : 'Save position'}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

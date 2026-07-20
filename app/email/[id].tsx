@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, Star, Trash2, RotateCcw, MailOpen, Reply, ReplyAll, Forward, Paperclip, Download, Pencil } from 'lucide-react-native';
@@ -38,10 +38,10 @@ export default function EmailDetail() {
 
   if (!email) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: colors.textMuted }}>Message not found</Text>
-          <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}><Text style={{ color: colors.blue, fontWeight: '700' }}>Go back</Text></Pressable>
+          <Text style={{ color: colors.coolText }}>Message not found</Text>
+          <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}><Text style={{ color: colors.primary, fontWeight: '700' }}>Go back</Text></Pressable>
         </View>
       </SafeAreaView>
     );
@@ -78,40 +78,40 @@ export default function EmailDetail() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
       {/* Header actions */}
-      <View className="flex-row items-center px-2 py-2" style={{ gap: 2, backgroundColor: colors.card, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={iconBtn}><ChevronLeft size={22} color={colors.ink} /></Pressable>
+      <View className="flex-row items-center px-2 py-2" style={{ gap: 2, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={iconBtn}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View style={{ flex: 1 }} />
-        <Pressable onPress={() => toggleStar(email.id)} style={iconBtn}><Star size={19} color={email.starred ? colors.orange : colors.ink} fill={email.starred ? colors.orange : 'transparent'} /></Pressable>
-        <Pressable onPress={() => { toggleRead(email.id); showToast(email.read ? 'Marked unread' : 'Marked read'); }} style={iconBtn}><MailOpen size={19} color={colors.ink} /></Pressable>
+        <Pressable onPress={() => toggleStar(email.id)} style={iconBtn}><Star size={20} color={email.starred ? colors.orange : colors.ink} fill={email.starred ? colors.orange : 'transparent'} /></Pressable>
+        <Pressable onPress={() => { toggleRead(email.id); showToast(email.read ? 'Marked unread' : 'Marked read'); }} style={iconBtn}><MailOpen size={20} color={colors.ink} /></Pressable>
         {inTrash ? (
           <>
-            <Pressable onPress={restore} style={iconBtn}><RotateCcw size={19} color={colors.ink} /></Pressable>
-            <Pressable onPress={purge} style={iconBtn}><Trash2 size={19} color={colors.danger} /></Pressable>
+            <Pressable onPress={restore} style={iconBtn}><RotateCcw size={20} color={colors.ink} /></Pressable>
+            <Pressable onPress={purge} style={iconBtn}><Trash2 size={20} color={colors.danger} /></Pressable>
           </>
         ) : (
-          <Pressable onPress={trash} style={iconBtn}><Trash2 size={19} color={colors.ink} /></Pressable>
+          <Pressable onPress={trash} style={iconBtn}><Trash2 size={20} color={colors.ink} /></Pressable>
         )}
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 28 }}>
-        <Text style={{ color: colors.ink, fontSize: 21, fontWeight: '800', letterSpacing: -0.3, lineHeight: 28 }}>{email.subject}</Text>
+        <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3, lineHeight: 29 }}>{email.subject}</Text>
 
         {/* Sender */}
         <View className="flex-row items-center" style={{ gap: 12, marginTop: 16 }}>
-          <Avatar initials={initialsOf(email.from)} color={email.color} size={44} />
+          <Avatar initials={initialsOf(email.from)} color={email.color} size={46} />
           <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14.5, fontWeight: '800' }}>{email.from.name}</Text>
-            <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 12 }}>{email.from.email}</Text>
+            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{email.from.name}</Text>
+            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{email.from.email}</Text>
           </View>
-          <Text style={{ color: colors.textMuted, fontSize: 11.5, fontWeight: '600' }}>{relativeTime(email.ts, Date.now())}</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{relativeTime(email.ts, Date.now())}</Text>
         </View>
-        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+        <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 8 }}>
           To: {email.to.map((a) => a.name).join(', ')}{email.cc?.length ? `  ·  Cc: ${email.cc.map((a) => a.name).join(', ')}` : ''}
         </Text>
 
-        <View style={{ height: 1, backgroundColor: colors.cardEdge, marginVertical: 16 }} />
+        <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.coolDivider, marginVertical: 16 }} />
 
         {/* Body — HTML via WebView, plain text otherwise */}
         <EmailBody body={email.body} bodyType={email.bodyType} />
@@ -119,15 +119,15 @@ export default function EmailDetail() {
         {/* Attachments (tap to download + open) */}
         {attachments.length ? (
           <View style={{ marginTop: 20, gap: 8 }}>
-            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 0.4 }}>{attachments.length} ATTACHMENT{attachments.length > 1 ? 'S' : ''}</Text>
+            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 }}>{attachments.length} ATTACHMENT{attachments.length > 1 ? 'S' : ''}</Text>
             {attachments.map((at) => (
-              <Pressable key={at.id} onPress={() => openAttachment(at)} className="flex-row items-center" style={{ gap: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-                <Paperclip size={16} color={colors.textMuted} />
+              <Pressable key={at.id} onPress={() => openAttachment(at)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center" style={{ gap: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
+                <Paperclip size={17} color={colors.coolText} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{at.name}</Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 11 }}>{humanSize(at.size)}</Text>
+                  <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{at.name}</Text>
+                  <Text style={{ color: colors.coolText, fontSize: 11.5 }}>{humanSize(at.size)}</Text>
                 </View>
-                <Download size={16} color={downloading === at.id ? colors.textMuted : colors.blue} />
+                <Download size={17} color={downloading === at.id ? colors.coolText3 : colors.primary} />
               </Pressable>
             ))}
           </View>
@@ -136,14 +136,14 @@ export default function EmailDetail() {
 
       {/* Bottom bar — pad the bottom by the safe-area inset so the buttons clear the Android nav bar.
           Drafts get a single "Edit draft" action (reply/forward make no sense for an unsent message). */}
-      <View className="flex-row" style={{ gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: insets.bottom + 12, backgroundColor: colors.card, borderTopColor: colors.cardEdge, borderTopWidth: 1 }}>
+      <View className="flex-row" style={{ gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: insets.bottom + 12, backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
         {isDraft ? (
-          <ActionBtn icon={<Pencil size={16} color="#fff" />} label="Edit draft" primary onPress={editDraft} />
+          <ActionBtn icon={<Pencil size={17} color="#fff" />} label="Edit draft" primary onPress={editDraft} />
         ) : (
           <>
-            <ActionBtn icon={<Reply size={16} color="#fff" />} label="Reply" primary onPress={() => reply(false)} />
-            <ActionBtn icon={<ReplyAll size={16} color={colors.ink} />} label="Reply all" onPress={() => reply(true)} />
-            <ActionBtn icon={<Forward size={16} color={colors.ink} />} label="Forward" onPress={forward} />
+            <ActionBtn icon={<Reply size={17} color="#fff" />} label="Reply" primary onPress={() => reply(false)} />
+            <ActionBtn icon={<ReplyAll size={17} color={colors.primary} />} label="Reply all" onPress={() => reply(true)} />
+            <ActionBtn icon={<Forward size={17} color={colors.primary} />} label="Forward" onPress={forward} />
           </>
         )}
       </View>
@@ -151,13 +151,13 @@ export default function EmailDetail() {
   );
 }
 
-const iconBtn = { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' } as const;
+const iconBtn = { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' } as const;
 
 function ActionBtn({ icon, label, onPress, primary }: { icon: ReactNode; label: string; onPress: () => void; primary?: boolean }) {
   return (
-    <Pressable onPress={onPress} className="flex-1 flex-row items-center justify-center" style={{ gap: 6, paddingVertical: 12, borderRadius: 13, backgroundColor: primary ? colors.ink : colors.canvas, borderWidth: 1, borderColor: primary ? colors.ink : colors.cardEdge }}>
+    <Pressable onPress={onPress} className="flex-1 flex-row items-center justify-center" style={{ gap: 6, height: 46, borderRadius: 999, backgroundColor: primary ? colors.primary : colors.card, borderWidth: primary ? 0 : 1.5, borderColor: colors.primary + '55' }}>
       {icon}
-      <Text style={{ color: primary ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: primary ? '#fff' : colors.primary, fontSize: 13, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }

@@ -100,28 +100,28 @@ export default function EmailScreen() {
 
   // ── checking connection ──
   if (connected === null) {
-    return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={colors.ink} /></SafeAreaView>;
+    return <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={colors.primary} /></SafeAreaView>;
   }
 
   // ── not connected: connect Microsoft account ──
   if (!connected) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
         <View className="flex-1 items-center justify-center px-8">
-          <View style={{ width: 84, height: 84, borderRadius: 26, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}><Mail size={36} color="#fff" /></View>
-          <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 22, fontWeight: '700', marginTop: 20 }}>Connect your email</Text>
-          <Text style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 8, lineHeight: 19 }}>
+          <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}><Mail size={46} color={colors.primary} /></View>
+          <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>Connect your email</Text>
+          <Text style={{ color: colors.coolText, fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
             Sign in with your Microsoft 365 account to read and send your work email inside KBiz360. Only you can access your mailbox.
           </Text>
           {ms.configured ? (
             <Pressable onPress={ms.connect} disabled={!ms.ready || ms.connecting}
-              className="flex-row items-center" style={{ gap: 8, marginTop: 24, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 14, backgroundColor: colors.ink, opacity: !ms.ready || ms.connecting ? 0.6 : 1 }}>
-              {ms.connecting ? <ActivityIndicator color="#fff" size="small" /> : <Mail size={16} color="#fff" />}
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>{ms.connecting ? 'Connecting…' : 'Connect Microsoft 365'}</Text>
+              className="flex-row items-center" style={{ gap: 8, marginTop: 24, paddingHorizontal: 24, height: 50, borderRadius: 999, backgroundColor: colors.primary, opacity: !ms.ready || ms.connecting ? 0.6 : 1 }}>
+              {ms.connecting ? <ActivityIndicator color="#fff" size="small" /> : <Mail size={18} color="#fff" />}
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{ms.connecting ? 'Connecting…' : 'Connect Microsoft 365'}</Text>
             </Pressable>
           ) : (
-            <View style={{ marginTop: 24, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-              <Text style={{ color: colors.warmMute, fontSize: 12, textAlign: 'center' }}>Email isn&apos;t set up yet — your administrator needs to finish the Microsoft configuration.</Text>
+            <View style={{ marginTop: 24, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
+              <Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center' }}>Email isn&apos;t set up yet — your administrator needs to finish the Microsoft configuration.</Text>
             </View>
           )}
         </View>
@@ -131,50 +131,51 @@ export default function EmailScreen() {
 
   // ── connected: mailbox ──
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-      <View className="flex-row items-center justify-between px-4 pt-2 pb-1">
-        <View className="flex-row items-center" style={{ gap: 10, flexShrink: 1 }}>
-          <View>
-            <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 26, fontWeight: '700', letterSpacing: -0.5 }}>Email</Text>
-            {account ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11, marginTop: 1, maxWidth: 130 }}>{account}</Text> : null}
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
+      {/* White header bar (standard chrome). The left group takes the remaining width (flex + minWidth:0
+          so its children can shrink); the title/account truncate first while the folder chip and the
+          Compose button stay a fixed size — this stops the "Inbox" chip overlapping Compose on narrow phones. */}
+      <View className="flex-row items-center px-4" style={{ backgroundColor: colors.card, minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <View className="flex-row items-center" style={{ gap: 10, flex: 1, minWidth: 0 }}>
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3 }}>Email</Text>
+            {account ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{account}</Text> : null}
           </View>
           {/* Folder selector — all folders + smart folders live in this dropdown (was a chip row). */}
           <Pressable onPress={() => setFolderOpen(true)} className="flex-row items-center"
-            style={{ gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-            <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{EMAIL_FOLDERS.find((f) => f.key === folder)?.label ?? 'Inbox'}</Text>
+            style={{ gap: 5, height: 34, paddingHorizontal: 12, borderRadius: 999, backgroundColor: colors.coolMuted, flexShrink: 0 }}>
+            <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '600' }}>{EMAIL_FOLDERS.find((f) => f.key === folder)?.label ?? 'Inbox'}</Text>
             {folder === 'inbox' && inboxUnread > 0 ? (
-              <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{inboxUnread}</Text>
+              <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{inboxUnread}</Text>
               </View>
             ) : null}
-            <ChevronDown size={14} color={colors.textMuted} />
+            <ChevronDown size={15} color={colors.coolText} />
           </Pressable>
         </View>
-        <View className="flex-row items-center" style={{ gap: 8 }}>
-          <Pressable onPress={() => router.push('/email/compose')} className="flex-row items-center" style={{ gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.ink }}>
-            <PenSquare size={15} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>Compose</Text>
-          </Pressable>
-        </View>
+        <Pressable onPress={() => router.push('/email/compose')} accessibilityLabel="Compose" className="items-center justify-center" style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, flexShrink: 0, marginLeft: 10 }}>
+          <PenSquare size={19} color="#fff" />
+        </Pressable>
       </View>
 
-      <View className="flex-row items-center mx-4 mt-2" style={{ gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-        <Search size={16} color={colors.textMuted} />
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search mail" placeholderTextColor={colors.textMuted}
-          autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 14 }} />
+      {/* Grey pill search */}
+      <View className="flex-row items-center mx-4" style={{ gap: 12, height: 48, marginTop: 12, paddingHorizontal: 16, borderRadius: 999, backgroundColor: colors.coolMuted }}>
+        <Search size={19} color={colors.coolText3} strokeWidth={2.2} />
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search mail" placeholderTextColor={colors.coolText3}
+          autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 15 }} />
       </View>
 
       {/* Smart folders (user-created) — tap to view; ＋ to create. Standard folders live in the
           dropdown next to the Email title. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 12, alignItems: 'center' }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10, alignItems: 'center' }}>
         {smartFolders.map((sf) => (
-          <Pressable key={sf.id} onPress={() => router.push(`/email/folder/${sf.id}`)} className="flex-row items-center" style={{ gap: 5, paddingHorizontal: 13, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.teal + '55' }}>
-            <Text style={{ color: colors.teal, fontSize: 12.5, fontWeight: '700' }}>{sf.name}</Text>
+          <Pressable key={sf.id} onPress={() => router.push(`/email/folder/${sf.id}`)} className="flex-row items-center" style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>{sf.name}</Text>
           </Pressable>
         ))}
-        <Pressable onPress={() => setNewOpen(true)} className="flex-row items-center" style={{ gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge, borderStyle: 'dashed' }}>
-          <FolderPlus size={13} color={colors.textMuted} />
-          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Folder</Text>
+        <Pressable onPress={() => setNewOpen(true)} className="flex-row items-center" style={{ gap: 4, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.coolDivider, borderStyle: 'dashed' }}>
+          <FolderPlus size={14} color={colors.coolText} />
+          <Text style={{ color: colors.coolText, fontSize: 13, fontWeight: '600' }}>Folder</Text>
         </Pressable>
       </ScrollView>
 
@@ -195,14 +196,16 @@ export default function EmailScreen() {
           </Swipeable>
         )}
         contentContainerStyle={list.length === 0 ? { flex: 1 } : { paddingBottom: 24 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void useEmailStore.getState().loadFolder()} tintColor={colors.ink} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void useEmailStore.getState().loadFolder()} tintColor={colors.primary} />}
         onEndReachedThreshold={0.4}
         onEndReached={() => { if (!search.trim()) void useEmailStore.getState().loadMore(); }}
-        ListFooterComponent={loadingMore || searching ? <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: 18 }} /> : null}
+        ListFooterComponent={loadingMore || searching ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 18 }} /> : null}
         ListEmptyComponent={
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60 }}>
-            {folder === 'deleted' ? <MailX size={40} color={colors.cardEdge} /> : <InboxIcon size={40} color={colors.cardEdge} />}
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600', marginTop: 12 }}>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60, paddingHorizontal: 32 }}>
+            <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+              {folder === 'deleted' ? <MailX size={40} color={colors.primary} /> : <InboxIcon size={40} color={colors.primary} />}
+            </View>
+            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginTop: 16, textAlign: 'center' }}>
               {searching ? 'Searching…' : loading ? 'Loading…' : search ? 'No matching mail' : `No mail in ${folder}`}
             </Text>
           </View>
@@ -212,20 +215,20 @@ export default function EmailScreen() {
       {/* Folder dropdown: the standard folders (smart folders + create live in the chip row). */}
       <Modal visible={folderOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setFolderOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' }} onPress={() => setFolderOpen(false)}>
-          <View style={{ marginTop: insets.top + 56, marginLeft: 16, width: 232, borderRadius: 16, backgroundColor: '#fff', paddingVertical: 6, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}>
+          <View style={{ marginTop: insets.top + 56, marginLeft: 16, width: 232, borderRadius: 18, backgroundColor: colors.card, paddingVertical: 6, shadowColor: '#0b1220', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}>
             {EMAIL_FOLDERS.map((f) => {
               const on = folder === f.key;
               return (
-                <Pressable key={f.key} onPress={() => { setFolderOpen(false); if (!on) setFolder(f.key as EmailFolder); }}
-                  className="flex-row items-center justify-between" style={{ paddingHorizontal: 16, paddingVertical: 11 }}>
-                  <Text style={{ color: colors.ink, fontSize: 14, fontWeight: on ? '800' : '600' }}>{f.label}</Text>
+                <Pressable key={f.key} onPress={() => { setFolderOpen(false); if (!on) setFolder(f.key as EmailFolder); }} android_ripple={{ color: colors.coolMuted }}
+                  className="flex-row items-center justify-between" style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                  <Text style={{ color: on ? colors.primary : colors.ink, fontSize: 15, fontWeight: on ? '700' : '500' }}>{f.label}</Text>
                   <View className="flex-row items-center" style={{ gap: 8 }}>
                     {f.key === 'inbox' && inboxUnread > 0 ? (
-                      <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{inboxUnread}</Text>
+                      <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{inboxUnread}</Text>
                       </View>
                     ) : null}
-                    {on ? <Check size={15} color={colors.ink} /> : null}
+                    {on ? <Check size={16} color={colors.primary} /> : null}
                   </View>
                 </Pressable>
               );
@@ -237,21 +240,21 @@ export default function EmailScreen() {
       {/* Create smart folder */}
       <Modal visible={newOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setNewOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18 }}>
             <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
-              <View className="flex-row items-center" style={{ gap: 6 }}><FolderPlus size={16} color={colors.ink} /><Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>New smart folder</Text></View>
-              <Pressable onPress={() => setNewOpen(false)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+              <View className="flex-row items-center" style={{ gap: 8 }}><FolderPlus size={18} color={colors.primary} /><Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>New smart folder</Text></View>
+              <Pressable onPress={() => setNewOpen(false)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
             </View>
-            <Text style={{ color: colors.textMuted2, fontSize: 11, marginBottom: 12 }}>Mail from these senders is filed here automatically — existing & future.</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 }}>FOLDER NAME</Text>
-            <TextInput value={fName} onChangeText={setFName} autoFocus placeholder="e.g. Travkings" placeholderTextColor={colors.textMuted}
+            <Text style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 12 }}>Mail from these senders is filed here automatically — existing & future.</Text>
+            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 }}>FOLDER NAME</Text>
+            <TextInput value={fName} onChangeText={setFName} autoFocus placeholder="e.g. Travkings" placeholderTextColor={colors.coolText3}
               style={fIn} />
-            <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, marginTop: 12, marginBottom: 4 }}>FROM (DOMAIN OR EMAIL)</Text>
-            <TextInput value={fFrom} onChangeText={setFFrom} autoCapitalize="none" autoCorrect={false} placeholder="travkings.com, accounts@travkings.com" placeholderTextColor={colors.textMuted}
+            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 12, marginBottom: 4 }}>FROM (DOMAIN OR EMAIL)</Text>
+            <TextInput value={fFrom} onChangeText={setFFrom} autoCapitalize="none" autoCorrect={false} placeholder="travkings.com, accounts@travkings.com" placeholderTextColor={colors.coolText3}
               style={fIn} />
-            <Text style={{ color: colors.textMuted2, fontSize: 10, marginTop: 6 }}>Separate multiple with commas. A domain matches everyone from that company.</Text>
-            <Pressable onPress={createFolder} disabled={creating} style={{ marginTop: 14, backgroundColor: colors.ink, borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: creating ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{creating ? 'Creating…' : 'Create folder'}</Text>
+            <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>Separate multiple with commas. A domain matches everyone from that company.</Text>
+            <Pressable onPress={createFolder} disabled={creating} style={{ marginTop: 16, backgroundColor: colors.primary, borderRadius: 999, height: 48, alignItems: 'center', justifyContent: 'center', opacity: creating ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{creating ? 'Creating…' : 'Create folder'}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -260,4 +263,4 @@ export default function EmailScreen() {
   );
 }
 
-const fIn = { borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.ink, fontWeight: '600' as const };
+const fIn = { backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, fontWeight: '500' as const };

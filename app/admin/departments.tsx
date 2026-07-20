@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Modal,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, Plus, Trash2, X, Check } from 'lucide-react-native';
-import { colors, shadowSm } from '../../src/theme';
+import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import {
   listAppDepartments, listCompanies, listBranches, createDepartment, updateDepartment, deleteDepartment,
@@ -63,36 +63,36 @@ export default function ManageDepartments() {
   ]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: colors.card }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-        <View><Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>Departments</Text>
-          <Text style={{ color: colors.warmMute, fontSize: 10.5 }}>{loading ? 'Loading…' : `${rows.length} custom`}</Text></View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
+      <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+        <View><Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Departments</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12 }}>{loading ? 'Loading…' : `${rows.length} custom`}</Text></View>
       </View>
 
       {loading ? (
-        <View className="items-center" style={{ paddingVertical: 56 }}><ActivityIndicator color={colors.ink} /></View>
+        <View className="items-center" style={{ paddingVertical: 56 }}><ActivityIndicator color={colors.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 14, gap: 8 }}>
-          <Text style={{ color: colors.warmMute, fontSize: 11.5, lineHeight: 17, paddingHorizontal: 2 }}>
+        <ScrollView contentContainerStyle={{ padding: 14, gap: 10 }}>
+          <Text style={{ color: colors.coolText, fontSize: 12.5, lineHeight: 18, paddingHorizontal: 2 }}>
             Departments you create here appear in the Departments tab and give every branch in the company a group. (Departments synced from the CRM are read-only.)
           </Text>
           {rows.map((d) => (
-            <View key={d.id} className="flex-row items-center gap-3 p-3" style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 14 }, shadowSm]}>
-              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: d.color || colors.blue, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '800' }}>{(d.name.trim()[0] ?? '•').toUpperCase()}</Text>
+            <View key={d.id} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
+              <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: d.color || colors.blue, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 17 }}>{(d.name.trim()[0] ?? '•').toUpperCase()}</Text>
               </View>
               <Pressable onPress={() => startEdit(d)} className="flex-1">
-                <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{d.name}</Text>
-                <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{companyName(d.companyId)} · {branchName(d.branchId)} · tap to edit</Text>
+                <Text style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{d.name}</Text>
+                <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{companyName(d.companyId)} · {branchName(d.branchId)} · tap to edit</Text>
               </Pressable>
-              <Pressable onPress={() => remove(d)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={16} color={colors.danger} /></Pressable>
+              <Pressable onPress={() => remove(d)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable>
             </View>
           ))}
-          {rows.length === 0 ? <Text style={{ color: colors.textMuted2, fontSize: 12, textAlign: 'center', paddingVertical: 24 }}>No custom departments yet.</Text> : null}
+          {rows.length === 0 ? <Text style={{ color: colors.coolText, fontSize: 13.5, textAlign: 'center', paddingVertical: 24 }}>No custom departments yet.</Text> : null}
 
-          <Pressable onPress={startNew} className="flex-row items-center justify-center gap-1.5 mt-1" style={{ paddingVertical: 13, borderRadius: 13, backgroundColor: colors.ink }}>
-            <Plus size={15} color="#fff" /><Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '800' }}>New department</Text>
+          <Pressable onPress={startNew} className="flex-row items-center justify-center gap-1.5 mt-1" style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary }}>
+            <Plus size={17} color="#fff" /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>New department</Text>
           </Pressable>
         </ScrollView>
       )}
@@ -100,42 +100,42 @@ export default function ManageDepartments() {
       {/* Create / edit form */}
       <Modal visible={!!form} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setForm(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18, maxHeight: '88%' }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18, maxHeight: '88%' }}>
             <View className="flex-row items-center justify-between" style={{ marginBottom: 12 }}>
-              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '700' }}>{form?.id ? 'Edit department' : 'New department'}</Text>
-              <Pressable onPress={() => setForm(null)} hitSlop={8}><X size={18} color={colors.textMuted} /></Pressable>
+              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>{form?.id ? 'Edit department' : 'New department'}</Text>
+              <Pressable onPress={() => setForm(null)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
             </View>
             <ScrollView keyboardShouldPersistTaps="handled">
-              <TextInput value={form?.name ?? ''} onChangeText={(t) => setForm((f) => (f ? { ...f, name: t } : f))} placeholder="Department name (e.g. Marketing)" placeholderTextColor={colors.textMuted}
-                style={{ borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.ink, fontWeight: '600' }} />
+              <TextInput value={form?.name ?? ''} onChangeText={(t) => setForm((f) => (f ? { ...f, name: t } : f))} placeholder="Department name (e.g. Marketing)" placeholderTextColor={colors.coolText3}
+                style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, fontWeight: '500' }} />
 
               {companies.length > 1 ? (
                 <>
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>COMPANY</Text>
+                  <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>COMPANY</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
                     {companies.map((c) => <Chip key={c.id} label={c.name} active={form?.companyId === c.id} onPress={() => setForm((f) => (f ? { ...f, companyId: c.id, branchId: null } : f))} />)}
                   </ScrollView>
                 </>
               ) : null}
 
-              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>BRANCH</Text>
+              <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>BRANCH</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
                 <Chip label="All branches" active={!form?.branchId} onPress={() => setForm((f) => (f ? { ...f, branchId: null } : f))} />
                 {branchesForCompany.map((b) => <Chip key={b.id} label={branchLabel(b)} active={form?.branchId === b.id} onPress={() => setForm((f) => (f ? { ...f, branchId: b.id } : f))} />)}
               </ScrollView>
 
-              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 12, marginBottom: 6 }}>COLOUR</Text>
+              <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>COLOUR</Text>
               <View className="flex-row flex-wrap gap-2">
                 {SWATCHES.map((c) => (
-                  <Pressable key={c} onPress={() => setForm((f) => (f ? { ...f, color: c } : f))} style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: c, borderWidth: form?.color === c ? 3 : 0, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
-                    {form?.color === c ? <Check size={15} color="#fff" /> : null}
+                  <Pressable key={c} onPress={() => setForm((f) => (f ? { ...f, color: c } : f))} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: c, borderWidth: form?.color === c ? 3 : 0, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
+                    {form?.color === c ? <Check size={16} color="#fff" /> : null}
                   </Pressable>
                 ))}
               </View>
             </ScrollView>
 
-            <Pressable onPress={save} disabled={saving} style={{ marginTop: 16, backgroundColor: colors.ink, borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: saving ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{saving ? 'Saving…' : form?.id ? 'Save changes' : 'Create department'}</Text>
+            <Pressable onPress={save} disabled={saving} style={{ marginTop: 16, backgroundColor: colors.primary, borderRadius: 999, height: 48, alignItems: 'center', justifyContent: 'center', opacity: saving ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{saving ? 'Saving…' : form?.id ? 'Save changes' : 'Create department'}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -146,8 +146,8 @@ export default function ManageDepartments() {
 
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: active ? colors.ink : '#fff', borderWidth: 1, borderColor: active ? colors.ink : colors.cardEdge }}>
-      <Text style={{ color: active ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '700' }}>{label}</Text>
+    <Pressable onPress={onPress} style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : colors.coolMuted }}>
+      <Text style={{ color: active ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
 }

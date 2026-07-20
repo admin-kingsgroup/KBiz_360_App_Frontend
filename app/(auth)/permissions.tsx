@@ -8,16 +8,17 @@ import type { PermKey } from '../../src/constants/permissions';
 import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { savePerms } from '../../src/services/storage';
 import { requestNotificationPermission, registerPushToken } from '../../src/services/notifications';
-import { getBackgroundLocationStatus, requestBackgroundLocation, openLocationSettings } from '../../src/services/locationPermission';
+import { getBackgroundLocationStatus, requestForegroundLocation, openLocationSettings } from '../../src/services/locationPermission';
 import { locationPermSatisfied, type BgLocationStatus } from '../../src/logic/permissionGate';
 
 // Port of source PermissionGate with ONE deliberate deviation from source: LOCATION is now a real
 // OS grant. The source version always granted immediately so the gate never trapped the user; here
-// the location row only turns ON when the OS reports background ("Allow all the time") location,
-// because background geofence attendance is mandatory — the gate DOES trap until it is granted.
+// the location row turns ON once the OS reports location granted — "While using the app" is enough
+// (background "Allow all the time" is optional and offered later on the Attendance screen). Only a
+// FULL location deny traps the user.
 //  - Notifications use the real OS prompt (as before); network has no OS prompt.
-//  - If the OS won't prompt again (hard deny / "While using the app"), we show an Open Settings
-//    path and auto-recheck when the app returns to the foreground.
+//  - If the OS won't prompt again (hard deny), we show an Open Settings path and auto-recheck when
+//    the app returns to the foreground.
 //  - perms persist (AsyncStorage) so the gate is "asked once" across restarts; the root layout
 //    re-verifies location on every app open and downgrades if it was revoked in Settings.
 // The root gate auto-redirects to (tabs) once all perms are granted.
@@ -39,9 +40,11 @@ export default function Permissions() {
       setPerm('notifications', ok);
       if (ok) void registerPushToken(); // register Expo push token for message/call/reminder pushes
     } else if (key === 'location') {
-      // Background ("Allow all the time") location is mandatory — attendance must keep punching
-      // with the app closed. Anything less keeps the row OFF and the user outside the app.
-      const st = await requestBackgroundLocation();
+      // Location is required, but "While using the app" is enough — that lets the office Wi-Fi /
+      // geofence detect presence and punch. "Allow all the time" (background auto-punch when the app
+      // is closed) is OPTIONAL and offered later on the Attendance screen, so we only ask foreground
+      // here. Only a full deny keeps the row OFF.
+      const st = await requestForegroundLocation();
       const ok = locationPermSatisfied(st);
       setPerm('location', ok);
       setLocBlocked(ok ? null : st);
@@ -75,14 +78,14 @@ export default function Permissions() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="items-center px-6 pt-8 pb-4">
-          <View className="items-center justify-center mb-3" style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: colors.ink }}>
-            <Lock size={24} color="#fff" />
+          <View className="items-center justify-center mb-3" style={{ width: 60, height: 60, borderRadius: 18, backgroundColor: colors.primary }}>
+            <Lock size={26} color="#fff" />
           </View>
-          <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 21, fontWeight: '600', letterSpacing: -0.5 }}>Permissions required</Text>
-          <Text style={{ color: colors.warmMute, fontSize: 12.5, marginTop: 6, textAlign: 'center', lineHeight: 18 }}>
+          <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 }}>Permissions required</Text>
+          <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 6, textAlign: 'center', lineHeight: 19 }}>
             KBiz 360 needs all of the following enabled to run. Attendance is recorded automatically and transparently.
           </Text>
         </View>
@@ -93,22 +96,22 @@ export default function Permissions() {
             const Icon = ICONS[p.iconName];
             return (
               <View key={p.key} className="flex-row items-center gap-3"
-                style={[{ padding: 14, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: on ? colors.success + '55' : colors.cardEdge }, shadowSm]}>
-                <View className="items-center justify-center" style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: p.color + '1A' }}>
-                  <Icon size={18} color={p.color} />
+                style={[{ padding: 14, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: on ? colors.primary + '55' : colors.coolDivider }, shadowSm]}>
+                <View className="items-center justify-center" style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: p.color + '1A' }}>
+                  <Icon size={20} color={p.color} />
                 </View>
                 <View className="flex-1">
-                  <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>{p.title}</Text>
-                  <Text style={{ color: colors.warmMute, fontSize: 10.5, lineHeight: 14 }}>{p.desc}</Text>
+                  <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{p.title}</Text>
+                  <Text style={{ color: colors.coolText, fontSize: 12, lineHeight: 16 }}>{p.desc}</Text>
                 </View>
                 {on ? (
-                  <View className="flex-row items-center gap-1" style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.success + '1A' }}>
-                    <CheckCircle2 size={13} color={colors.success} />
-                    <Text style={{ color: colors.success, fontSize: 10, fontWeight: '800' }}>ON</Text>
+                  <View className="flex-row items-center gap-1" style={{ paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+                    <CheckCircle2 size={14} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontSize: 10.5, fontWeight: '800' }}>ON</Text>
                   </View>
                 ) : (
-                  <Pressable onPress={() => grant(p.key)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.ink }}>
-                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>Allow</Text>
+                  <Pressable onPress={() => grant(p.key)} style={{ paddingHorizontal: 16, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: colors.primary }}>
+                    <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '700' }}>Allow</Text>
                   </Pressable>
                 )}
               </View>
@@ -118,15 +121,13 @@ export default function Permissions() {
 
         {locBlocked != null && (
           <View className="mx-5 mt-3" style={{ padding: 12, borderRadius: 12, backgroundColor: colors.coral + '14' }}>
-            <Text style={{ color: colors.coral, fontSize: 11.5, fontWeight: '700', lineHeight: 16 }}>
-              {locBlocked === 'foreground-only'
-                ? 'Location is set to “While using the app”. Attendance needs “Allow all the time” so check-in works even when the app is closed.'
-                : 'Location permission is off. Attendance needs location set to “Allow all the time” so check-in works even when the app is closed.'}
+            <Text style={{ color: colors.coral, fontSize: 12.5, fontWeight: '700', lineHeight: 17 }}>
+              Location is off. KBiz 360 needs location on to check you in at the office — “While using the app” is enough.
             </Text>
             <Pressable onPress={openLocationSettings} className="flex-row items-center justify-center gap-1.5 mt-2.5"
-              style={{ paddingVertical: 10, borderRadius: 12, backgroundColor: colors.ink }}>
-              <Settings size={14} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Open Settings · set “Allow all the time”</Text>
+              style={{ paddingVertical: 11, borderRadius: 999, backgroundColor: colors.primary }}>
+              <Settings size={15} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Open Settings · turn on Location</Text>
             </Pressable>
           </View>
         )}
@@ -134,7 +135,7 @@ export default function Permissions() {
         {!allOn && (
           <View className="flex-row items-start gap-2 mx-5 mt-3" style={{ padding: 12, borderRadius: 12, backgroundColor: colors.coral + '14' }}>
             <Text style={{ fontSize: 14 }}>⚠️</Text>
-            <Text style={{ color: colors.coral, fontSize: 11.5, fontWeight: '600', lineHeight: 16, flex: 1 }}>
+            <Text style={{ color: colors.coral, fontSize: 12.5, fontWeight: '600', lineHeight: 17, flex: 1 }}>
               All permissions must be ON to open the app. Please allow each one above to continue.
             </Text>
           </View>
@@ -142,10 +143,10 @@ export default function Permissions() {
 
         <View className="px-5 mt-4">
           <Pressable onPress={() => { if (!allOn) allowAll(); }} // when allOn, the gate auto-redirects to (tabs)
-            style={{ paddingVertical: 14, borderRadius: 16, alignItems: 'center', backgroundColor: allOn ? colors.ink : colors.orange }}>
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>{allOn ? 'Enter KBiz 360' : 'Allow all permissions'}</Text>
+            style={{ height: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: allOn ? colors.primary : colors.orange }}>
+            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{allOn ? 'Enter KBiz 360' : 'Allow all permissions'}</Text>
           </Pressable>
-          <Text style={{ color: colors.textMuted2, fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 14 }}>
+          <Text style={{ color: colors.coolText3, fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 15 }}>
             You can review these anytime in Profile · Privacy & Security. Attendance tracking is disclosed to all staff.
           </Text>
         </View>

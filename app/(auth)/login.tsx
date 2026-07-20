@@ -24,12 +24,12 @@ function Aurora() {
     <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
       <Defs>
         <RadialGradient id="a" cx="18%" cy="8%" r="55%">
-          <Stop offset="0" stopColor={colors.purple} stopOpacity="0.38" />
-          <Stop offset="1" stopColor={colors.purple} stopOpacity="0" />
+          <Stop offset="0" stopColor={colors.primary} stopOpacity="0.42" />
+          <Stop offset="1" stopColor={colors.primary} stopOpacity="0" />
         </RadialGradient>
         <RadialGradient id="b" cx="92%" cy="86%" r="62%">
-          <Stop offset="0" stopColor={colors.blue} stopOpacity="0.30" />
-          <Stop offset="1" stopColor={colors.blue} stopOpacity="0" />
+          <Stop offset="0" stopColor={colors.accent} stopOpacity="0.28" />
+          <Stop offset="1" stopColor={colors.accent} stopOpacity="0" />
         </RadialGradient>
         <RadialGradient id="c" cx="88%" cy="6%" r="45%">
           <Stop offset="0" stopColor={colors.teal} stopOpacity="0.20" />
@@ -50,9 +50,9 @@ function LogoHalo() {
     <Svg width={240} height={240}>
       <Defs>
         <RadialGradient id="halo" cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor={colors.purple} stopOpacity="0.55" />
-          <Stop offset="0.55" stopColor={colors.blue} stopOpacity="0.18" />
-          <Stop offset="1" stopColor={colors.blue} stopOpacity="0" />
+          <Stop offset="0" stopColor={colors.primary} stopOpacity="0.55" />
+          <Stop offset="0.55" stopColor={colors.accent} stopOpacity="0.18" />
+          <Stop offset="1" stopColor={colors.accent} stopOpacity="0" />
         </RadialGradient>
       </Defs>
       <Circle cx={120} cy={120} r={120} fill="url(#halo)" />
@@ -98,7 +98,7 @@ export default function Login() {
       setLoading(false);
     }
   };
-  const fieldBorder = (f: 'id' | 'pwd') => (focused === f ? colors.purple : colors.line);
+  const fieldBorder = (f: 'id' | 'pwd') => (focused === f ? colors.primary : colors.line);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.ink }}>
@@ -134,7 +134,7 @@ export default function Login() {
             {/* User ID */}
             <View className="flex-row items-center gap-2.5"
               style={{ borderRadius: 15, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: fieldBorder('id') }}>
-              <User size={17} color={focused === 'id' ? colors.purple : colors.textMuted2} />
+              <User size={17} color={focused === 'id' ? colors.primary : colors.textMuted2} />
               <TextInput value={userId} onChangeText={(t) => { setUserId(t); if (error) setError(null); }} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!loading}
                 onFocus={() => setFocused('id')} onBlur={() => setFocused(null)} onSubmitEditing={onLogin}
                 placeholder="Email" placeholderTextColor={colors.textMuted}
@@ -143,7 +143,7 @@ export default function Login() {
 
             {/* Password */}
             <View className="flex-row items-center gap-2.5" style={{ marginTop: 10, borderRadius: 15, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: fieldBorder('pwd') }}>
-              <Lock size={17} color={focused === 'pwd' ? colors.purple : colors.textMuted2} />
+              <Lock size={17} color={focused === 'pwd' ? colors.primary : colors.textMuted2} />
               <TextInput value={password} onChangeText={(t) => { setPassword(t); if (error) setError(null); }} secureTextEntry={!showPwd} editable={!loading}
                 onFocus={() => setFocused('pwd')} onBlur={() => setFocused(null)} onSubmitEditing={onLogin}
                 placeholder="Password" placeholderTextColor={colors.textMuted}
@@ -163,13 +163,13 @@ export default function Login() {
               onPressIn={() => { press.value = withTiming(0.97, { duration: 110 }); }}
               onPressOut={() => { press.value = withTiming(1, { duration: 160 }); }}
               className="flex-row items-center justify-center gap-2"
-              style={[btnStyle, { marginTop: 14, borderRadius: 15, paddingVertical: 15, backgroundColor: colors.paper, opacity: loading ? 0.7 : 1 }]}>
+              style={[btnStyle, { marginTop: 14, borderRadius: 15, paddingVertical: 15, backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}>
               {loading ? (
-                <ActivityIndicator size="small" color={colors.ink} />
+                <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>
-                  <Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '800' }}>Sign in</Text>
-                  <ArrowRight size={16} color={colors.ink} strokeWidth={2.6} />
+                  <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '800' }}>Sign in</Text>
+                  <ArrowRight size={16} color="#fff" strokeWidth={2.6} />
                 </>
               )}
             </AnimatedPressable>

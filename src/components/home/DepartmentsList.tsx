@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { ChevronRight, Clock, Lock, Building2 } from 'lucide-react-native';
-import { colors, shadow } from '../../theme';
+import { colors } from '../../theme';
 import { businesses as mockBusinesses, branches as mockBranches, businessDepts as mockDepts } from '../../data/businesses';
 import { DEPT_DESCRIPTIONS } from '../../constants/departments';
 import { makeAccessFilters } from '../../logic/accessFilters';
@@ -79,20 +79,20 @@ export function DepartmentsList({
 
   if (allItems.length === 0) {
     return isSuper
-      ? <Empty icon={<Building2 size={32} color={colors.textMuted2} />} title="No departments yet" sub="Set up this business in Profile → Businesses" />
-      : <Empty icon={<Lock size={30} color={colors.textMuted2} />} title="No departments in your access" sub="Ask your admin to grant the departments you need." />;
+      ? <Empty icon={<Building2 size={36} color={colors.coolText3} />} title="No departments yet" sub="Set up this business in Profile → Businesses" />
+      : <Empty icon={<Lock size={34} color={colors.coolText3} />} title="No departments in your access" sub="Ask your admin to grant the departments you need." />;
   }
 
   const DeptCard = (d: DItem) => (
-    <Pressable key={d._key} onPress={() => onOpenDept(d)} className="flex-row items-center gap-3 p-2.5"
-      style={[{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16 }, shadow]}>
-      <View style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: d.color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{d.icon}</Text></View>
+    <Pressable key={d._key} onPress={() => onOpenDept(d)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
+      style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
+      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: d.color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 17 }}>{d.icon}</Text></View>
       <View className="flex-1">
-        <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 14, fontWeight: '600' }}>{d.name}</Text>
-        <Text numberOfLines={1} style={{ color: colors.warmMute, fontSize: 11, marginTop: 2 }}>{d.desc}</Text>
+        <Text style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{d.name}</Text>
+        <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 13, marginTop: 2 }}>{d.desc}</Text>
       </View>
-      {d._unread > 0 ? <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '800' }}>{d._unread}</Text></View> : null}
-      <ChevronRight size={14} color={colors.textMuted2} />
+      {d._unread > 0 ? <View style={{ minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{d._unread}</Text></View> : null}
+      <ChevronRight size={18} color={colors.coolText3} />
     </Pressable>
   );
 
@@ -101,9 +101,9 @@ export function DepartmentsList({
       {unread.length > 0 ? (
         <View style={{ gap: 8 }}>
           <View className="flex-row items-center gap-1.5 px-1">
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.coral }} />
-            <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13, fontWeight: '600' }}>Unread</Text>
-            <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {unread.length}</Text>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }} />
+            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>Unread</Text>
+            <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {unread.length}</Text>
           </View>
           {sections.map((s) => {
             const u = s.items.filter((d) => d._unread > 0);
@@ -112,7 +112,7 @@ export function DepartmentsList({
               <View key={`u-${s.id}`} style={{ gap: 6 }}>
                 <View className="flex-row items-center gap-1.5 px-1 pl-3">
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: s.color }} />
-                  <Text style={{ color: colors.warmMute, fontSize: 11, fontWeight: '700' }}>{s.label} · {u.length}</Text>
+                  <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>{s.label} · {u.length}</Text>
                 </View>
                 {u.map(DeptCard)}
               </View>
@@ -127,11 +127,11 @@ export function DepartmentsList({
           <View key={s.id} style={{ gap: 6 }}>
             <View className="flex-row items-center gap-1.5 px-1 mt-1">
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: s.color }} />
-              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13, fontWeight: '600' }}>{s.label}</Text>
-              <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {readItems.length} departments</Text>
+              <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{s.label}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {readItems.length} departments</Text>
               {s.time ? (
-                <View className="flex-row items-center gap-1 ml-auto" style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.teal + '14' }}>
-                  <Clock size={9} color={colors.teal} /><Text style={{ color: colors.teal, fontSize: 9.5, fontWeight: '700' }}>{s.flag} {s.time}</Text>
+                <View className="flex-row items-center gap-1 ml-auto" style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+                  <Clock size={11} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{s.flag} {s.time}</Text>
                 </View>
               ) : null}
             </View>
@@ -147,8 +147,8 @@ function Empty({ icon, title, sub }: { icon: ReactNode; title: string; sub: stri
   return (
     <View className="items-center px-6" style={{ paddingVertical: 64 }}>
       <View className="mb-3">{icon}</View>
-      <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>{sub}</Text>
+      <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
     </View>
   );
 }

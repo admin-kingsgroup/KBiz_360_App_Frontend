@@ -107,20 +107,20 @@ export default function Compose() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }}>
       {/* Header */}
-      <View className="flex-row items-center justify-between px-3 pt-3 pb-2">
-        <Pressable onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-          <X size={16} color={colors.ink} />
+      <View className="flex-row items-center justify-between px-3 pt-3 pb-2" style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={onClose} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+          <X size={18} color={colors.coolText} />
         </Pressable>
-        <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '800' }}>{draftId ? 'Edit draft' : mode === 'forward' ? 'Forward' : mode ? 'Reply' : 'New message'}</Text>
+        <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>{draftId ? 'Edit draft' : mode === 'forward' ? 'Forward' : mode ? 'Reply' : 'New message'}</Text>
         <View className="flex-row items-center" style={{ gap: 8 }}>
-          <Pressable onPress={pickAttachment} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-            <Paperclip size={16} color={colors.ink} />
+          <Pressable onPress={pickAttachment} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+            <Paperclip size={18} color={colors.coolText} />
           </Pressable>
-          <Pressable onPress={onSend} className="flex-row items-center" style={{ gap: 6, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.ink }}>
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>Send</Text>
-            <Send size={14} color="#fff" />
+          <Pressable onPress={onSend} className="flex-row items-center" style={{ gap: 6, height: 40, paddingHorizontal: 18, borderRadius: 999, backgroundColor: colors.primary }}>
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Send</Text>
+            <Send size={15} color="#fff" />
           </Pressable>
         </View>
       </View>
@@ -128,19 +128,19 @@ export default function Compose() {
       <KeyboardAwareScrollView bottomOffset={20} contentContainerStyle={{ paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
         {/* To */}
         <Field label="To">
-          <TextInput value={to} onChangeText={setTo} placeholder="name@company.com" placeholderTextColor={colors.textMuted}
+          <TextInput value={to} onChangeText={setTo} placeholder="name@company.com" placeholderTextColor={colors.coolText3}
             autoCapitalize="none" autoCorrect={false} keyboardType="email-address" style={input} />
-          <Pressable onPress={() => setShowCc((v) => !v)} hitSlop={8}><Text style={{ color: colors.blue, fontSize: 12, fontWeight: '700' }}>{showCc ? 'Hide' : 'Cc/Bcc'}</Text></Pressable>
+          <Pressable onPress={() => setShowCc((v) => !v)} hitSlop={8}><Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>{showCc ? 'Hide' : 'Cc/Bcc'}</Text></Pressable>
         </Field>
 
         {showCc ? (
           <>
             <Field label="Cc">
-              <TextInput value={cc} onChangeText={setCc} placeholder="Cc recipients" placeholderTextColor={colors.textMuted}
+              <TextInput value={cc} onChangeText={setCc} placeholder="Cc recipients" placeholderTextColor={colors.coolText3}
                 autoCapitalize="none" autoCorrect={false} keyboardType="email-address" style={input} />
             </Field>
             <Field label="Bcc">
-              <TextInput value={bcc} onChangeText={setBcc} placeholder="Bcc recipients" placeholderTextColor={colors.textMuted}
+              <TextInput value={bcc} onChangeText={setBcc} placeholder="Bcc recipients" placeholderTextColor={colors.coolText3}
                 autoCapitalize="none" autoCorrect={false} keyboardType="email-address" style={input} />
             </Field>
           </>
@@ -148,17 +148,17 @@ export default function Compose() {
 
         {/* Subject */}
         <Field label="Subject">
-          <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" placeholderTextColor={colors.textMuted} style={input} />
+          <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" placeholderTextColor={colors.coolText3} style={input} />
         </Field>
 
         {/* Attachments */}
         {attachments.length ? (
           <View style={{ paddingHorizontal: 18, paddingTop: 12, gap: 6 }}>
             {attachments.map((a, i) => (
-              <View key={`${a.name}-${i}`} className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-                <Paperclip size={14} color={colors.textMuted} />
-                <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 12.5, fontWeight: '600' }}>{a.name}</Text>
-                <Pressable onPress={() => setAttachments((prev) => prev.filter((_, j) => j !== i))} hitSlop={8}><X size={14} color={colors.textMuted} /></Pressable>
+              <View key={`${a.name}-${i}`} className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: colors.coolMuted }}>
+                <Paperclip size={15} color={colors.coolText} />
+                <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 13.5, fontWeight: '500' }}>{a.name}</Text>
+                <Pressable onPress={() => setAttachments((prev) => prev.filter((_, j) => j !== i))} hitSlop={8}><X size={15} color={colors.coolText} /></Pressable>
               </View>
             ))}
           </View>
@@ -167,26 +167,26 @@ export default function Compose() {
         {/* Quoting an HTML original — let the user know the formatted original is appended below. */}
         {replyTo && original?.bodyType === 'html' ? (
           <View style={{ paddingHorizontal: 18, paddingTop: 12 }}>
-            <Text style={{ color: colors.textMuted2, fontSize: 11 }}>The original message is quoted below your reply.</Text>
+            <Text style={{ color: colors.coolText3, fontSize: 12 }}>The original message is quoted below your reply.</Text>
           </View>
         ) : null}
 
         {/* Body */}
         <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
-          <TextInput value={body} onChangeText={setBody} placeholder="Write your message…" placeholderTextColor={colors.textMuted}
-            multiline textAlignVertical="top" autoFocus={!!replyTo} style={{ color: colors.ink, fontSize: 15, lineHeight: 22, minHeight: 220 }} />
+          <TextInput value={body} onChangeText={setBody} placeholder="Write your message…" placeholderTextColor={colors.coolText3}
+            multiline textAlignVertical="top" autoFocus={!!replyTo} style={{ color: colors.ink, fontSize: 15.5, lineHeight: 22, minHeight: 220 }} />
         </View>
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
-const input = { flex: 1, color: colors.ink, fontSize: 14.5, paddingVertical: 0 } as const;
+const input = { flex: 1, color: colors.ink, fontSize: 15, paddingVertical: 0 } as const;
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <View className="flex-row items-center" style={{ gap: 10, paddingHorizontal: 18, paddingVertical: 13, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-      <Text style={{ width: 54, color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+    <View className="flex-row items-center" style={{ gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      <Text style={{ width: 54, color: colors.coolText, fontSize: 13, fontWeight: '600' }}>{label}</Text>
       {children}
     </View>
   );

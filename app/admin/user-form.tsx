@@ -83,41 +83,41 @@ export default function UserForm() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center justify-between px-5 pt-3 pb-3">
-        <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800', letterSpacing: -0.4 }}>{editUser ? `Edit · ${editUser.name}` : 'Invite new user'}</Text>
-        <Pressable onPress={() => router.back()} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F2EC' }}><X size={14} color={colors.textMuted} /></Pressable>
+        <Text style={{ color: colors.ink, fontSize: 19, fontWeight: '700', letterSpacing: -0.3 }}>{editUser ? `Edit · ${editUser.name}` : 'Invite new user'}</Text>
+        <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={17} color={colors.coolText} /></Pressable>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 20 }}>
         <FormField label="Full name" required>
-          <TextInput value={name} onChangeText={setName} placeholder="e.g. Anjali Sharma" placeholderTextColor={colors.textMuted}
+          <TextInput value={name} onChangeText={setName} placeholder="e.g. Anjali Sharma" placeholderTextColor={colors.coolText3}
             style={input} />
         </FormField>
         <FormField label="Email" required>
-          <TextInput value={email} onChangeText={setEmail} editable={!editUser} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.textMuted}
+          <TextInput value={email} onChangeText={setEmail} editable={!editUser} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.coolText3}
             style={[input, editUser ? { opacity: 0.6 } : null]} />
         </FormField>
         <FormField label="Phone">
-          <TextInput value={phone} onChangeText={setPhone} placeholder="Optional" keyboardType="phone-pad" placeholderTextColor={colors.textMuted} style={input} />
+          <TextInput value={phone} onChangeText={setPhone} placeholder="Optional" keyboardType="phone-pad" placeholderTextColor={colors.coolText3} style={input} />
         </FormField>
         <FormField label={editUser ? 'Password (leave blank to keep)' : 'Password'} required={!editUser}>
-          <TextInput value={password} onChangeText={setPassword} placeholder={editUser ? '••••••••' : 'At least 6 characters'} secureTextEntry autoCapitalize="none" placeholderTextColor={colors.textMuted} style={input} />
+          <TextInput value={password} onChangeText={setPassword} placeholder={editUser ? '••••••••' : 'At least 6 characters'} secureTextEntry autoCapitalize="none" placeholderTextColor={colors.coolText3} style={input} />
         </FormField>
 
         <FormField label="Role" required>
-          {roleList.length === 0 ? <ActivityIndicator color={colors.textMuted} /> : (
-            <View className="gap-1.5">
+          {roleList.length === 0 ? <ActivityIndicator color={colors.primary} /> : (
+            <View className="gap-2">
               {roleList.map((r) => {
                 const on = roleId === r.id;
                 return (
-                  <Pressable key={r.id} onPress={() => setRoleId(r.id)} className="flex-row items-center gap-2.5 px-3 py-2.5"
-                    style={{ borderWidth: 1, borderRadius: 10, borderColor: on ? colors.ink : colors.cardEdge, backgroundColor: on ? '#FAFAF7' : '#fff' }}>
+                  <Pressable key={r.id} onPress={() => setRoleId(r.id)} className="flex-row items-center gap-2.5 px-3 py-3"
+                    style={{ borderWidth: 1, borderRadius: 12, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primarySoft : colors.card }}>
                     <View className="flex-1">
-                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>{humanizeRole(r.name)}</Text>
-                      <Text style={{ color: colors.textMuted, fontSize: 10 }}>Level {r.level}</Text>
+                      <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{humanizeRole(r.name)}</Text>
+                      <Text style={{ color: colors.coolText, fontSize: 11.5 }}>Level {r.level}</Text>
                     </View>
-                    {on ? <Check size={16} color={colors.success} /> : null}
+                    {on ? <Check size={18} color={colors.primary} /> : null}
                   </Pressable>
                 );
               })}
@@ -126,36 +126,36 @@ export default function UserForm() {
         </FormField>
 
         <FormField label={`Branches · ${branchIds.length} selected`}>
-          <View className="flex-row flex-wrap gap-1.5">
+          <View className="flex-row flex-wrap gap-2">
             {branches.map((b) => {
               const on = branchIds.includes(b.id);
               return (
-                <Pressable key={b.id} onPress={() => toggleBranch(b.id)} className="items-center" style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, backgroundColor: on ? colors.ink : '#fff', borderColor: on ? colors.ink : colors.cardEdge }}>
-                  <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12, fontWeight: '800' }}>{branchLabel(b)}</Text>
-                  {b.city ? <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 9.5, opacity: 0.8 }}>{b.city}</Text> : null}
+                <Pressable key={b.id} onPress={() => toggleBranch(b.id)} className="items-center" style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
+                  <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{branchLabel(b)}</Text>
+                  {b.city ? <Text style={{ color: on ? 'rgba(255,255,255,0.85)' : colors.coolText3, fontSize: 10.5 }}>{b.city}</Text> : null}
                 </Pressable>
               );
             })}
           </View>
-          <Text style={{ color: colors.textMuted2, fontSize: 10.5, marginTop: 6 }}>Branches determine what this user can see (with their role). Leave empty for company-wide roles.</Text>
+          <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>Branches determine what this user can see (with their role). Leave empty for company-wide roles.</Text>
         </FormField>
 
         {editUser ? (
           <FormField label="Status">
-            <Pressable onPress={() => setActive((a) => !a)} className="flex-row items-center justify-between px-3 py-3" style={{ borderWidth: 1, borderRadius: 11, borderColor: colors.cardEdge, backgroundColor: '#fff' }}>
-              <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{active ? 'Active' : 'Inactive (cannot log in)'}</Text>
-              <View style={{ width: 44, height: 26, borderRadius: 999, backgroundColor: active ? colors.success : colors.cardEdge, padding: 3, alignItems: active ? 'flex-end' : 'flex-start' }}>
-                <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' }} />
+            <Pressable onPress={() => setActive((a) => !a)} className="flex-row items-center justify-between px-3 py-3" style={{ borderWidth: 1, borderRadius: 12, borderColor: colors.coolDivider, backgroundColor: colors.card }}>
+              <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{active ? 'Active' : 'Inactive (cannot log in)'}</Text>
+              <View style={{ width: 46, height: 28, borderRadius: 999, backgroundColor: active ? colors.primary : colors.coolDivider, padding: 3, alignItems: active ? 'flex-end' : 'flex-start' }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' }} />
               </View>
             </Pressable>
           </FormField>
         ) : null}
 
-        {!valid ? <Text style={{ color: colors.coral, fontSize: 10.5, fontWeight: '600', marginBottom: 8 }}>Required: {missing}</Text> : null}
+        {!valid ? <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '600', marginBottom: 8 }}>Required: {missing}</Text> : null}
         <SheetSave label={saving ? 'Saving…' : editUser ? 'Save changes' : 'Create user'} disabled={!valid || saving} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const input = { borderWidth: 1, borderColor: colors.cardEdge, borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, fontWeight: '700' as const, color: colors.ink };
+const input = { backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, fontWeight: '500' as const, color: colors.ink };

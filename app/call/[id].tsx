@@ -35,32 +35,32 @@ export default function CallDetails() {
   const DirIcon = missed ? PhoneMissed : call?.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-      <View className="flex-row items-center px-2 py-2" style={{ backgroundColor: colors.card, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-        <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Call details</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
+      <View className="flex-row items-center px-2" style={{ minHeight: 60, paddingVertical: 8, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+        <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Call details</Text>
       </View>
 
       {loading ? (
-        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.ink} /></View>
+        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.primary} /></View>
       ) : error || !call ? (
         <View className="flex-1 items-center justify-center" style={{ padding: 24 }}>
-          <Text style={{ color: colors.textMuted, fontSize: 13 }}>{error ?? 'Call not found'}</Text>
+          <Text style={{ color: colors.coolText, fontSize: 14 }}>{error ?? 'Call not found'}</Text>
         </View>
       ) : (
         <View style={{ padding: 20 }}>
           <View style={{ alignItems: 'center', paddingVertical: 12 }}>
-            <Avatar initials={initialsOf(call.peer.name)} color={colorFor(call.peer.id)} size={84} />
-            <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '800', marginTop: 14 }}>{call.peer.name}</Text>
+            <Avatar initials={initialsOf(call.peer.name)} color={colorFor(call.peer.id)} size={88} />
+            <Text style={{ color: colors.ink, fontSize: 21, fontWeight: '700', marginTop: 14 }}>{call.peer.name}</Text>
             <View className="flex-row items-center" style={{ gap: 6, marginTop: 6 }}>
-              <DirIcon size={14} color={missed ? colors.danger : colors.success} />
-              <Text style={{ color: missed ? colors.danger : colors.textMuted, fontSize: 13, fontWeight: '600' }}>
+              <DirIcon size={15} color={missed ? colors.danger : colors.primary} />
+              <Text style={{ color: missed ? colors.danger : colors.coolText, fontSize: 14, fontWeight: '600' }}>
                 {missed ? 'Missed' : call.direction === 'incoming' ? 'Incoming' : 'Outgoing'} {call.type === 'video' ? 'video' : 'voice'} call
               </Text>
             </View>
           </View>
 
-          <View style={{ marginTop: 16, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
+          <View style={{ marginTop: 16, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
             <Row label="Status" value={call.status[0].toUpperCase() + call.status.slice(1)} />
             <Row label="Started" value={fullWhen(call.startedAt)} />
             {call.durationSec > 0 ? <Row label="Duration" value={durationLabel(call.durationSec)} /> : null}
@@ -68,9 +68,9 @@ export default function CallDetails() {
           </View>
 
           <Pressable onPress={() => callManager.startOutgoing({ id: call.peer.id, name: call.peer.name }, call.type)}
-            className="flex-row items-center justify-center" style={{ gap: 8, marginTop: 20, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.ink }}>
-            <Phone size={17} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>Call back</Text>
+            className="flex-row items-center justify-center" style={{ gap: 8, marginTop: 20, height: 52, borderRadius: 999, backgroundColor: colors.primary }}>
+            <Phone size={18} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Call back</Text>
           </Pressable>
         </View>
       )}
@@ -80,9 +80,9 @@ export default function CallDetails() {
 
 function Row({ label, value, last }: { label: string; value: string; last?: boolean }) {
   return (
-    <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 16, paddingVertical: 13, borderBottomColor: colors.cardEdge, borderBottomWidth: last ? 0 : 1 }}>
-      <Text style={{ color: colors.textMuted, fontSize: 13 }}>{label}</Text>
-      <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '600' }}>{value}</Text>
+    <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomColor: colors.coolDivider, borderBottomWidth: last ? 0 : 1 }}>
+      <Text style={{ color: colors.coolText, fontSize: 14 }}>{label}</Text>
+      <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{value}</Text>
     </View>
   );
 }

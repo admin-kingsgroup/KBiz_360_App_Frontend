@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, Check, Archive as ArchiveIcon } from 'lucide-react-native';
@@ -9,6 +9,7 @@ import { listReminders } from '../../src/api/reminders';
 import type { ReminderRecord } from '../../src/data/reminders';
 
 // Reminder archive — approved reminders the user is part of, from the Mongo reminders API.
+// Flat white rows with hairline dividers on the cool canvas (matches the redesigned Reminders tab).
 export default function ReminderArchive() {
   const router = useRouter();
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
@@ -25,32 +26,39 @@ export default function ReminderArchive() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: colors.card }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-        <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>Archive</Text><Text style={{ color: colors.textMuted, fontSize: 10.5 }}>{archived.length} approved</Text></View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
+      {/* White header bar (standard chrome) */}
+      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+        <View className="flex-1">
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Archive</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12.5 }}>{archived.length} approved</Text>
+        </View>
       </View>
       {loading ? (
-        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.ink} /></View>
+        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 32, flexGrow: 1 }}>
           {archived.length === 0 ? (
-            <View className="items-center px-6" style={{ paddingVertical: 80 }}>
-              <ArchiveIcon size={36} color={colors.textMuted2} />
-              <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '700', marginTop: 12 }}>Archive is empty</Text>
-              <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4, textAlign: 'center' }}>Approved reminders appear here</Text>
+            <View className="flex-1 items-center justify-center px-8" style={{ paddingVertical: 64 }}>
+              <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                <ArchiveIcon size={40} color={colors.primary} />
+              </View>
+              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginTop: 16 }}>Archive is empty</Text>
+              <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>Approved reminders appear here</Text>
             </View>
-          ) : archived.map((r) => {
+          ) : archived.map((r, i) => {
             const personal = r.forId === meId && r.byId === meId;
             return (
-              <View key={r.id} style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-                <View className="flex-row items-start gap-2.5">
-                  <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center', marginTop: 2 }}><Check size={10} color="#fff" strokeWidth={3} /></View>
+              <View key={r.id} style={{ backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12 }}>
+                {i > 0 ? <View style={{ position: 'absolute', top: 0, left: 16, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.coolDivider }} /> : null}
+                <View className="flex-row items-start gap-3">
+                  <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 2 }}><Check size={13} color="#fff" strokeWidth={3} /></View>
                   <View className="flex-1">
-                    <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600', textDecorationLine: 'line-through' }}>{r.text}</Text>
-                    <View className="flex-row items-center gap-1.5 mt-0.5" style={{ flexWrap: 'wrap' }}>
-                      <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: r.forColor || colors.ink, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 8, fontWeight: '800' }}>{(r.forInitials || '').charAt(0)}</Text></View>
-                      <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{personal ? 'Personal' : `${r.forName} → ${r.byName}`}</Text>
+                    <Text style={{ color: colors.coolText, fontSize: 15, fontWeight: '500', lineHeight: 21, textDecorationLine: 'line-through' }}>{r.text}</Text>
+                    <View className="flex-row items-center gap-1.5" style={{ marginTop: 4, flexWrap: 'wrap' }}>
+                      <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: r.forColor || colors.ink, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{(r.forInitials || '').charAt(0)}</Text></View>
+                      <Text style={{ color: colors.coolText3, fontSize: 12.5, fontWeight: '600' }}>{personal ? 'Personal' : `${r.forName} → ${r.byName}`}</Text>
                     </View>
                   </View>
                 </View>

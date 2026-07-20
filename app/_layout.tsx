@@ -14,6 +14,7 @@ import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAuthStore } from '../src/store/authStore';
 import { connectChatSocket, disconnectChatSocket } from '../src/realtime/chatSocket';
 import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { autoCheckInOnForeground } from '../src/services/foregroundAttendance';
 import { installGlobalCrashHandler, flushStoredCrash } from '../src/services/crashReporter';
 import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
 import { setupIosCallKeep } from '../src/services/iosCallKeep';
@@ -34,10 +35,10 @@ import { setApiBaseUrl } from '../src/api';
 // use your machine's LAN IP when testing on a physical device).
 setApiBaseUrl((Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? 'http://localhost:4000');
 
-// Background-location revocation guard: "Allow all the time" is mandatory (background geofence
-// attendance). Verified on every app open + foreground; a revoked/downgraded grant flips the
-// location perm OFF, which sends the gate back to the permissions screen until re-granted.
-// Downgrade-only — granting lives on the permissions screen (avoids the two racing).
+// Location revocation guard. Location is required ("While using the app" is enough; background
+// "Allow all the time" is optional). Verified on every app open + foreground; if location is turned
+// fully OFF in Settings, flip the perm OFF, which sends the gate back to the permissions screen
+// until re-granted. Downgrade-only — granting lives on the permissions screen (avoids the two racing).
 async function enforceBgLocation(): Promise<void> {
   const st = await getBackgroundLocationStatus();
   if (locationPermSatisfied(st)) return;
@@ -68,10 +69,12 @@ function GateController() {
     void registerFcmToken(); // raw FCM token → native full-screen call UI (Android)
     setupIosCallKeep(); // iOS: CallKit + VoIP/PushKit incoming-call screen
     void syncAttendanceGeofencing(); // start OS geofencing for the user's offices (background auto check-in)
+    void autoCheckInOnForeground(); // opening the app at the office marks attendance (foreground, any screen)
     void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void enforceBgLocation(); // location revoked in Settings while backgrounded → back to the gate
+        void autoCheckInOnForeground(); // re-check on every foreground: at the office → auto check-in
         connectChatSocket();
         void useMessagingStore.getState().loadConversations(); // refresh chat list on return (server is source of truth)
         void useEmailStore.getState().refreshUnread(); // Email tab badge
@@ -149,7 +152,7 @@ export default function RootLayout() {
         <KeyboardProvider>
           <ErrorBoundary>
             <OfflineBanner />
-            {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.canvas }} />}
+            {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
             {/* Global call overlays — render over any screen and survive navigation (call state
                 lives in callSessionStore). Active first so an incoming call layers above it. */}
             <ActiveCallOverlay />

@@ -1,5 +1,5 @@
 import { Pressable, Text } from 'react-native';
-import { colors, shadowSm } from '../../theme';
+import { colors } from '../../theme';
 
 export interface SheetSaveProps {
   label: string;
@@ -11,9 +11,9 @@ export interface SheetSaveProps {
 export function SheetSave({ label, disabled = false, onPress }: SheetSaveProps) {
   return (
     <Pressable onPress={disabled ? undefined : onPress} disabled={disabled}
-      className="items-center justify-center rounded-full py-3"
-      style={[{ backgroundColor: disabled ? colors.cardEdge : colors.ink }, disabled ? null : shadowSm]}>
-      <Text style={{ color: disabled ? colors.warmMute : '#FFFFFF', fontSize: 13.5, fontWeight: '800' }}>{label}</Text>
+      className="items-center justify-center rounded-full"
+      style={{ backgroundColor: disabled ? colors.coolMuted : colors.primary, height: 50 }}>
+      <Text style={{ color: disabled ? colors.coolText3 : '#FFFFFF', fontSize: 14, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }

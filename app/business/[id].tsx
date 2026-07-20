@@ -46,49 +46,49 @@ export default function BusinessDetail() {
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
         <Hdr title="Business" onBack={() => router.back()} />
-        <View className="items-center" style={{ paddingVertical: 64 }}><ActivityIndicator color={colors.ink} /></View>
+        <View className="items-center" style={{ paddingVertical: 64 }}><ActivityIndicator color={colors.primary} /></View>
       </SafeAreaView>
     );
   }
   if (!company) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
         <Hdr title="Business" onBack={() => router.back()} />
-        <View className="items-center" style={{ paddingVertical: 64 }}><Text style={{ color: colors.textMuted }}>Business not found</Text></View>
+        <View className="items-center" style={{ paddingVertical: 64 }}><Text style={{ color: colors.coolText }}>Business not found</Text></View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
       <Hdr title={company.name} subtitle={company.status ?? undefined} onBack={() => router.back()} />
 
       {/* Stat card */}
-      <View style={{ margin: 14, padding: 16, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
+      <View style={{ margin: 14, padding: 16, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
         <View className="flex-row items-center gap-3">
-          <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: PALETTE[0], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>{codeFromName(company.name)}</Text></View>
-          <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800', letterSpacing: -0.4 }}>{company.name}</Text></View>
+          <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>{codeFromName(company.name)}</Text></View>
+          <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700', letterSpacing: -0.4 }}>{company.name}</Text></View>
         </View>
-        <View className="flex-row gap-1.5 mt-3">
+        <View className="flex-row mt-3" style={{ gap: 8 }}>
           {[['Branches', branches.length], ['Depts', depts.length], ['Users', users.length]].map(([l, v]) => (
-            <View key={l as string} style={{ flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center', backgroundColor: colors.canvas }}>
-              <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 18, fontWeight: '800' }}>{v as number}</Text>
-              <Text style={{ color: colors.textMuted, fontSize: 9, fontWeight: '700', letterSpacing: 0.4 }}>{(l as string).toUpperCase()}</Text>
+            <View key={l as string} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: colors.primarySoft }}>
+              <Text style={{ color: colors.primaryDark, fontSize: 20, fontWeight: '800' }}>{v as number}</Text>
+              <Text style={{ color: colors.primary, fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4, marginTop: 2 }}>{(l as string).toUpperCase()}</Text>
             </View>
           ))}
         </View>
       </View>
 
       {/* Subtabs */}
-      <View className="flex-row mx-4" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
+      <View className="flex-row mx-4" style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
         {([['branches', 'Branches'], ['depts', 'Departments'], ['users', 'Users']] as const).map(([k, l]) => {
           const on = k === subTab;
           return (
             <Pressable key={k} onPress={() => setSubTab(k)} style={{ flex: 1, paddingVertical: 12, alignItems: 'center' }}>
-              <Text style={{ color: on ? colors.ink : colors.textMuted2, fontSize: 13, fontWeight: on ? '800' : '600' }}>{l}</Text>
-              {on ? <View style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, borderRadius: 2, backgroundColor: colors.ink }} /> : null}
+              <Text style={{ color: on ? colors.primary : colors.coolText, fontSize: 14, fontWeight: on ? '700' : '600' }}>{l}</Text>
+              {on ? <View style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 3, borderRadius: 2, backgroundColor: colors.primary }} /> : null}
             </Pressable>
           );
         })}
@@ -98,17 +98,17 @@ export default function BusinessDetail() {
         {subTab === 'branches' ? (
           branches.length === 0 ? <Empty Icon={MapPin} text="No branches" sub="This company has no branches yet" />
             : branches.map((b, i) => (
-              <View key={b.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{b.code ?? '—'}</Text></View>
-                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>{b.city ?? b.name ?? b.code}{b.isHO ? '  · HO' : ''}</Text><Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{b.country ?? ''}</Text></View>
+              <View key={b.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+                <View style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>{b.code ?? '—'}</Text></View>
+                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{b.city ?? b.name ?? b.code}{b.isHO ? '  · HO' : ''}</Text><Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{b.country ?? ''}</Text></View>
               </View>
             ))
         ) : subTab === 'depts' ? (
           depts.length === 0 ? <Empty Icon={Building2} text="No departments" sub="No departments found for this company" />
             : depts.map((d, i) => (
-              <View key={d.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>{(d.name ?? d.code ?? '?').slice(0, 1).toUpperCase()}</Text></View>
-                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 13, fontWeight: '800' }}>{d.name ?? d.code}</Text>{d.code ? <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '600' }}>{d.code}</Text> : null}</View>
+              <View key={d.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+                <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>{(d.name ?? d.code ?? '?').slice(0, 1).toUpperCase()}</Text></View>
+                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{d.name ?? d.code}</Text>{d.code ? <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{d.code}</Text> : null}</View>
               </View>
             ))
         ) : (
@@ -116,10 +116,10 @@ export default function BusinessDetail() {
             : users.map((u) => {
               const rd = ROLE_DEFS[u.role];
               return (
-                <View key={u.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-                  <Avatar initials={u.initials} color={u.color} size={36} uri={u.avatar} />
-                  <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>{u.name}</Text>{u.scopeLine ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{u.scopeLine}</Text> : null}</View>
-                  <View style={{ backgroundColor: rd.color, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}><Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800' }}>{rd.badge}</Text></View>
+                <View key={u.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+                  <Avatar initials={u.initials} color={u.color} size={42} uri={u.avatar} />
+                  <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{u.name}</Text>{u.scopeLine ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{u.scopeLine}</Text> : null}</View>
+                  <View style={{ backgroundColor: rd.color, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999 }}><Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{rd.badge}</Text></View>
                 </View>
               );
             })
@@ -132,17 +132,17 @@ export default function BusinessDetail() {
 function Empty({ Icon, text, sub }: { Icon: typeof MapPin; text: string; sub: string }) {
   return (
     <View className="items-center px-6" style={{ paddingVertical: 48 }}>
-      <Icon size={28} color={colors.textMuted2} />
-      <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 10 }}>{text}</Text>
-      <Text style={{ color: colors.textMuted2, fontSize: 11, marginTop: 4, textAlign: 'center' }}>{sub}</Text>
+      <Icon size={30} color={colors.coolText3} />
+      <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '700', marginTop: 10 }}>{text}</Text>
+      <Text style={{ color: colors.coolText3, fontSize: 12, marginTop: 4, textAlign: 'center' }}>{sub}</Text>
     </View>
   );
 }
 function Hdr({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack: () => void }) {
   return (
-    <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-      <Pressable onPress={onBack} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-      <View className="flex-1"><Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{title}</Text>{subtitle ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{subtitle}</Text> : null}</View>
+    <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      <Pressable onPress={onBack} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+      <View className="flex-1"><Text numberOfLines={1} style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>{title}</Text>{subtitle ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{subtitle}</Text> : null}</View>
     </View>
   );
 }

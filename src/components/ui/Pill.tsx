@@ -16,10 +16,10 @@ export function Pill({ label, color, active = false, unread = 0, borderColor = '
   return (
     <Pressable
       onPress={onPress}
-      className="flex-row items-center gap-1.5 rounded-full px-3 py-1.5 border"
+      className="flex-row items-center gap-1.5 rounded-full px-3.5 py-2 border"
       style={[{ backgroundColor: active ? color : '#FFFFFF', borderColor: active ? color : borderColor }, active ? shadowSm : null]}
     >
-      <Text style={{ color: active ? '#FFFFFF' : '#0C0E14', fontSize: 11.5, fontWeight: '800' }}>{label}</Text>
+      <Text style={{ color: active ? '#FFFFFF' : '#0C0E14', fontSize: 13, fontWeight: '800' }}>{label}</Text>
       {unread > 0 ? <Badge count={unread} color={active ? 'rgba(255,255,255,0.28)' : '#E3674E'} /> : null}
     </Pressable>
   );

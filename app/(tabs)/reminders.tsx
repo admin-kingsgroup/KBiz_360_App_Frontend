@@ -94,46 +94,47 @@ export default function Reminders() {
   const reviewCount = data?.reviewCount ?? 0;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-      <View className="flex-row items-center justify-between px-5 pt-3 pb-2">
-        <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 16, fontWeight: '600', letterSpacing: -0.5 }}>Reminders</Text>
-        <Pressable onPress={() => router.push('/reminder/archive')} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-          <Archive size={15} color={colors.ink} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
+      {/* White header bar (matches the Chats screen chrome) */}
+      <View className="flex-row items-center justify-between px-4" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3 }}>Reminders</Text>
+        <Pressable onPress={() => router.push('/reminder/archive')} style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+          <Archive size={19} color={colors.ink} />
         </Pressable>
       </View>
 
-      {/* Filter tabs */}
-      <View className="flex-row gap-1.5 px-4 pb-2">
+      {/* Filter chips — grey, green when active (Home chips language) */}
+      <View className="flex-row gap-2 px-4" style={{ paddingVertical: 10 }}>
         {FILTERS.map((label, i) => {
           const on = i === f;
           const showBadge = label === 'Review' && reviewCount > 0;
           return (
-            <Pressable key={label} onPress={() => setF(i)} className="flex-row items-center gap-1"
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, backgroundColor: on ? colors.ink : colors.paper, borderColor: on ? colors.ink : colors.cardEdge }}>
-              <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12, fontWeight: '700' }}>{label}</Text>
-              {showBadge ? <View style={{ minWidth: 15, height: 15, paddingHorizontal: 4, borderRadius: 999, backgroundColor: colors.coral, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800' }}>{reviewCount}</Text></View> : null}
+            <Pressable key={label} onPress={() => setF(i)} className="flex-row items-center gap-1.5"
+              style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
+              <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+              {showBadge ? <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 999, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '700' }}>{reviewCount}</Text></View> : null}
             </Pressable>
           );
         })}
       </View>
 
       {loading && !data ? (
-        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.ink} /></View>
+        <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: 96 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.ink} />}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 96 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
           {groups.map((sec) => (
             <View key={sec.key}>
               <View className="flex-row items-center gap-2 px-5 pt-3 pb-1.5">
-                <Avatar initials={sec.initials || ''} color={sec.avColor || colors.ink} size={20} />
-                <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 13, fontWeight: '600' }}>{sec.name}</Text>
+                <Avatar initials={sec.initials || ''} color={sec.avColor || colors.ink} size={24} />
+                <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{sec.name}</Text>
                 {sec.sub ? (
-                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.cardEdge }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 9, fontWeight: '800' }}>{sec.sub}</Text>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.coolMuted }}>
+                    <Text style={{ color: colors.coolText, fontSize: 10.5, fontWeight: '700' }}>{sec.sub}</Text>
                   </View>
                 ) : null}
-                <Text style={{ color: colors.warmMute, fontSize: 10, fontWeight: '700' }}>· {sec.items.length}</Text>
+                <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {sec.items.length}</Text>
               </View>
-              <View className="px-4" style={{ gap: 6 }}>
+              <View className="px-4" style={{ gap: 8 }}>
                 {(sec.items as ReminderRecord[]).map((r) => (
                   <ReminderCard key={r.id} r={r} biz={null} meId={meId} onComplete={onComplete} onApprove={onApprove} onReassign={onReassign} />
                 ))}
@@ -142,36 +143,39 @@ export default function Reminders() {
           ))}
 
           {visible.length === 0 ? (
-            <View className="items-center" style={{ paddingVertical: 64 }}>
-              <Bell size={32} color={colors.textMuted2} />
-              <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 }}>No reminders in this filter</Text>
-              {f === 2 ? <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 4 }}>Items appear here when assignees complete what you set</Text> : null}
+            <View className="items-center px-8" style={{ paddingVertical: 64 }}>
+              <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                <Bell size={42} color={colors.primary} />
+              </View>
+              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginTop: 16 }}>No reminders in this filter</Text>
+              {f === 2 ? <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>Items appear here when assignees complete what you set</Text> : null}
             </View>
           ) : null}
         </ScrollView>
       )}
 
-      <Pressable onPress={() => router.push('/reminder/new')} style={{ position: 'absolute', right: 16, bottom: 16, width: 52, height: 52, borderRadius: 26, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
-        <Plus size={22} color="#fff" strokeWidth={2.5} />
+      {/* Green FAB (WhatsApp-style) */}
+      <Pressable onPress={() => router.push('/reminder/new')} style={{ position: 'absolute', right: 16, bottom: 16, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: colors.primaryDark, shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }}>
+        <Plus size={26} color="#fff" strokeWidth={2.5} />
       </Pressable>
 
       {/* Reassign picker — choose a new assignee; resets the reminder to pending for them. */}
       <Modal visible={!!reassignFor} transparent animationType="slide" onRequestClose={() => setReassignFor(null)}>
         <Pressable onPress={() => setReassignFor(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16), maxHeight: '72%' }}>
-            <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
-            <View className="flex-row items-center justify-between px-5 pb-2">
+          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: Math.max(28, insets.bottom + 16), maxHeight: '72%' }}>
+            <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.coolDivider }} /></View>
+            <View className="flex-row items-center justify-between px-5 pb-3">
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Reassign to…</Text>
-                {reassignFor ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 11.5, marginTop: 1 }}>{reassignFor.text}</Text> : null}
+                <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Reassign to…</Text>
+                {reassignFor ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 13, marginTop: 2 }}>{reassignFor.text}</Text> : null}
               </View>
-              <Pressable onPress={() => setReassignFor(null)} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
+              <Pressable onPress={() => setReassignFor(null)} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={17} color={colors.coolText} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
               {people.filter((u) => u.id !== reassignFor?.forId).map((u) => (
-                <Pressable key={u.id} onPress={() => void doReassign(u.id)} className="flex-row items-center" style={{ gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12 }}>
-                  <Avatar initials={initialsOf(u.name)} color={colorFor(u.id)} size={36} />
-                  <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{u.name}</Text>
+                <Pressable key={u.id} onPress={() => void doReassign(u.id)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center" style={{ gap: 12, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12 }}>
+                  <Avatar initials={initialsOf(u.name)} color={colorFor(u.id)} size={42} />
+                  <Text style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{u.name}</Text>
                 </Pressable>
               ))}
             </ScrollView>

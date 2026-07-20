@@ -59,20 +59,20 @@ export default function AlertDetail() {
 
   if (!channel) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
         <Header title="Alert" onBack={() => router.back()} />
-        <View className="items-center" style={{ paddingVertical: 64 }}><Text style={{ color: colors.textMuted }}>Channel not found</Text></View>
+        <View className="items-center" style={{ paddingVertical: 64 }}><Text style={{ color: colors.coolText }}>Channel not found</Text></View>
       </SafeAreaView>
     );
   }
 
   const biz = channel.bizId ? businesses.find((b) => b.id === channel.bizId) : null;
-  const memberObjs = channel.members.map((mid) => reminderPeople.find((p) => p.id === mid) || { id: mid, name: mid, initials: mid.slice(0, 2).toUpperCase(), color: colors.textMuted2 });
+  const memberObjs = channel.members.map((mid) => reminderPeople.find((p) => p.id === mid) || { id: mid, name: mid, initials: mid.slice(0, 2).toUpperCase(), color: colors.coolText3 });
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
       <Header title={channel.name} subtitle={channel.members.length ? `${biz?.name || 'System'} · ${channel.members.length} member${channel.members.length === 1 ? '' : 's'}` : `${biz?.name || 'System'}${channel.branch ? ` · ${channel.branch} branch` : ''}`}
-        onBack={() => router.back()} right={<Pressable onPress={() => { markChannelRead(channel.id); showToast('Marked all read'); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={18} color={colors.ink} /></Pressable>} />
+        onBack={() => router.back()} right={<Pressable onPress={() => { markChannelRead(channel.id); showToast('Marked all read'); }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={20} color={colors.ink} /></Pressable>} />
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
         {/* Channel banner */}
@@ -80,27 +80,27 @@ export default function AlertDetail() {
           <View className="flex-row items-center gap-3">
             <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: channel.color + '30', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 26 }}>{channel.icon}</Text></View>
             <View className="flex-1">
-              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800', letterSpacing: -0.4 }}>{channel.name}</Text>
-              <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 11, marginTop: 2 }}>{channel.description}</Text>
+              <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700', letterSpacing: -0.4 }}>{channel.name}</Text>
+              <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 12, marginTop: 2 }}>{channel.description}</Text>
             </View>
           </View>
           {memberObjs.length > 0 ? <View className="flex-row items-center gap-1.5 mt-3" style={{ flexWrap: 'wrap' }}>
-            <Text style={{ color: channel.color, fontSize: 9.5, fontWeight: '800', letterSpacing: 1 }}>VISIBLE TO</Text>
+            <Text style={{ color: channel.color, fontSize: 10, fontWeight: '800', letterSpacing: 1 }}>VISIBLE TO</Text>
             {memberObjs.slice(0, 6).map((m) => (
-              <View key={m.id} className="flex-row items-center gap-1" style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.6)' }}>
-                <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: m.color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 8, fontWeight: '800' }}>{m.initials.charAt(0)}</Text></View>
-                <Text style={{ color: colors.ink, fontSize: 10, fontWeight: '700' }}>{m.name.split(' ')[0]}</Text>
+              <View key={m.id} className="flex-row items-center gap-1" style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.7)' }}>
+                <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: m.color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800' }}>{m.initials.charAt(0)}</Text></View>
+                <Text style={{ color: colors.ink, fontSize: 11, fontWeight: '600' }}>{m.name.split(' ')[0]}</Text>
               </View>
             ))}
           </View> : null}
         </View>
 
-        <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 1.3, paddingHorizontal: 16, paddingBottom: 8 }}>{events.length} {events.length === 1 ? 'EVENT' : 'EVENTS'}</Text>
+        <Text style={{ color: colors.coolText3, fontSize: 10.5, fontWeight: '800', letterSpacing: 1.3, paddingHorizontal: 16, paddingBottom: 8 }}>{events.length} {events.length === 1 ? 'EVENT' : 'EVENTS'}</Text>
 
         {events.length === 0 ? (
           <View className="items-center px-6" style={{ paddingVertical: 48 }}>
             <Text style={{ fontSize: 32, marginBottom: 8 }}>🛌</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '700' }}>No events yet</Text>
+            <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '700' }}>No events yet</Text>
           </View>
         ) : (
         <View style={{ paddingHorizontal: 14, gap: 10 }}>
@@ -113,33 +113,33 @@ export default function AlertDetail() {
             style={[{
               paddingHorizontal: 14, paddingVertical: 12,
               borderRadius: 14, borderWidth: 1.5, overflow: 'hidden',
-              borderColor: isNew(e) ? channel.color + '66' : '#DBD4C5',
-              backgroundColor: isNew(e) ? '#FAFBFF' : colors.card,
+              borderColor: isNew(e) ? channel.color + '66' : colors.coolDivider,
+              backgroundColor: isNew(e) ? colors.primarySoft : colors.card,
             }, shadow]}
           >
             {isNew(e) ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: channel.color }} /> : null}
             <View className="flex-row items-baseline justify-between gap-2">
-              <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10, fontWeight: '700', flex: 1 }}>{e.source}</Text>
-              <Text style={{ color: colors.textMuted2, fontSize: 10, fontWeight: '700' }}>{timeAgo(e.time)}</Text>
+              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11, fontWeight: '600', flex: 1 }}>{e.source}</Text>
+              <Text style={{ color: colors.coolText3, fontSize: 11, fontWeight: '600' }}>{timeAgo(e.time)}</Text>
             </View>
-            <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '800', marginTop: 2 }}>{e.title}</Text>
-            {e.body ? <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{e.body}</Text> : null}
-            {e.context ? <View style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: '#F4F2EC' }}><Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: '700' }}>{e.context}</Text></View> : null}
+            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700', marginTop: 2 }}>{e.title}</Text>
+            {e.body ? <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 2 }}>{e.body}</Text> : null}
+            {e.context ? <View style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.coolMuted }}><Text style={{ color: colors.coolText, fontSize: 10.5, fontWeight: '600' }}>{e.context}</Text></View> : null}
             {e.attachment ? (
               <Pressable
                 onPress={() => { void openAttachment(e); }}
                 className="flex-row items-center gap-1.5"
-                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: colors.ink }}
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.primary }}
               >
-                <FileText size={12} color="#fff" />
-                <Text numberOfLines={1} style={{ color: '#fff', fontSize: 10.5, fontWeight: '800', maxWidth: 220 }}>{e.attachment.name}</Text>
+                <FileText size={13} color="#fff" />
+                <Text numberOfLines={1} style={{ color: '#fff', fontSize: 11.5, fontWeight: '700', maxWidth: 220 }}>{e.attachment.name}</Text>
               </Pressable>
             ) : null}
             {e.actions && e.actions.length > 0 ? (
               <View className="flex-row gap-1.5 mt-2" style={{ flexWrap: 'wrap' }}>
                 {e.actions.map((a, i) => (
-                  <Pressable key={i} onPress={() => { markEventRead(e.id); showToast(a.label); }} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: a.primary ? colors.ink : '#F4F2EC' }}>
-                    <Text style={{ color: a.primary ? '#fff' : colors.ink, fontSize: 10.5, fontWeight: '800' }}>{a.label}</Text>
+                  <Pressable key={i} onPress={() => { markEventRead(e.id); showToast(a.label); }} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: a.primary ? colors.primary : colors.coolMuted }}>
+                    <Text style={{ color: a.primary ? '#fff' : colors.ink, fontSize: 11.5, fontWeight: '700' }}>{a.label}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -155,9 +155,9 @@ export default function AlertDetail() {
 
 function Header({ title, subtitle, onBack, right }: { title: string; subtitle?: string; onBack: () => void; right?: ReactNode }) {
   return (
-    <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-      <Pressable onPress={onBack} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
-      <View className="flex-1"><Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '800' }}>{title}</Text>{subtitle ? <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5 }}>{subtitle}</Text> : null}</View>
+    <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      <Pressable onPress={onBack} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+      <View className="flex-1"><Text numberOfLines={1} style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>{title}</Text>{subtitle ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{subtitle}</Text> : null}</View>
       {right}
     </View>
   );

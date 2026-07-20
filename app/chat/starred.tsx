@@ -28,31 +28,31 @@ export default function StarredMessages() {
   const userName = (id: string): string => users.find((u) => u.id === id)?.name ?? 'Member';
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: '#fff', borderBottomColor: colors.cardEdge, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
+      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View className="flex-row items-center gap-2">
-          <Star size={16} color={colors.orange} />
-          <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>Starred messages</Text>
+          <Star size={18} color={colors.orange} fill={colors.orange} />
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Starred messages</Text>
         </View>
       </View>
 
       {loading ? (
-        <View className="items-center" style={{ paddingVertical: 48 }}><ActivityIndicator color={colors.ink} /></View>
+        <View className="items-center" style={{ paddingVertical: 48 }}><ActivityIndicator color={colors.primary} /></View>
       ) : (
         <FlatList
           data={items}
           keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 12, gap: 6 }}
-          ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 56 }}><Star size={26} color={colors.textMuted2} /><Text style={{ color: colors.textMuted, fontSize: 12.5, marginTop: 10 }}>No starred messages</Text><Text style={{ color: colors.textMuted2, fontSize: 11, marginTop: 4 }}>Long-press a message → Star</Text></View>}
+          contentContainerStyle={{ padding: 12, gap: 8 }}
+          ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 56 }}><View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}><Star size={40} color={colors.primary} /></View><Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginTop: 16 }}>No starred messages</Text><Text style={{ color: colors.coolText, fontSize: 13, marginTop: 5 }}>Long-press a message → Star</Text></View>}
           renderItem={({ item: m }) => (
-            <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId } })} style={{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 14, padding: 12 }}>
-              <View className="flex-row justify-between items-baseline">
-                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800', flex: 1 }}>{convName(m.conversationId)}</Text>
-                <Text style={{ color: colors.textMuted2, fontSize: 9.5, fontWeight: '700' }}>{hhmm(m.createdAt)}</Text>
+            <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+              <View className="flex-row justify-between items-baseline gap-2">
+                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{convName(m.conversationId)}</Text>
+                <Text style={{ color: colors.coolText3, fontSize: 12, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
               </View>
-              <Text style={{ color: colors.purple, fontSize: 10.5, fontWeight: '700', marginTop: 2 }}>{userName(m.senderId)}</Text>
-              <Text numberOfLines={2} style={{ color: colors.warmMute, fontSize: 12, marginTop: 2 }}>{m.text || `[${m.type}]`}</Text>
+              <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700', marginTop: 2 }}>{userName(m.senderId)}</Text>
+              <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 14, marginTop: 2 }}>{m.text || `[${m.type}]`}</Text>
             </Pressable>
           )}
         />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, TextInput } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, Search, Building2 } from 'lucide-react-native';
@@ -50,9 +50,9 @@ export default function KbizMembers() {
 
   if (!isSuper) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: colors.textMuted, fontSize: 13 }}>Requires super admin</Text>
-        <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}><Text style={{ color: colors.blue, fontWeight: '700' }}>Go back</Text></Pressable>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: colors.coolText, fontSize: 14 }}>Requires super admin</Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}><Text style={{ color: colors.primary, fontWeight: '700' }}>Go back</Text></Pressable>
       </SafeAreaView>
     );
   }
@@ -60,69 +60,69 @@ export default function KbizMembers() {
   const memberCount = data?.users.filter((u) => u.member).length ?? 0;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <View className="flex-row items-center gap-2 px-2 py-2" style={{ borderBottomColor: colors.cardEdge, borderBottomWidth: 1, backgroundColor: colors.card }}>
-        <Pressable onPress={() => router.back()} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={22} color={colors.ink} /></Pressable>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
+      <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View className="flex-1">
-          <Text style={{ fontFamily: 'Fraunces', color: colors.ink, fontSize: 15, fontWeight: '600' }}>KBiz360 Members</Text>
-          <Text style={{ color: colors.warmMute, fontSize: 10.5 }}>
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>KBiz360 Members</Text>
+          <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>
             {data ? `${data.company.name} · branch ${data.branch.code ?? data.branch.name} · ${memberCount} member${memberCount === 1 ? '' : 's'}` : 'Business membership'}
           </Text>
         </View>
       </View>
 
-      <View className="flex-row items-center mx-4 mt-3" style={{ gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardEdge }}>
-        <Search size={16} color={colors.textMuted} />
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search users" placeholderTextColor={colors.textMuted}
-          autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 14 }} />
+      <View className="flex-row items-center mx-4 mt-3" style={{ gap: 12, height: 48, paddingHorizontal: 16, borderRadius: 999, backgroundColor: colors.coolMuted }}>
+        <Search size={19} color={colors.coolText3} strokeWidth={2.2} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Search users" placeholderTextColor={colors.coolText3}
+          autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 15 }} />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 32 }}>
         {!data && !error ? (
           <View className="items-center" style={{ paddingVertical: 40 }}>
-            <ActivityIndicator color={colors.ink} />
-            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 10 }}>Loading users…</Text>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 10 }}>Loading users…</Text>
           </View>
         ) : null}
         {error ? (
           <View className="items-center" style={{ paddingVertical: 40 }}>
-            <Building2 size={28} color={colors.cardEdge} />
-            <Text style={{ color: colors.textMuted, fontSize: 12.5, marginTop: 10, textAlign: 'center', paddingHorizontal: 24 }}>{error}</Text>
+            <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}><Building2 size={40} color={colors.primary} /></View>
+            <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 14, textAlign: 'center', paddingHorizontal: 24 }}>{error}</Text>
           </View>
         ) : null}
 
         {data ? (
           <>
-            <View className="flex-row items-center gap-1.5 mb-1">
-              <Building2 size={11} color={colors.textMuted} />
-              <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 }}>
+            <View className="flex-row items-center gap-1.5 mb-2 px-1">
+              <Building2 size={12} color={colors.coolText} />
+              <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.8 }}>
                 ALL USERS · {shown.length} — TOGGLE ON = IN {(data.branch.code ?? 'BOM').toUpperCase()}
               </Text>
             </View>
-            <View style={{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
+            <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
               {shown.map((du, i) => {
                 const u = toUser(du);
                 return (
-                  <View key={du.id} className="flex-row items-center gap-2.5 px-3.5 py-2.5"
-                    style={{ borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
-                    <Avatar initials={u.initials} color={u.color} size={36} uri={u.avatar} />
+                  <View key={du.id} className="flex-row items-center gap-3 px-3.5 py-3"
+                    style={{ borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
+                    <Avatar initials={u.initials} color={u.color} size={44} uri={u.avatar} />
                     <View className="flex-1">
-                      <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '800' }}>{u.name}</Text>
-                      <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 10.5, marginTop: 2 }}>
+                      <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{u.name}</Text>
+                      <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>
                         {du.position || humanizeRole(du.role)} · {du.email}
                       </Text>
                     </View>
                     <Switch
                       value={du.member}
                       onValueChange={(v) => toggle(du.id, v)}
-                      trackColor={{ true: colors.success, false: colors.cardEdge }}
+                      trackColor={{ true: colors.primary, false: colors.coolDivider }}
                     />
                   </View>
                 );
               })}
               {shown.length === 0 ? (
                 <View className="items-center" style={{ paddingVertical: 24 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>No matching users</Text>
+                  <Text style={{ color: colors.coolText, fontSize: 13 }}>No matching users</Text>
                 </View>
               ) : null}
             </View>

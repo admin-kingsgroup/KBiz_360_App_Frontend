@@ -30,6 +30,16 @@
       ],
       "expo-notifications",
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "KBiz 360 uses the microphone for voice search.",
+          "speechRecognitionPermission": "KBiz 360 uses speech recognition so you can search by voice.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
         "expo-audio",
         {
           "microphonePermission": "KBiz 360 needs microphone access to record voice messages in chat."
