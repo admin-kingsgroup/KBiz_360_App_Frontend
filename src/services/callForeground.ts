@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
+import { useRouter } from 'expo-router';
 import { registerFcmDevice } from '../api/calls';
 import { callManager } from './rtc/CallManager';
 
@@ -37,22 +38,28 @@ export async function registerFcmToken(): Promise<void> {
 
 interface NotifLike { notification?: { id?: string; data?: Record<string, string> }; pressAction?: { id?: string } }
 
-// Answer / Decline taps from the native call notification — cold-start launch + foreground taps.
-// 'answer' accepts (the reconnect re-emit + pendingAccept connect the call); 'decline' rejects;
-// a body/full-screen tap just opens the app and the in-app overlay shows Accept/Decline.
+// Taps on NOTIFEE notifications — cold-start launch + foreground taps. Calls: 'answer' accepts
+// (the reconnect re-emit + pendingAccept connect the call); 'decline' rejects; a body/full-screen
+// tap just opens the app and the in-app overlay shows Accept/Decline. Chat: a body tap deep-links
+// to the conversation (the background chat push draws notifee notifications with {type:'chat', id}).
 export function useCallNotifications(): void {
+  const router = useRouter();
   useEffect(() => {
     const m = load();
     if (!m) return;
     const { notifee, EventType } = m;
     const act = (info: NotifLike | null | undefined): void => {
       const data = info?.notification?.data;
-      if (!data || data.type !== 'call') return;
-      const actionId = info?.pressAction?.id;
-      if (actionId === 'answer') callManager.acceptFromNotification(data.callId);
-      else if (actionId === 'decline') {
-        callManager.declineFromNotification(data.callId);
-        if (info?.notification?.id) void notifee.cancelNotification(info.notification.id);
+      if (!data) return;
+      if (data.type === 'call') {
+        const actionId = info?.pressAction?.id;
+        if (actionId === 'answer') callManager.acceptFromNotification(data.callId);
+        else if (actionId === 'decline') {
+          callManager.declineFromNotification(data.callId);
+          if (info?.notification?.id) void notifee.cancelNotification(info.notification.id);
+        }
+      } else if (data.type === 'chat' && (data.id || data.conversationId)) {
+        router.push({ pathname: '/chat/[id]', params: { id: (data.id ?? data.conversationId) as string } });
       }
     };
     void (notifee.getInitialNotification() as Promise<NotifLike | null>).then(act);
@@ -61,5 +68,5 @@ export function useCallNotifications(): void {
       if (ev.type === EventType.ACTION_PRESS || ev.type === EventType.PRESS) act(ev.detail);
     });
     return () => unsub();
-  }, []);
+  }, [router]);
 }

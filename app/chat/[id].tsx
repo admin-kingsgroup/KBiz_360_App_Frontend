@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, StyleSheet, Vibration } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Phone, Clock, Check, CheckCheck } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -20,6 +22,7 @@ import { listUsers, toUser } from '../../src/api/directory';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
 import { callManager } from '../../src/services/rtc/CallManager';
+import { daySeparator, isDifferentDay } from '../../src/utils/time';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -45,7 +48,12 @@ export default function ChatDetail() {
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardState((s) => s.isVisible);
 
-  const messages = useMessagingStore((s) => s.messages[convId]) ?? [];
+  const rawMessages = useMessagingStore((s) => s.messages[convId]);
+  const messages = useMemo(() => rawMessages ?? [], [rawMessages]);
+  // The list is INVERTED (newest at the bottom, rendered first) so a chat always opens already at
+  // the last message — no scroll-to-bottom, no "chasing" as rows/media lay out. reversed = newest
+  // first; `messages` stays chronological for everything else (send, divider anchor, etc.).
+  const reversed = useMemo(() => messages.slice().reverse(), [messages]);
   const typingUsers = useMessagingStore((s) => s.typing[convId]) ?? [];
   const convFromStore = useMessagingStore((s) => s.conversations.find((c) => c.id === convId));
   const presence = useMessagingStore((s) => s.presence);
@@ -67,7 +75,37 @@ export default function ChatDetail() {
   const listRef = useRef<FlatList<StoredMessage>>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Unread divider ("— N unread messages —", WhatsApp-style). Freeze the conversation's unread count
+  // at OPEN, synchronously during the first render — the mount effect calls markRead which zeroes it,
+  // so reading it later would always give 0.
+  const initialUnreadRef = useRef<number | null>(null);
+  if (initialUnreadRef.current === null) {
+    initialUnreadRef.current = useMessagingStore.getState().conversations.find((c) => c.id === convId)?.unread ?? 0;
+  }
+  // The message the divider sits ABOVE (first unread). Computed ONCE after messages load, then frozen
+  // so it doesn't jump when markRead fires or new messages arrive while the chat is open.
+  const [unreadDivider, setUnreadDivider] = useState<{ anchorId: string; count: number } | null>(null);
+  const dividerComputed = useRef(false);
+
   useEffect(() => { if (convFromStore) setConv(convFromStore); }, [convFromStore]);
+
+  useEffect(() => {
+    if (dividerComputed.current || loading) return;
+    dividerComputed.current = true;
+    const n = initialUnreadRef.current ?? 0;
+    if (n <= 0) return;
+    // Read the just-loaded messages from the store (loading flips false only after loadMessages).
+    // The unread are the last N messages from the other side: walk from the newest, counting
+    // received (not-mine) messages until we reach N; that message is the first unread.
+    const loaded = useMessagingStore.getState().messages[convId] ?? [];
+    let count = 0;
+    let anchorId: string | null = null;
+    for (let i = loaded.length - 1; i >= 0; i--) {
+      if (!loaded[i].mine) { count++; if (count >= n) { anchorId = loaded[i].id; break; } }
+    }
+    if (anchorId) setUnreadDivider({ anchorId, count });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   useEffect(() => {
     if (!convId) return;
@@ -81,6 +119,7 @@ export default function ChatDetail() {
     return () => { leaveConversation(convId); useMessagingStore.getState().setActive(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId]);
+
 
   const nameOf = useMemo(() => {
     const map = new Map(users.map((u) => [u.id, u.name]));
@@ -145,11 +184,8 @@ export default function ChatDetail() {
       setUploading(null);
     }
   };
-  const pickImageOrVideo = async (): Promise<void> => {
-    setAttachOpen(false);
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 1 });
-    if (r.canceled || !r.assets[0]) return;
-    const a = r.assets[0];
+  // Shared by the library picker and the camera — video goes up as-is, images are resized/compressed.
+  const uploadAsset = async (a: ImagePicker.ImagePickerAsset): Promise<void> => {
     if (a.type === 'video') {
       await doUpload({ uri: a.uri, name: a.fileName ?? 'video.mp4', mime: a.mimeType ?? 'video/mp4' }, 'video', { width: a.width, height: a.height, durationMs: a.duration ?? undefined });
       return;
@@ -161,6 +197,20 @@ export default function ChatDetail() {
       uri = out.uri; w = out.width; h = out.height;
     } catch { /* fall back to original */ }
     await doUpload({ uri, name: a.fileName ?? 'photo.jpg', mime: 'image/jpeg' }, 'image', { width: w, height: h });
+  };
+  const pickImageOrVideo = async (): Promise<void> => {
+    setAttachOpen(false);
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 1 });
+    if (r.canceled || !r.assets[0]) return;
+    await uploadAsset(r.assets[0]);
+  };
+  const takePhoto = async (): Promise<void> => {
+    setAttachOpen(false);
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) { showToast('Camera permission is needed to take photos'); return; }
+    const r = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 1, videoMaxDuration: 60 });
+    if (r.canceled || !r.assets[0]) return;
+    await uploadAsset(r.assets[0]);
   };
   const pickDocument = async (): Promise<void> => {
     setAttachOpen(false);
@@ -222,15 +272,36 @@ export default function ChatDetail() {
         ) : (
           <FlatList
             ref={listRef}
-            data={messages}
+            data={reversed}
+            inverted
             keyExtractor={(m) => m.id}
             style={{ flex: 1, backgroundColor: colors.coolBg }}
             contentContainerStyle={{ padding: 12 }}
-            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-            ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View>}
-            renderItem={({ item: m }) => (m.type === 'system'
-              ? <SystemNotice text={m.text} />
-              : <Bubble m={m} isGroup={isGroup} nameOf={nameOf} onPress={() => !m.deletedForEveryone && setActive(m)} onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} />)}
+            ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48, transform: [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View>}
+            renderItem={({ item: m, index }) => {
+              // Inverted list: `index+1` is the chronologically OLDER message. WhatsApp-style day
+              // separator: a centered date pill before the FIRST (oldest) message of each calendar
+              // day — i.e. when the older neighbour is a different day (or this is the oldest message).
+              const older = index < reversed.length - 1 ? reversed[index + 1] : null;
+              const showDay = !older || isDifferentDay(new Date(older.createdAt).getTime(), new Date(m.createdAt).getTime());
+              const showUnread = unreadDivider?.anchorId === m.id;
+              const bubble = <Bubble m={m} isGroup={isGroup} nameOf={nameOf} onPress={() => !m.deletedForEveryone && setActive(m)} onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} />;
+              const row = m.type === 'system'
+                ? <SystemNotice text={m.text} />
+                // Swipe a message right to reply (WhatsApp-style). Deleted messages aren't replyable.
+                : m.deletedForEveryone
+                  ? bubble
+                  : <SwipeToReply onReply={() => setReplyTo(m)}>{bubble}</SwipeToReply>;
+              // Inverted list reverses the vertical order WITHIN a cell, so render the bubble first
+              // and the separators after — they then appear ABOVE the message on screen.
+              return (
+                <>
+                  {row}
+                  {showUnread ? <UnreadDivider count={unreadDivider!.count} /> : null}
+                  {showDay ? <DateSeparator label={daySeparator(new Date(m.createdAt).getTime())} /> : null}
+                </>
+              );
+            }}
           />
         )}
 
@@ -257,6 +328,7 @@ export default function ChatDetail() {
         {/* Attach menu */}
         {attachOpen ? (
           <View className="flex-row gap-3 px-4 py-3" style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
+            <AttachOption Icon={Camera} label="Camera" color={colors.primary} onPress={takePhoto} />
             <AttachOption Icon={ImageIcon} label="Photo / Video" color={colors.blue} onPress={pickImageOrVideo} />
             <AttachOption Icon={FileText} label="Document" color={colors.orange} onPress={pickDocument} />
           </View>
@@ -431,6 +503,77 @@ function SystemNotice({ text }: { text: string }) {
       <View style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5, maxWidth: '85%' }}>
         <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600', textAlign: 'center' }}>{text}</Text>
       </View>
+    </View>
+  );
+}
+
+// Centered day-separator pill (WhatsApp-style) shown before the first message of each calendar day.
+function DateSeparator({ label }: { label: string }) {
+  return (
+    <View className="items-center" style={{ marginVertical: 8 }}>
+      <View style={{ backgroundColor: colors.card, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5 }}>
+        <Text style={{ color: colors.coolText, fontSize: 11.5, fontWeight: '700', letterSpacing: 0.3 }}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
+// Full-width "N unread messages" band above the first message the user hasn't read (WhatsApp-style).
+function UnreadDivider({ count }: { count: number }) {
+  return (
+    <View className="flex-row items-center" style={{ marginVertical: 8, gap: 8 }}>
+      <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary + '55' }} />
+      <View style={{ backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4 }}>
+        <Text style={{ color: colors.primary, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.3 }}>
+          {count} unread message{count === 1 ? '' : 's'}
+        </Text>
+      </View>
+      <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary + '55' }} />
+    </View>
+  );
+}
+
+// Swipe-right-to-reply (WhatsApp-style). The message row follows the finger to the right, a reply
+// arrow grows in on the left, and releasing past the threshold sets the reply target (with a tiny
+// haptic tick when the threshold is crossed). Horizontal-only: it yields to the vertical list
+// scroll (failOffsetY) and never starts on a leftward drag (activeOffsetX), so taps/scrolls are
+// untouched. Applied to every non-deleted message, incoming or outgoing.
+const REPLY_THRESHOLD = 56;
+const REPLY_MAX_DRAG = 80;
+function SwipeToReply({ onReply, children }: { onReply: () => void; children: React.ReactNode }) {
+  const tx = useSharedValue(0);
+  const reached = useSharedValue(false);
+  const tick = (): void => { try { Vibration.vibrate(8); } catch { /* no vibrator */ } };
+  const pan = Gesture.Pan()
+    .activeOffsetX(12) // only a rightward drag starts it
+    .failOffsetY([-12, 12]) // a vertical drag scrolls the list instead
+    .onUpdate((e) => {
+      const x = Math.max(0, Math.min(e.translationX, REPLY_MAX_DRAG));
+      tx.value = x;
+      const past = x >= REPLY_THRESHOLD;
+      if (past && !reached.value) { reached.value = true; runOnJS(tick)(); }
+      else if (!past && reached.value) { reached.value = false; }
+    })
+    .onEnd(() => {
+      if (reached.value) runOnJS(onReply)();
+      tx.value = withSpring(0, { damping: 20, stiffness: 220 });
+      reached.value = false;
+    });
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
+  const iconStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [8, REPLY_THRESHOLD], [0, 1], Extrapolation.CLAMP),
+    transform: [{ scale: interpolate(tx.value, [8, REPLY_THRESHOLD], [0.4, 1], Extrapolation.CLAMP) }],
+  }));
+  return (
+    <View style={{ justifyContent: 'center' }}>
+      <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: 8 }, iconStyle]}>
+        <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+          <Reply size={18} color={colors.primary} />
+        </View>
+      </Animated.View>
+      <GestureDetector gesture={pan}>
+        <Animated.View style={rowStyle}>{children}</Animated.View>
+      </GestureDetector>
     </View>
   );
 }

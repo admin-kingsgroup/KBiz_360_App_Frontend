@@ -1,4 +1,4 @@
-import { apiFetch, registerRefreshHandler } from './client';
+import { apiFetch, registerRefreshHandler, ApiError } from './client';
 import { setTokens, getRefreshToken, clearTokens } from './tokens';
 import { useAuthStore } from '../store/authStore';
 import { useAccessStore } from '../store/accessStore';
@@ -82,6 +82,7 @@ function toFrontendUser(bu: BackendUser, access: BackendAccess): User {
     accessAlerts: access.alerts ?? [], // → deriveAccess → alertOK gates the System Alerts channels
     scopeLine: access.roleName ?? bu.role,
     avatar: bu.avatar ? mediaUrl(bu.avatar) : null,
+    phone: bu.phone ?? null, // carried so the profile editor can prefill it (else Save wipes it)
   };
 }
 
@@ -153,10 +154,17 @@ export function refresh(): Promise<boolean> {
       setTokens(t.accessToken, t.refreshToken);
       void updateStoredTokens(t.accessToken, t.refreshToken); // keep the persisted session current
       return true;
-    } catch {
-      clearTokens();
-      void clearSession();
-      useAuthStore.getState().signOut();
+    } catch (e) {
+      // Only wipe the session when the server GENUINELY rejects the refresh token (401/403). A
+      // network drop, timeout, or 5xx/proxy error is transient — destroying the persisted session
+      // for those logs the user out over a momentary blip (elevator, handoff). Keep the tokens so
+      // the next request can retry; the caller just gets `false` for this attempt.
+      const authRejected = e instanceof ApiError && (e.status === 401 || e.status === 403);
+      if (authRejected) {
+        clearTokens();
+        void clearSession();
+        useAuthStore.getState().signOut();
+      }
       return false;
     } finally {
       refreshInFlight = null;
@@ -188,6 +196,15 @@ export async function logout(): Promise<void> {
   useAccessStore.getState().setUsers([]);
   useMessagingStore.getState().reset();
   useMessagingStore.getState().setMyUserId(null);
+  // Per-user stores that persist to disk (mailbox, alert feed) or hold personal state MUST be wiped
+  // too — otherwise the next user to sign in on this device sees the previous user's cached data.
+  // Lazy-required to keep this core module's test graph free of their (native) dependency chains.
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  (require('../store/emailStore') as typeof import('../store/emailStore')).useEmailStore.getState().resetForLogout();
+  (require('../store/pulseStore') as typeof import('../store/pulseStore')).usePulseStore.getState().reset();
+  (require('../store/reminderBadgeStore') as typeof import('../store/reminderBadgeStore')).useReminderBadgeStore.getState().reset();
+  (require('../store/attendanceStore') as typeof import('../store/attendanceStore')).useAttendanceStore.getState().reset();
+  /* eslint-enable @typescript-eslint/no-require-imports */
 }
 
 registerRefreshHandler(refresh);

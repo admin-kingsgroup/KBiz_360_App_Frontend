@@ -54,7 +54,15 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
+  // Defensive parse: a proxy (nginx) 502/504 returns an HTML page, not our JSON envelope. Parsing
+  // that raw would throw SyntaxError and masquerade as an app bug (and, on the refresh path, wipe
+  // the session). Fall back to null so the status-based ApiError below is what callers actually see.
+  let json: { error?: { message?: string; code?: string; details?: unknown } } | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
 
   if (!res.ok) {
     const err = (json && json.error) || {};

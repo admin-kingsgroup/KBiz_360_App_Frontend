@@ -16,6 +16,7 @@ export interface PulseState {
   markEventRead: (id: string) => void;
   markChannelRead: (channelId: string) => void;
   eventsFor: (channelId: string) => PulseEvent[];
+  reset: () => void; // clear the persisted alert feed on sign-out (else it leaks to the next user)
 }
 
 export const usePulseStore = create<PulseState>()(
@@ -38,6 +39,7 @@ export const usePulseStore = create<PulseState>()(
         void markAlertChannelRead(channelId).catch(() => undefined);
       },
       eventsFor: (channelId) => get().events.filter((e) => e.channelId === channelId).sort((a, b) => b.time - a.time),
+      reset: () => set({ events: [] }),
     }),
     {
       name: 'kb360-pulse',

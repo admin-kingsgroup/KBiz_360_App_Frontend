@@ -11,7 +11,7 @@ import { useGeoFence } from '../src/hooks/useGeoFence';
 import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAccessStore } from '../src/store/accessStore';
 import { useUiStore } from '../src/store/uiStore';
-import { canFacePunch, nextAwaySince, awayLongEnough } from '../src/logic/attendance';
+import { canFacePunch, confirmedAway } from '../src/logic/attendance';
 import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { getCurrentSsid } from '../src/services/wifi';
@@ -48,17 +48,20 @@ export default function Attendance() {
   const [scanning, setScanning] = useState(false);
   const [team, setTeam] = useState<TeamAttendanceEntry[]>([]);
   const [teamDate, setTeamDate] = useState(todayKey()); // day shown on the admin team tab
+  const [branchFilter, setBranchFilter] = useState<string>('all'); // branchId shown on the team tab ('all' = every branch, grouped)
   const [history, setHistory] = useState<AttendanceHistoryEntry[]>([]);
   const [userHistory, setUserHistory] = useState<AttendanceHistoryEntry[] | null>(null); // selected teammate's recent days (admin modal)
   const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
   const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
   const [exempt, setExempt] = useState(false); // this account is exempt from attendance
   const [ssid, setSsid] = useState<string | null>(null); // Wi-Fi network the device is on (null when unreadable)
-  const awaySinceRef = useRef<number | null>(null); // confirmed-outside timer for the auto check-out grace
   const autoBlockedUntilRef = useRef(0); // back-off after the server rejects an auto punch (no retry storm)
 
   const role = useAccessStore((s) => s.user?.role);
   const isSuper = role === 'SUPER_ADMIN';
+  // Who gets the Team tab: super admin + company manager (DIRECTOR) see every branch; a branch
+  // manager sees only their own — the server scopes the list, this just shows the tab.
+  const canSeeTeam = isSuper || role === 'DIRECTOR' || role === 'BRANCH_MANAGER';
   const consent = useAttendanceStore((s) => s.consent);
   const att = useAttendanceStore((s) => s.att);
   const presence = useAttendanceStore((s) => s.presence);
@@ -180,17 +183,15 @@ export default function Attendance() {
     }
   };
 
-  // Recompute presence (office Wi-Fi match OR geofence) whenever GPS, Wi-Fi or office changes,
-  // then auto-punch. The backend re-verifies both the location and the SSID on every punch.
-  // Auto check-IN is instant; auto check-OUT needs a CONFIRMED outside reading sustained for the
-  // grace period — a lost GPS fix is unknown, not "left" (it once closed a day 4 s after check-in).
-  // `clock` keeps this re-evaluating every second so the grace timer fires even if GPS goes quiet.
+  // Recompute presence (office Wi-Fi match OR geofence) whenever GPS, Wi-Fi or office changes, then
+  // auto-punch. The backend re-verifies both the location and the SSID on every punch. Auto check-IN
+  // is instant; auto check-OUT is IMMEDIATE too once the user is confirmedAway (off office Wi-Fi AND
+  // a real GPS fix clearly beyond the geofence). A lost/borderline GPS fix is UNKNOWN, not "left".
   useEffect(() => {
     if (!office) return;
     const wifiOn = ssidMatches(ssid, office.wifiSsid);
     const p = refreshPresence({ wifiOn, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
-    awaySinceRef.current = nextAwaySince(p, awaySinceRef.current, Date.now());
-    if (!p.present && !awayLongEnough(awaySinceRef.current, Date.now())) return; // unknown / not away long enough
+    if (!p.present && !confirmedAway(p, office.radius)) return; // not present, but not a confirmed exit → wait
     if (Date.now() < autoBlockedUntilRef.current) return; // recent server rejection — wait before retrying
     const fired = runAutoPunch();
     if (fired) {
@@ -271,8 +272,18 @@ export default function Attendance() {
   const statusColor = inTime ? (outTime ? colors.coolText : colors.primary) : (present ? colors.primary : colors.danger);
   const statusText = inTime ? (outTime ? 'Done for today' : 'Checked in') : (present ? 'Detecting' : 'Not checked in');
 
-  const presentCount = team.filter((t) => t.in).length;
-  const absentCount = team.length - presentCount;
+  // Branch-wise team view: chips come from the rows themselves, so they always match what the
+  // viewer is allowed to see (the server already scopes the list to their branches).
+  const teamBranches = [...new Map(team.map((t) => [t.branchId || '—', t.branch || '—'])).entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const shown = branchFilter === 'all' ? team : team.filter((t) => (t.branchId || '—') === branchFilter);
+  const presentCount = shown.filter((t) => t.in).length;
+  const absentCount = shown.length - presentCount;
+  // "All" groups into one section per branch; a picked branch renders as a single section.
+  const teamSections = (branchFilter === 'all' ? teamBranches : teamBranches.filter((b) => b.id === branchFilter))
+    .map((b) => ({ ...b, rows: shown.filter((t) => (t.branchId || '—') === b.id) }))
+    .filter((s) => s.rows.length > 0);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -296,7 +307,7 @@ export default function Attendance() {
             <Text style={{ color: WARN, fontSize: 12.5, fontWeight: '700' }}>Settings</Text>
           </Pressable>
         ) : null}
-        {isSuper ? (
+        {canSeeTeam ? (
           <View className="flex-row p-1 mb-3" style={{ borderRadius: 999, backgroundColor: colors.coolMuted }}>
             {([['mine', 'My attendance'], ['team', 'Team · Admin']] as const).map(([k, l]) => (
               <Pressable key={k} onPress={() => setTab(k)} style={{ flex: 1, paddingVertical: 9, borderRadius: 999, backgroundColor: tab === k ? colors.primary : 'transparent', alignItems: 'center' }}>
@@ -306,7 +317,7 @@ export default function Attendance() {
           </View>
         ) : null}
 
-        {isSuper && tab === 'team' ? (
+        {canSeeTeam && tab === 'team' ? (
           <>
             {/* Day navigator — browse any past day's team attendance. */}
             <View className="flex-row items-center justify-between mb-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, borderRadius: 14, paddingHorizontal: 4, paddingVertical: 4 }}>
@@ -321,14 +332,33 @@ export default function Attendance() {
                 <ChevronRight size={20} color={colors.ink} />
               </Pressable>
             </View>
+            {/* Branch filter — one view per branch. Hidden when there is only one branch to show. */}
+            {teamBranches.length > 1 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingBottom: 12, paddingHorizontal: 2 }}>
+                {([{ id: 'all', label: 'All branches' }, ...teamBranches]).map((b) => {
+                  const on = branchFilter === b.id;
+                  const n = b.id === 'all' ? team.length : team.filter((t) => (t.branchId || '—') === b.id).length;
+                  return (
+                    <Pressable key={b.id} onPress={() => setBranchFilter(b.id)} style={{ height: 34, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
+                      <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 12.5, fontWeight: '700' }}>{b.label} · {n}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
             <View className="flex-row gap-2 mb-3">
               <Stat3 n={presentCount} label="Present" color={colors.primary} bg={colors.primarySoft} />
               <Stat3 n={absentCount} label="Absent" color={colors.danger} bg={colors.danger + '12'} />
-              <Stat3 n={team.length} label="Total" color={colors.ink} bg={colors.coolMuted} />
+              <Stat3 n={shown.length} label="Total" color={colors.ink} bg={colors.coolMuted} />
             </View>
-            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 8, paddingHorizontal: 4 }}>{dateLabel(teamDate).toUpperCase()} · TEAM</Text>
+            {teamSections.map((sec) => (
+              <View key={sec.id} style={{ marginBottom: 12 }}>
+                <View className="flex-row items-center justify-between" style={{ marginBottom: 8, paddingHorizontal: 4 }}>
+                  <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>{sec.label.toUpperCase()} · {dateLabel(teamDate).toUpperCase()}</Text>
+                  <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700' }}>{sec.rows.filter((t) => t.in).length}/{sec.rows.length} present</Text>
+                </View>
             <View style={{ gap: 8 }}>
-              {team.map((t) => {
+              {sec.rows.map((t) => {
                 const absent = !t.in;
                 return (
                   <Pressable key={t.id} disabled={!isSuper} onPress={() => setReassign(t)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.danger + '40' : colors.coolDivider, borderRadius: 14 }}>
@@ -338,9 +368,10 @@ export default function Attendance() {
                         <Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{t.name}</Text>
                         {t.position ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11, flexShrink: 1 }}>· {t.position}</Text> : null}
                       </View>
+                      {/* Branch is the section header now, so the row line stays about the punch. */}
                       {absent
-                        ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>{t.branch} · Absent</Text>
-                        : <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>{t.branch} · In {t.in}{t.out ? ' · Out ' + t.out : ''} · {t.via}</Text>}
+                        ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent</Text>
+                        : <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {t.in}{t.out ? ' · Out ' + t.out : ''} · {t.via}</Text>}
                       {/* Office the person reports at — super-admin taps the row to reassign. */}
                       <View className="flex-row items-center gap-1" style={{ marginTop: 2 }}>
                         <Building2 size={11} color={colors.primary} />
@@ -354,7 +385,14 @@ export default function Attendance() {
                 );
               })}
             </View>
-            <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginTop: 12, paddingHorizontal: 12 }}>Visible to Super Admin only. Staff see only their own record.</Text>
+              </View>
+            ))}
+            {teamSections.length === 0 ? (
+              <View className="items-center" style={{ paddingVertical: 28 }}>
+                <Text style={{ color: colors.coolText, fontSize: 13 }}>No one to show for this branch.</Text>
+              </View>
+            ) : null}
+            <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginTop: 12, paddingHorizontal: 12 }}>{isSuper || role === 'DIRECTOR' ? 'Visible to admins only. Staff see only their own record.' : 'Your branches only. Staff see only their own record.'}</Text>
           </>
         ) : exempt ? (
           <View className="items-center" style={{ paddingVertical: 56 }}>

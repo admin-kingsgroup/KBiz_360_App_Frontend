@@ -57,6 +57,7 @@ export interface EmailState {
   runSearch: (q: string) => Promise<void>;
   loadMessage: (id: string) => Promise<void>;
   disconnect: () => Promise<void>;
+  resetForLogout: () => void; // wipe all cached mailbox state on sign-out (no server call)
 
   markRead: (id: string) => void;
   markAllRead: (folder?: EmailFolder) => Promise<void>;
@@ -240,6 +241,18 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
     void clearBodies();
   },
 
+  // Sign-out wipe: the mailbox is persisted to disk, so without this the next user on the device
+  // sees the previous user's cached inbox (and it merges into theirs). No server call — the account
+  // stays connected server-side; we only clear THIS device's cached copy.
+  resetForLogout: () => {
+    set({
+      emails: [], folder: 'inbox', search: '', connected: null, account: null,
+      loading: false, loadingMore: false, hasMore: {}, inboxUnread: 0,
+      searchResults: [], searching: false, smartFolders: [],
+    });
+    void clearBodies();
+  },
+
   // Mutations adjust the Inbox badge optimistically, then reconcile with Graph's real count.
   // They update `searchResults` alongside `emails`: a search hit may not be in the loaded list at
   // all (server-side search spans the whole mailbox), and the search view renders searchResults —
@@ -315,18 +328,17 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
   },
 
   send: async (draft) => {
-    try {
-      const sent = await emailApi.sendMail(draft);
-      // Drop the resumed draft (it moved to Sent server-side) and surface the sent item.
-      set((st) => ({ emails: [sent, ...st.emails.filter((e) => e.id !== draft.id)] }));
-    } catch { /* caller toasts */ }
+    // Rethrow on failure so the composer can tell the user and keep the message. Previously this
+    // swallowed the error while the caller assumed it toasted — a failed send vanished silently.
+    const sent = await emailApi.sendMail(draft);
+    // Drop the resumed draft (it moved to Sent server-side) and surface the sent item.
+    set((st) => ({ emails: [sent, ...st.emails.filter((e) => e.id !== draft.id)] }));
   },
   saveDraft: async (draft) => {
-    try {
-      const d = await emailApi.saveDraft(draft);
-      // Replace the existing draft in place when updating; otherwise add the new one.
-      set((st) => (draft.id ? { emails: st.emails.map((e) => (e.id === draft.id ? d : e)) } : { emails: [d, ...st.emails] }));
-    } catch { /* ignore */ }
+    // Rethrow on failure so the caller knows the draft was NOT saved (else typed text is lost silently).
+    const d = await emailApi.saveDraft(draft);
+    // Replace the existing draft in place when updating; otherwise add the new one.
+    set((st) => (draft.id ? { emails: st.emails.map((e) => (e.id === draft.id ? d : e)) } : { emails: [d, ...st.emails] }));
   },
 }), {
   name: 'kbiz360-email-cache',

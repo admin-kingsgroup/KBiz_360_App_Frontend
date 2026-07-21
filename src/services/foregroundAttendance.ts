@@ -22,8 +22,10 @@ function adoptRecord(m: MyAttendance): void {
 }
 
 // Foreground auto CHECK-IN. Call when the app opens or returns to the foreground: if the user is at
-// the office (office Wi-Fi OR inside the geofence) and hasn't checked in today, punch them in — so
-// simply OPENING the app marks attendance, from any screen (not only the Attendance tab).
+// the office (office Wi-Fi OR inside the geofence) and the day is not open — never checked in, OR
+// already checked out (a drift exit / a real leave-and-return) — punch them in. The server re-opens
+// a checked-out day on a verified re-entry (first-in stays, last-out wins), so simply OPENING the
+// app at the office always converges the record to "present".
 //
 // Deliberately CHECK-IN only. A one-shot "outside" reading must never close the day (you might just
 // be opening the app from home in the evening) — auto check-OUT stays with the background geofence
@@ -34,10 +36,11 @@ export async function autoCheckInOnForeground(): Promise<void> {
   lastRun = Date.now();
   inFlight = true;
   try {
-    // Already checked in (or exempt) today → adopt the server record and stop.
+    // Day already open (or exempt) → adopt the server record and stop. A closed day (outTime set)
+    // continues: presence at the office below re-opens it.
     const me = await getMyAttendance();
     adoptRecord(me);
-    if (me.exempt || me.inTime) return;
+    if (me.exempt || (me.inTime && !me.outTime)) return;
 
     const offices = await getOffices();
     if (offices.length === 0) return;

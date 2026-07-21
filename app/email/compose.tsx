@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useUiStore } from '../../src/store/uiStore';
+import { ApiError } from '../../src/api/client';
 import { buildReplyBody, htmlToText } from '../../src/logic/email';
 import type { EmailDraft, OutAttachment } from '../../src/types';
 
@@ -46,6 +47,7 @@ export default function Compose() {
   const [body, setBody] = useState(params.body ?? '');
   const [attachments, setAttachments] = useState<OutAttachment[]>([]);
   const [prefilled, setPrefilled] = useState(false);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (draftId) void useEmailStore.getState().loadMessage(draftId);
@@ -95,15 +97,33 @@ export default function Compose() {
     } catch { showToast('Could not attach file'); }
   };
 
-  const onClose = () => {
-    if (worthSaving()) { saveDraft(buildOutgoing()); showToast('Saved to Drafts'); }
+  const onClose = async () => {
+    // Await the draft save and only claim success if it actually saved — otherwise tell the user
+    // their text was NOT saved (and stay on the composer) instead of closing over a silent loss.
+    if (worthSaving()) {
+      try {
+        await saveDraft(buildOutgoing());
+        showToast('Saved to Drafts');
+      } catch (e) {
+        showToast(e instanceof ApiError ? `Draft not saved — ${e.message}` : 'Draft not saved — network error');
+        return; // keep the composer open so the typed message isn't lost
+      }
+    }
     router.back();
   };
-  const onSend = () => {
+  const onSend = async () => {
     if (!to.trim()) { showToast('Add at least one recipient'); return; }
-    send(buildOutgoing());
-    showToast('Message sent');
-    router.back();
+    if (sending) return; // guard against a double-tap sending twice
+    setSending(true);
+    try {
+      await send(buildOutgoing());
+      showToast('Message sent');
+      router.back();
+    } catch (e) {
+      // Do NOT navigate away — the message wasn't sent; keep it so the user can retry.
+      showToast(e instanceof ApiError ? `Not sent — ${e.message}` : 'Not sent — network error');
+      setSending(false);
+    }
   };
 
   return (
@@ -118,8 +138,8 @@ export default function Compose() {
           <Pressable onPress={pickAttachment} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
             <Paperclip size={18} color={colors.coolText} />
           </Pressable>
-          <Pressable onPress={onSend} className="flex-row items-center" style={{ gap: 6, height: 40, paddingHorizontal: 18, borderRadius: 999, backgroundColor: colors.primary }}>
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Send</Text>
+          <Pressable onPress={onSend} disabled={sending} className="flex-row items-center" style={{ gap: 6, height: 40, paddingHorizontal: 18, borderRadius: 999, backgroundColor: colors.primary, opacity: sending ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{sending ? 'Sending…' : 'Send'}</Text>
             <Send size={15} color="#fff" />
           </Pressable>
         </View>

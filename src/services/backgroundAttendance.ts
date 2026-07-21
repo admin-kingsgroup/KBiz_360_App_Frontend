@@ -3,6 +3,8 @@ import { isRunningInExpoGo } from 'expo';
 import type * as LocationModuleT from 'expo-location';
 import type * as TaskManagerModuleT from 'expo-task-manager';
 import { loadSession, updateStoredTokens } from './storage/session';
+import { setTokens } from '../api/tokens';
+import { confirmGeofenceExit, type ArmedRegion } from '../logic/attendance';
 
 // Background auto check-in via OS geofencing. When the signed-in user enters/leaves an office region,
 // the OS wakes the app (even if killed) and we punch in/out. Lazy-required + Expo-Go-guarded exactly
@@ -40,7 +42,8 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
   const session = await loadSession();
   if (!session) return;
   const url = `${apiBase()}/api/attendance/${kind}`;
-  const body = JSON.stringify({ method: 'auto', coords });
+  // source:'geofence' lets the server apply its still-inside drift rejection to these check-outs.
+  const body = JSON.stringify({ method: 'auto', coords, source: 'geofence' });
   const send = (token: string): Promise<Response> =>
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body });
   let res = await send(session.access);
@@ -51,10 +54,33 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
     if (r.ok) {
       const t = (await r.json()) as { accessToken: string; refreshToken: string };
       await updateStoredTokens(t.accessToken, t.refreshToken);
+      // Keep the LIVE in-memory holder in step too. The backend revokes the old refresh token on
+      // rotation, so if the app process is still alive (backgrounded), leaving the in-memory tokens
+      // stale means its next foreground request refreshes with a now-revoked token → forced logout.
+      setTokens(t.accessToken, t.refreshToken);
       res = await send(t.accessToken);
     }
   }
   void res;
+}
+
+// Armed regions cached for the headless Exit verification (AsyncStorage — survives app kills).
+const REGIONS_KEY = 'kb360-geofence-regions';
+async function readCachedRegions(): Promise<ArmedRegion[]> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AS = (require('@react-native-async-storage/async-storage') as typeof import('@react-native-async-storage/async-storage')).default;
+    return JSON.parse((await AS.getItem(REGIONS_KEY)) ?? '[]') as ArmedRegion[];
+  } catch {
+    return [];
+  }
+}
+async function writeCachedRegions(regions: ArmedRegion[]): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AS = (require('@react-native-async-storage/async-storage') as typeof import('@react-native-async-storage/async-storage')).default;
+    await AS.setItem(REGIONS_KEY, JSON.stringify(regions));
+  } catch { /* best-effort */ }
 }
 
 let registered = false;
@@ -68,13 +94,21 @@ function ensureTaskRegistered(): void {
     const { eventType, region } = data;
     // Prefer a fresh fix; fall back to the region centre (the OS already confirmed we're inside it).
     let coords: { lat: number; lng: number } | null = region ? { lat: region.latitude, lng: region.longitude } : null;
+    let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
     try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      fix = { coords, accuracy: pos.coords.accuracy ?? null };
     } catch { /* keep region centre */ }
     try {
-      if (eventType === Location.GeofencingEventType.Enter) await postPunch('check-in', coords);
-      else if (eventType === Location.GeofencingEventType.Exit) await postPunch('check-out', coords);
+      if (eventType === Location.GeofencingEventType.Enter) {
+        await postPunch('check-in', coords);
+      } else if (eventType === Location.GeofencingEventType.Exit) {
+        // The OS fires Exit on indoor GPS drift. Re-verify with the fresh fix against the armed
+        // regions — only a confirmed, accurate, outside-the-buffer fix may close the day. The
+        // server re-checks too (source:'geofence'), so a false negative here is still caught.
+        if (confirmGeofenceExit(fix, await readCachedRegions())) await postPunch('check-out', coords);
+      }
     } catch { /* best-effort */ }
   });
   registered = true;
@@ -98,8 +132,10 @@ async function armOfficeRegions(): Promise<void> {
       notifyOnExit: true,
     }));
   const started = await Location.hasStartedGeofencingAsync(GEOFENCE_TASK).catch(() => false);
-  if (!regions.length) { if (started) await Location.stopGeofencingAsync(GEOFENCE_TASK); return; }
+  if (!regions.length) { if (started) await Location.stopGeofencingAsync(GEOFENCE_TASK); await writeCachedRegions([]); return; }
   await Location.startGeofencingAsync(GEOFENCE_TASK, regions); // replaces any existing region set
+  // Cache the armed regions so the headless Exit handler can re-verify a fix against them.
+  await writeCachedRegions(regions.map((r) => ({ lat: r.latitude, lng: r.longitude, radius: r.radius ?? 150 })));
 }
 
 // Periodic headless refresh (survives reboots on Android via startOnBoot). Only re-arms when the

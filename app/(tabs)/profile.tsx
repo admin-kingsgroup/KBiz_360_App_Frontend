@@ -65,7 +65,8 @@ export default function Profile() {
       .finally(() => setSavingPw(false));
   };
 
-  const openEdit = () => { setNameInput(user?.name ?? ''); setPhoneInput(''); setEditing(true); };
+  // Prefill the existing phone — seeding '' meant an untouched Save sent phone:null and wiped it.
+  const openEdit = () => { setNameInput(user?.name ?? ''); setPhoneInput(user?.phone ?? ''); setEditing(true); };
   const saveProfile = () => {
     const full = nameInput.trim();
     if (!full) { showToast('Name required'); return; }

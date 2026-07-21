@@ -8,6 +8,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary, OfflineBanner } from '../src/components/common';
 import { IncomingCallOverlay, ActiveCallOverlay } from '../src/components/call';
+import { GlobalToast } from '../src/components/ui';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
 import { useAttendanceStore } from '../src/store/attendanceStore';
@@ -17,6 +18,7 @@ import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
 import { autoCheckInOnForeground } from '../src/services/foregroundAttendance';
 import { installGlobalCrashHandler, flushStoredCrash } from '../src/services/crashReporter';
 import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
+import { registerForegroundChatPush, syncChatNotifications } from '../src/services/chatNotifications';
 import { setupIosCallKeep } from '../src/services/iosCallKeep';
 import { registerPushToken } from '../src/services/notifications';
 import { maybePromptBatteryOptimization } from '../src/services/batteryOptimization';
@@ -35,10 +37,10 @@ import { setApiBaseUrl } from '../src/api';
 // use your machine's LAN IP when testing on a physical device).
 setApiBaseUrl((Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? 'http://localhost:4000');
 
-// Location revocation guard. Location is required ("While using the app" is enough; background
-// "Allow all the time" is optional). Verified on every app open + foreground; if location is turned
-// fully OFF in Settings, flip the perm OFF, which sends the gate back to the permissions screen
-// until re-granted. Downgrade-only — granting lives on the permissions screen (avoids the two racing).
+// Location revocation guard. Background location ("Allow all the time") is STRICTLY required —
+// verified on every app open + foreground; if it is revoked or downgraded to "While using the app"
+// in Settings, flip the perm OFF, which sends the gate back to the permissions screen until
+// re-granted. Downgrade-only — granting lives on the permissions screen (avoids the two racing).
 async function enforceBgLocation(): Promise<void> {
   const st = await getBackgroundLocationStatus();
   if (locationPermSatisfied(st)) return;
@@ -71,6 +73,15 @@ function GateController() {
     void syncAttendanceGeofencing(); // start OS geofencing for the user's offices (background auto check-in)
     void autoCheckInOnForeground(); // opening the app at the office marks attendance (foreground, any screen)
     void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
+    // FCM chat pushes while the app is OPEN → heads-up banner (suppressed for the active chat).
+    const unsubChatPush = registerForegroundChatPush(() => useMessagingStore.getState().activeConversationId);
+    // App-icon badge ← total unread; reading a chat in-app clears its notification. Debounced so
+    // bursts of store updates (socket receive + refetch) collapse into one sync.
+    let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubBadge = useMessagingStore.subscribe((s) => {
+      if (badgeTimer) clearTimeout(badgeTimer);
+      badgeTimer = setTimeout(() => void syncChatNotifications(s.conversations), 400);
+    });
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void enforceBgLocation(); // location revoked in Settings while backgrounded → back to the gate
@@ -86,7 +97,12 @@ function GateController() {
         if (!cs.active && !cs.incoming) disconnectChatSocket();
       }
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      unsubChatPush();
+      unsubBadge();
+      if (badgeTimer) clearTimeout(badgeTimer);
+    };
   }, [signedIn]);
 
   useEffect(() => {
@@ -164,6 +180,9 @@ export default function RootLayout() {
                 lives in callSessionStore). Active first so an incoming call layers above it. */}
             <ActiveCallOverlay />
             <IncomingCallOverlay />
+            {/* App-wide toast host — must be last so it layers above every screen. Mounted here
+                (not per-screen) so showToast() from any screen is actually visible. */}
+            <GlobalToast />
             <StatusBar style="dark" />
           </ErrorBoundary>
         </KeyboardProvider>

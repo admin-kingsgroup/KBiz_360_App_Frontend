@@ -18,6 +18,7 @@ export default function GroupInfo() {
   const showToast = useUiStore((s) => s.showToast);
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
   const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
+  const myEmail = (useAccessStore((s) => s.user)?.email ?? '').toLowerCase().trim();
   const users = useAccessStore((s) => s.users);
 
   const [conv, setConv] = useState<ChatConversation | undefined>();
@@ -41,6 +42,10 @@ export default function GroupInfo() {
   const members = conv?.members ?? [];
   const memberIds = new Set(members.map((m) => m.userId));
   const canManage = conv?.myRole === 'admin' || conv?.createdBy === meId || isSuper;
+  // Add-only allowlist (mirrors the backend): these users may add people to a group they belong to,
+  // without full management rights (rename/delete/promote/remove stay gated on canManage).
+  const ADD_MEMBER_EMAILS = ['faiz@travkings.com', 'pravesh@travkings.com', 'farhan@travkings.com'];
+  const canAddMembers = canManage || (ADD_MEMBER_EMAILS.includes(myEmail) && memberIds.has(meId));
   const sorted = [...members].sort((a, b) => (a.role === b.role ? 0 : a.role === 'admin' ? -1 : 1));
   // For a branch-department group, only offer people from that branch — plus company-wide
   // leadership (Super-Admins & Directors), who aren't tied to any branch but can be added to
@@ -121,8 +126,8 @@ export default function GroupInfo() {
             <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 3 }}>{conv.memberCount} members</Text>
           </View>
 
-          {/* Add members */}
-          {canManage ? (
+          {/* Add members — full managers OR the add-only allowlist (canAddMembers) */}
+          {canAddMembers ? (
             <Pressable onPress={() => setAddOpen(true)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-3 py-3" style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, marginBottom: 12 }}>
               <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><UserPlus size={20} color="#fff" /></View>
               <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>Add members</Text>

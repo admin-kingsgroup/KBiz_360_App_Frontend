@@ -2,21 +2,24 @@ import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Bell, Paperclip, Plus } from 'lucide-react-native';
 import { colors } from '../../theme';
-import { businesses, branches } from '../../data/businesses';
-import { announcementsChannel, userAlertsChannel, pulseChannels, moduleRank, branchOf, type PulseChannel, type PulseEvent } from '../../data/pulse';
+import { announcementsChannel, userAlertsChannel, pulseGroups, type PulseEvent } from '../../data/pulse';
 import { usePulseStore } from '../../store/pulseStore';
 import { makeAccessFilters } from '../../logic/accessFilters';
-import { timeAgo } from '../../utils/time';
+import { dateStamp } from '../../utils/time';
 import type { AccessControl } from '../../types';
 
-interface CardData { key: string; ch: PulseChannel; last: PulseEvent | null; unread: number; ctx: string; secId: string; }
+// One card, whether it stands for a single channel (My Alerts, Announcements) or a whole module
+// group (Attendance = BOM + AMD). `openId` is what the card routes to: a channel id or a group id.
+interface CardData { key: string; openId: string; name: string; icon: string; color: string; description: string; last: PulseEvent | null; unread: number; }
 
-// System Alerts segment. Super-admins see every registered channel (attendance + finance + crm
-// + announcements) and can compose new announcements; everyone else sees announcements addressed
-// to them PLUS the channels a super-admin granted them from Team & Users (the API is the real
-// gate — it only ever sends events for granted channels). View-As-aware.
-export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate }: { activeBizId: string; access: AccessControl | null; onOpenChannel: (ch: PulseChannel) => void; onCreate?: () => void }) {
-  const { isSuper, bizOK, alertOK, alertBrOK } = makeAccessFilters(access);
+// System Alerts segment. One card PER MODULE — "Attendance", not "BOM Attendance" + "AMD
+// Attendance" — so branches don't multiply the list; the branch split lives on chips inside the
+// detail screen. Super-admins see every module and can compose announcements; everyone else sees
+// announcements addressed to them PLUS the modules a super-admin granted them from Team & Users,
+// narrowed to their granted branches (the API is the real gate — it only ever sends granted
+// events). View-As-aware.
+export function SystemAlertsList({ activeBizId, access, onOpen, onCreate }: { activeBizId: string; access: AccessControl | null; onOpen: (id: string) => void; onCreate?: () => void }) {
+  const { isSuper, bizOK, alertOK } = makeAccessFilters(access);
   const pulseEvents = usePulseStore((s) => s.events);
 
   const stats: Record<string, { unread: number; last: PulseEvent | null }> = {};
@@ -26,55 +29,30 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
     if (!stats[e.channelId].last || e.time > (stats[e.channelId].last as PulseEvent).time) stats[e.channelId].last = e;
   });
 
-  // Branch-scoped channels (e.g. BOM Attendance) match against their branch grant ("BOM-hr");
-  // business-wide channels still need a module-wide grant.
-  let visible = pulseChannels.filter((ch) => bizOK(ch.bizId) && alertOK(ch.branch ?? null, ch.module));
-  if (activeBizId !== 'all') visible = visible.filter((ch) => ch.bizId === activeBizId);
-  const bizList = (activeBizId === 'all' ? businesses : businesses.filter((b) => b.id === activeBizId)).filter((b) => bizOK(b.id));
-  const branchMode = activeBizId === 'tk';
-
   const cards: CardData[] = [];
   // Personal "User Alerts" — every user has one (their own check-ins/outs etc.). Always shown first.
   const ua = stats[userAlertsChannel.id];
-  cards.push({ key: userAlertsChannel.id, ch: userAlertsChannel, last: ua?.last ?? null, unread: ua?.unread ?? 0, ctx: 'You', secId: 'user' });
+  cards.push({ key: userAlertsChannel.id, openId: userAlertsChannel.id, name: userAlertsChannel.name, icon: userAlertsChannel.icon, color: userAlertsChannel.color, description: userAlertsChannel.description, last: ua?.last ?? null, unread: ua?.unread ?? 0 });
 
-  if (!isSuper) {
-    // Announcements addressed to this user, then their granted channels (alertOK already
-    // filtered `visible` down to grants — a user with no grants sees announcements only).
-    const ann = stats[announcementsChannel.id];
-    if (ann) cards.push({ key: announcementsChannel.id, ch: announcementsChannel, last: ann.last, unread: ann.unread, ctx: 'TK', secId: 'ann' });
-    visible
-      .filter((ch) => ch.branch) // branch-scoped channels only; announcements handled above
-      .sort((a, b) => (a.branch || '').localeCompare(b.branch || '') || moduleRank(a.module) - moduleRank(b.module))
-      .forEach((ch) => {
-        const st = stats[ch.id];
-        cards.push({ key: ch.id, ch, last: st?.last || null, unread: st?.unread || 0, ctx: ch.branch || 'TK', secId: 'granted' });
-      });
-  } else if (branchMode) {
-    const tkChans = pulseChannels.filter((c) => c.bizId === 'tk').sort((a, b) => moduleRank(a.module) - moduleRank(b.module));
-    const secs = [
-      ...branches.filter((br) => alertBrOK(br.code)).map((br) => ({ id: br.id, short: br.code, color: br.color })),
-      ...(isSuper ? [{ id: 'co', short: 'TK', color: colors.purple }] : []),
-    ];
-    secs.forEach((sec) => {
-      tkChans.forEach((ch) => {
-        if (ch.branch && ch.branch !== sec.short) return; // branch-scoped channel → only its own section
-        if (!(sec.id === 'co' ? isSuper : alertOK(sec.short, ch.module))) return;
-        const evs = pulseEvents.filter((e) => e.channelId === ch.id && (sec.id === 'co' ? branchOf(e) === null : branchOf(e) === sec.id));
-        if (evs.length === 0 && !ch.branch) return; // branch-scoped channels stay visible while empty
-        const last = evs.length ? evs.reduce((a, b) => (b.time > a.time ? b : a)) : null;
-        cards.push({ key: `${sec.id}-${ch.id}`, ch, last, unread: evs.filter((e) => !e.read).length, ctx: sec.short, secId: sec.id });
-      });
+  // Announcements — company-wide, so it stays hidden until it actually has something (same rule
+  // as before; branch-scoped modules stay visible while empty).
+  const ann = stats[announcementsChannel.id];
+  if (ann?.last) cards.push({ key: announcementsChannel.id, openId: announcementsChannel.id, name: announcementsChannel.name, icon: announcementsChannel.icon, color: announcementsChannel.color, description: announcementsChannel.description, last: ann.last, unread: ann.unread });
+
+  // One card per module the user can see any branch of. Branch-scoped channels match their branch
+  // grant ("BOM-hr"); a user granted only BOM gets a card that means BOM alone.
+  pulseGroups.forEach((g) => {
+    const mine = g.channels.filter((ch) => bizOK(ch.bizId) && (activeBizId === 'all' || ch.bizId === activeBizId) && alertOK(ch.branch ?? null, ch.module));
+    if (mine.length === 0) return;
+    const evs = pulseEvents.filter((e) => mine.some((ch) => ch.id === e.channelId));
+    // Single granted branch → name it on the card ("BOM · Attendance"); several → chips inside.
+    const name = mine.length === 1 && mine[0].branch ? `${mine[0].branch} · ${g.name}` : g.name;
+    cards.push({
+      key: g.id, openId: g.id, name, icon: g.icon, color: g.color, description: g.description,
+      last: evs.length ? evs.reduce((a, b) => (b.time > a.time ? b : a)) : null,
+      unread: evs.filter((e) => !e.read).length,
     });
-  } else {
-    bizList.forEach((b) => {
-      visible.filter((ch) => ch.bizId === b.id).sort((x, y) => moduleRank(x.module) - moduleRank(y.module)).forEach((ch) => {
-        const st = stats[ch.id];
-        if (!ch.branch && !st?.last) return; // company-wide channels (announcements) hide while empty — same rule as branch mode
-        cards.push({ key: `${b.id}-${ch.id}`, ch, last: st?.last || null, unread: st?.unread || 0, ctx: b.code, secId: b.id });
-      });
-    });
-  }
+  });
   const unreadCards = cards.filter((c) => c.unread > 0);
 
   // Super-admins: compose an announcement and pick who sees it.
@@ -95,15 +73,15 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
     );
   }
 
-  const AlertCard = (c: CardData, showCtx: boolean) => (
-    <Pressable key={c.key} onPress={() => onOpenChannel(c.ch)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
+  const AlertCard = (c: CardData) => (
+    <Pressable key={c.key} onPress={() => onOpen(c.openId)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
       style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, overflow: 'hidden' }}>
-      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: c.ch.color }} />
-      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.ch.color + '26', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 20 }}>{c.ch.icon}</Text></View>
+      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: c.color }} />
+      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: c.color + '26', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 20 }}>{c.icon}</Text></View>
       <View className="flex-1">
         <View className="flex-row justify-between items-baseline gap-2">
-          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600', flex: 1 }}>{showCtx ? `${c.ctx} · ${c.ch.name}` : c.ch.name}</Text>
-          {c.last ? <Text style={{ color: c.unread > 0 ? colors.primary : colors.coolText3, fontSize: 12, fontWeight: c.unread > 0 ? '700' : '500' }}>{timeAgo(c.last.time)}</Text> : null}
+          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600', flex: 1 }}>{c.name}</Text>
+          {c.last ? <Text style={{ color: c.unread > 0 ? colors.primary : colors.coolText3, fontSize: 12, fontWeight: c.unread > 0 ? '700' : '500' }}>{dateStamp(c.last.time)}</Text> : null}
         </View>
         {c.last ? (
           <View className="flex-row justify-between items-center gap-2" style={{ marginTop: 2 }}>
@@ -112,7 +90,7 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
             {c.unread > 0 ? <View style={{ minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{c.unread}</Text></View> : null}
           </View>
         ) : (
-          <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{c.ch.description}</Text>
+          <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{c.description}</Text>
         )}
       </View>
     </Pressable>
@@ -128,11 +106,11 @@ export function SystemAlertsList({ activeBizId, access, onOpenChannel, onCreate 
             <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>Unread</Text>
             <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {unreadCards.length}</Text>
           </View>
-          {unreadCards.map((c) => AlertCard(c, c.secId === 'user' ? false : !c.ch.branch))}
+          {unreadCards.map((c) => AlertCard(c))}
         </View>
       ) : null}
       <View style={{ gap: 6 }}>
-        {cards.filter((c) => c.unread === 0).map((c) => AlertCard(c, c.secId === 'user' ? false : !c.ch.branch))}
+        {cards.filter((c) => c.unread === 0).map((c) => AlertCard(c))}
       </View>
     </View>
   );

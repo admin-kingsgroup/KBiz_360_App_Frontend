@@ -41,13 +41,13 @@ export const announcementsChannel: PulseChannel = {
   description: 'Updates from the admin team', members: [],
 };
 
-// Personal "User Alerts" — every user has one; it holds alerts ABOUT them (their check-in /
+// Personal "My Alerts" — every user has one; it holds alerts ABOUT them (their check-in /
 // check-out today, etc.) and only they can see it. Kept OUT of `pulseChannels` so the grant/branch
 // visibility loops never pick it up; it's rendered explicitly and resolved via `channelById`.
 // Id matches the backend's USER_ALERTS_CHANNEL_ID.
 export const userAlertsChannel: PulseChannel = {
   id: 'user_alerts', bizId: 'tk', module: 'hr',
-  name: 'User Alerts', icon: '🔔', color: '#128C7E', tint: '#E7F3F2',
+  name: 'My Alerts', icon: '🔔', color: '#128C7E', tint: '#E7F3F2',
   description: 'Your personal alerts — check-in, check-out & more', members: [],
 };
 
@@ -62,6 +62,31 @@ export const pulseChannels: PulseChannel[] = [
   ...attendanceAlertChannels,
 ];
 
+// ── channel groups ──
+// One CARD per module instead of one per (module × branch): "Attendance" rather than "BOM
+// Attendance" + "AMD Attendance". The per-branch channels below are still the real, backend-fed
+// units — ids, grants, events and push payloads are untouched — a group is purely how the app
+// presents them, with a branch chip strip inside the detail screen. Grants stay per branch, so a
+// BOM-only user's group resolves to the BOM channel alone and never widens their access.
+export interface PulseChannelGroup {
+  id: string; // routing id only — never a backend channelId (prefixed so the two can't collide)
+  module: ModuleKey;
+  name: string; icon: string; color: string; tint: string; description: string;
+  channels: PulseChannel[]; // the per-branch channels this card stands for
+}
+
+export const pulseGroups: PulseChannelGroup[] = [
+  { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels },
+  { id: 'grp_accounts', module: 'accounts', name: 'Finance', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books', channels: financeAlertChannels },
+  { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
+];
+
+export const groupById = (id: string): PulseChannelGroup | undefined => pulseGroups.find((g) => g.id === id);
+// The group a backend channel belongs to — resolves legacy deep links (push payloads carry the
+// real channelId, e.g. 'tk_att_bom') onto the grouped screen with that branch preselected.
+export const groupForChannel = (channelId: string): PulseChannelGroup | undefined =>
+  pulseGroups.find((g) => g.channels.some((c) => c.id === channelId));
+
 // Resolve any channel by id — the registered channels plus the personal User Alerts channel.
 // Used by the alert detail screen (which must render user_alerts too, though it isn't in the
 // grant-visible list).
@@ -72,9 +97,6 @@ export const channelById = (id: string): PulseChannel | undefined =>
 export const pulseEvents: PulseEvent[] = [];
 
 export const moduleRank = (mk: ModuleKey): number => { const i = MODULE_ORDER.indexOf(mk); return i === -1 ? 99 : i; };
-
-// Parse a branch id from an event context ("TK AMD · …" → "amd"); company-wide → null.
-export function branchOf(e: PulseEvent): string | null {
-  const m = e.context && e.context.match(/\b(AMD|BOM|NBO)\b/);
-  return m ? m[1].toLowerCase() : null;
-}
+// NOTE: an event's branch comes from its `channelId` via the registry above — never from parsing
+// the `context` string. (A regex over context used to do this; it silently mis-bucketed any event
+// whose producer worded the context differently.)

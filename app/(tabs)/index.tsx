@@ -4,7 +4,7 @@ import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, u
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, Eye, Plus, MessageCircle, Mic, UserCheck, UserX } from 'lucide-react-native';
-import { KBLogo, Toast, Skeleton, SkeletonList } from '../../src/components/ui';
+import { KBLogo, Skeleton, SkeletonList } from '../../src/components/ui';
 import { ChatListItem } from '../../src/components/chat';
 import { GroupsList, DepartmentsList, SystemAlertsList } from '../../src/components/home';
 import { CreateMenu } from '../../src/components/home/CreateMenu';
@@ -115,7 +115,6 @@ export default function Home() {
   const realUser = useAuthStore((s) => s.user);
   const activeBizId = useUiStore((s) => s.activeBizId);
   const setBiz = useUiStore((s) => s.setBiz);
-  const toast = useUiStore((s) => s.toast);
   const showToast = useUiStore((s) => s.showToast);
 
   // Real CRM org directory (companies/branches/departments), access-scoped by the backend. We show the
@@ -377,14 +376,14 @@ export default function Home() {
             <View style={{ width, height: pagerH }}>
               <ScrollView style={{ flex: 1 }}>
                 {/* Alert creation moved to the "+" create hub — no inline create button here. */}
-                <SystemAlertsList activeBizId="tk" access={access} onOpenChannel={(ch) => router.push({ pathname: '/alert/[id]', params: { id: ch.id } })} />
+                <SystemAlertsList activeBizId="tk" access={access} onOpen={(id) => router.push({ pathname: '/alert/[id]', params: { id } })} />
               </ScrollView>
             </View>
           </Animated.ScrollView>
         ) : null}
       </View>
 
-      <Toast message={toast} onHide={() => showToast(null)} />
+      {/* Toast is mounted app-wide in app/_layout.tsx (GlobalToast) — not here. */}
       {isSuper ? <CreateMenu visible={createOpen} onClose={() => setCreateOpen(false)} /> : null}
     </SafeAreaView>
   );

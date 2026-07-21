@@ -13,7 +13,8 @@ import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { scheduleLocal } from '../../src/services/notifications';
 import { useUiStore } from '../../src/store/uiStore';
-import { WHEN_PRESETS, presetDue, formatWhenLabel, secondsUntil, type WhenPresetKey } from '../../src/logic/reminderWhen';
+import { WHEN_PRESETS, presetDue, formatWhenLabel, secondsUntil, parseWhen, type WhenPresetKey } from '../../src/logic/reminderWhen';
+import { activeMention, applyMention, rankMentionMatches } from '../../src/logic/mentions';
 
 // Reminder composer (modal). Assignee = searchable directory sheet; due time = presets or a real
 // date+time picker. Every reminder carries a real dueAt so the backend can push "⏰ Reminder due"
@@ -42,6 +43,11 @@ export default function NewReminder() {
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
   const [saving, setSaving] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  // Set ONLY right after a mention is inserted, to place the caret; released on the next
+  // selection event so the field stays uncontrolled (a permanently controlled selection fights
+  // the Android keyboard).
+  const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
 
   // Load the real directory for the assignee picker ("Myself" stays pinned first).
   useEffect(() => {
@@ -57,6 +63,18 @@ export default function NewReminder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meId]);
 
+  // ── "when" read out of the text ──
+  // "call the agent tomorrow 5pm" pre-selects Tomorrow 5:00 PM. It only ever fills a slot the
+  // user hasn't set themselves: touching any preset or the date picker pins the choice and stops
+  // the text from moving it again.
+  const [whenTouched, setWhenTouched] = useState(false);
+  const detectedWhen = useMemo(() => parseWhen(text), [text]);
+  useEffect(() => {
+    if (whenTouched) return;
+    if (detectedWhen) { setCustomDue(detectedWhen.due); setPreset('custom'); }
+    else { setCustomDue(null); setPreset('today_evening'); } // phrase deleted → back to the default
+  }, [detectedWhen, whenTouched]);
+
   // The reminder's real due time: from the preset, or the custom pick.
   const dueAt = useMemo(
     () => (preset === 'custom' ? customDue : presetDue(preset)),
@@ -67,6 +85,26 @@ export default function NewReminder() {
     const q = personQuery.trim().toLowerCase();
     return q ? people.filter((p) => p.name.toLowerCase().includes(q)) : people;
   }, [people, personQuery]);
+
+  // ── @-mentions ──
+  // Typing "@" in the reminder text opens a people list; picking someone writes their name into
+  // the sentence AND assigns the reminder to them. The "For" row below is the single source of
+  // truth for the assignee, so mention two people and the last one wins — visibly.
+  // Self reads as "Myself" in the For picker, but a mention must insert the real name.
+  const mentionPeople = useMemo(
+    () => people.map((p) => (p.id === meId ? { ...p, name: me?.name || 'Me' } : p)),
+    [people, meId, me?.name],
+  );
+  const mention = activeMention(text, cursor);
+  const mentionMatches = mention ? rankMentionMatches(mentionPeople, mention.query) : [];
+  const pickMention = (p: Person): void => {
+    if (!mention) return;
+    const next = applyMention(text, mention, p.name);
+    setText(next.text);
+    setCursor(next.cursor);
+    setSel({ start: next.cursor, end: next.cursor });
+    setForId(p.id);
+  };
 
   const save = async () => {
     if (!text.trim()) { showToast('Add reminder text'); return; }
@@ -98,9 +136,26 @@ export default function NewReminder() {
         <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={16} color={colors.coolText} /></Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <FormField label="Reminder" required>
-          <TextInput value={text} onChangeText={setText} placeholder="What needs doing?" placeholderTextColor={colors.coolText3} multiline
+        <FormField label="Reminder" required hint="Type @ to mention someone — it assigns the reminder to them.">
+          <TextInput value={text} onChangeText={setText} placeholder="What needs doing? Type @ to assign" placeholderTextColor={colors.coolText3} multiline
+            selection={sel}
+            onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
             style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, minHeight: 72, textAlignVertical: 'top' }} />
+          {/* Mention suggestions — inline under the field, so the keyboard never covers them. */}
+          {mention && mentionMatches.length > 0 ? (
+            <View style={{ marginTop: 6, backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.coolDivider, overflow: 'hidden' }}>
+              {mentionMatches.map((p, i) => (
+                <Pressable key={p.id} onPress={() => pickMention(p)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-2.5"
+                  style={{ paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.coolDivider }}>
+                  <Avatar initials={p.initials} color={p.color} size={30} uri={p.avatar} />
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
+                    {p.role ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{p.role}</Text> : null}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </FormField>
 
         {/* Assignee — current pick + tap to open the searchable directory sheet */}
@@ -122,7 +177,7 @@ export default function NewReminder() {
             {WHEN_PRESETS.map((w) => {
               const on = preset === w.key;
               return (
-                <Pressable key={w.key} onPress={() => setPreset(w.key)} style={{ paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
+                <Pressable key={w.key} onPress={() => { setWhenTouched(true); setPreset(w.key); }} style={{ paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
                   <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '600' }}>{w.label}</Text>
                 </Pressable>
               );
@@ -135,6 +190,11 @@ export default function NewReminder() {
               </Text>
             </Pressable>
           </View>
+          {detectedWhen && !whenTouched ? (
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600', marginTop: 6 }}>
+              Picked up “{detectedWhen.match}” from your text{detectedWhen.hasTime ? '' : ' — assuming 9:00 AM'}
+            </Text>
+          ) : null}
           {dueAt ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Will remind {forId === meId ? 'you' : selected.name.split(' ')[0]} · {formatWhenLabel(dueAt)}</Text> : null}
         </FormField>
 
@@ -146,7 +206,7 @@ export default function NewReminder() {
         visible={pickerOpen}
         initial={customDue}
         onClose={() => setPickerOpen(false)}
-        onConfirm={(d) => { setCustomDue(d); setPreset('custom'); setPickerOpen(false); }}
+        onConfirm={(d) => { setWhenTouched(true); setCustomDue(d); setPreset('custom'); setPickerOpen(false); }}
       />
 
       {/* Assignee picker — searchable directory list, Myself pinned first */}

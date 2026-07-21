@@ -1,5 +1,5 @@
 import { makeAccessFilters } from '../logic/accessFilters';
-import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, pulseChannels, branchOf } from '../data/pulse';
+import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel } from '../data/pulse';
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
@@ -46,10 +46,47 @@ describe('system-alert access — branch channels', () => {
     expect(crm.alertOK('AMD', 'crm')).toBe(false);
   });
 
-  it('attendance/finance/crm event contexts bucket into the right branch section', () => {
-    const ev = { id: 'x', channelId: 'tk_att_bom', source: 'Attendance System', title: 't', body: 'b', context: 'TK BOM · Attendance', time: 1, read: false };
-    expect(branchOf(ev)).toBe('bom');
-    expect(branchOf({ ...ev, channelId: 'tk_fin_bom', context: 'TK BOM · Finance' })).toBe('bom');
-    expect(branchOf({ ...ev, channelId: 'tk_crm_amd', context: 'TK AMD · CRM' })).toBe('amd');
+});
+
+// Home shows ONE card per module; the branch split moved to chips inside the detail screen.
+// Grouping is presentation only — grants stay per branch, so a group must resolve to exactly the
+// channels the viewer is granted, never to all of its branches.
+describe('system-alert channel groups', () => {
+  it('every branch channel belongs to exactly one group, and groups add none of their own', () => {
+    const grouped = pulseGroups.flatMap((g) => g.channels.map((c) => c.id));
+    expect([...grouped].sort()).toEqual(pulseChannels.filter((c) => c.branch).map((c) => c.id).sort());
+    expect(new Set(grouped).size).toBe(grouped.length); // no channel in two groups
+  });
+
+  it('groups collapse the 6 branch channels into 3 cards', () => {
+    expect(pulseGroups.map((g) => g.name)).toEqual(['CRM', 'Finance', 'Attendance']);
+    expect(pulseGroups.map((g) => g.channels.length)).toEqual([2, 2, 2]);
+  });
+
+  it('group ids can never collide with a backend channel id', () => {
+    const channelIds = new Set([...pulseChannels.map((c) => c.id), 'user_alerts']);
+    for (const g of pulseGroups) expect(channelIds.has(g.id)).toBe(false);
+  });
+
+  it('groupForChannel resolves a push deep link back to its group', () => {
+    expect(groupForChannel('tk_att_bom')?.id).toBe('grp_hr');
+    expect(groupForChannel('tk_fin_amd')?.id).toBe('grp_accounts');
+    expect(groupForChannel('tk_crm_bom')?.id).toBe('grp_crm');
+    expect(groupForChannel('user_alerts')).toBeUndefined(); // personal channel — no group
+    expect(groupForChannel('announcements')).toBeUndefined();
+  });
+
+  it('a BOM-hr grant opens the Attendance group as BOM ALONE (grouping never widens access)', () => {
+    const f = makeAccessFilters(restricted(['BOM-hr']));
+    const g = groupById('grp_hr');
+    const mine = (g?.channels ?? []).filter((ch) => f.alertOK(ch.branch ?? null, ch.module));
+    expect(mine.map((c) => c.id)).toEqual(['tk_att_bom']);
+  });
+
+  it('a super admin sees every branch of every group', () => {
+    const f = makeAccessFilters(null);
+    for (const g of pulseGroups) {
+      expect(g.channels.filter((ch) => f.alertOK(ch.branch ?? null, ch.module))).toHaveLength(g.channels.length);
+    }
   });
 });

@@ -1,7 +1,9 @@
-// Headless background handlers for the native full-screen incoming call. This module is imported
-// from the app entry (index.js) so the handlers are registered BEFORE React mounts — required for
-// FCM/notifee to work when the app is killed. Guarded so it never runs in Expo Go.
+// Headless background handlers for the native full-screen incoming call AND background chat
+// messages. This module is imported from the app entry (index.js) so the handlers are registered
+// BEFORE React mounts — required for FCM/notifee to work when the app is killed. Guarded so it
+// never runs in Expo Go.
 import { isRunningInExpoGo } from 'expo';
+import { handleChatMessagePush } from './chatNotifications';
 
 // Wrapped in try/catch so a build WITHOUT the native modules (e.g. before the EAS rebuild that adds
 // @react-native-firebase/@notifee) degrades gracefully instead of crashing the app at startup.
@@ -47,6 +49,9 @@ if (!isRunningInExpoGo()) {
     const data = msg.data ?? {};
     if (data.type === 'call') await displayIncomingCall(data);
     else if (data.type === 'call_cancel') await notifee.cancelNotification(`call-${data.callId}`);
+    // Chat message while killed/backgrounded: fold into the cached chat list (instant unread on
+    // next open), draw the per-conversation notification, and bump the app-icon badge.
+    else if (data.type === 'chat_message') await handleChatMessagePush(data);
   });
 
   // Decline tapped from the background full-screen notification (cancel it; the call rings out → missed).

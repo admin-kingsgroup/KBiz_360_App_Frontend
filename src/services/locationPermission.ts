@@ -28,25 +28,9 @@ export async function getBackgroundLocationStatus(): Promise<BgLocationStatus> {
   }
 }
 
-// The entry gate's request: prompt for FOREGROUND ("While using the app") only — that is all the
-// gate requires. Background ("Allow all the time") is optional and offered later on the Attendance
-// screen, so the gate never routes the user to the settings page for an optional grant.
-export async function requestForegroundLocation(): Promise<BgLocationStatus> {
-  if (isRunningInExpoGo()) return 'unavailable';
-  try {
-    const Location = loc();
-    const fg = await Location.requestForegroundPermissionsAsync();
-    if (fg.status !== 'granted') return 'denied';
-    const bg = await Location.getBackgroundPermissionsAsync(); // read-only — never prompt for "always" here
-    return bg.status === 'granted' ? 'granted' : 'foreground-only';
-  } catch {
-    return 'unavailable';
-  }
-}
-
 // Fire BOTH OS prompts: foreground first, then background ("Allow all the time"; Android 11+ routes
-// this through the app's location settings page). Used by the OPTIONAL "enable auto-punch" upsell on
-// the Attendance screen — not by the entry gate.
+// this through the app's location settings page). Used by the ENTRY GATE — "Allow all the time" is
+// strictly required to open the app — and by the Attendance screen's re-prompt.
 export async function requestBackgroundLocation(): Promise<BgLocationStatus> {
   if (isRunningInExpoGo()) return 'unavailable';
   try {
