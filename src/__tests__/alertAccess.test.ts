@@ -1,5 +1,5 @@
 import { makeAccessFilters } from '../logic/accessFilters';
-import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel } from '../data/pulse';
+import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, salesInvoiceAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel } from '../data/pulse';
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
@@ -7,12 +7,15 @@ const restricted = (alerts: string[], branches: string[] = []): AccessControl =>
 });
 
 describe('system-alert access — branch channels', () => {
-  it('defines the branch channels (attendance + finance + crm) with matching grants', () => {
+  it('defines the branch channels (attendance + finance + crm + sales) with matching grants', () => {
     expect(attendanceAlertChannels.map((c) => c.id)).toEqual(['tk_att_bom', 'tk_att_amd']);
     expect(financeAlertChannels.map((c) => c.id)).toEqual(['tk_fin_bom', 'tk_fin_amd']);
     expect(crmAlertChannels.map((c) => c.id)).toEqual(['tk_crm_bom', 'tk_crm_amd']);
+    expect(salesInvoiceAlertChannels.map((c) => c.id)).toEqual(['tk_si_bom', 'tk_si_amd', 'tk_si_nbo', 'tk_si_dar', 'tk_si_fbm']);
     expect(pulseChannels.filter((c) => c.branch).map((c) => `${c.branch}-${c.module}`)).toEqual([
-      'BOM-crm', 'AMD-crm', 'BOM-accounts', 'AMD-accounts', 'BOM-hr', 'AMD-hr',
+      'BOM-crm', 'AMD-crm', 'BOM-accounts', 'AMD-accounts',
+      'BOM-sales', 'AMD-sales', 'NBO-sales', 'DAR-sales', 'FBM-sales',
+      'BOM-hr', 'AMD-hr',
     ]);
   });
 
@@ -46,6 +49,13 @@ describe('system-alert access — branch channels', () => {
     expect(crm.alertOK('AMD', 'crm')).toBe(false);
   });
 
+  it('a NBO-sales grant shows only the NBO Sales Invoice channel (Africa branches exist here)', () => {
+    const f = makeAccessFilters(restricted(['NBO-sales']));
+    expect(f.alertOK('NBO', 'sales')).toBe(true);
+    expect(f.alertOK('BOM', 'sales')).toBe(false);
+    expect(f.alertOK('NBO', 'accounts')).toBe(false); // sales grant never opens Finance
+  });
+
 });
 
 // Home shows ONE card per module; the branch split moved to chips inside the detail screen.
@@ -58,9 +68,10 @@ describe('system-alert channel groups', () => {
     expect(new Set(grouped).size).toBe(grouped.length); // no channel in two groups
   });
 
-  it('groups collapse the 6 branch channels into 3 cards', () => {
-    expect(pulseGroups.map((g) => g.name)).toEqual(['CRM', 'Finance', 'Attendance']);
-    expect(pulseGroups.map((g) => g.channels.length)).toEqual([2, 2, 2]);
+  it('groups collapse the 11 branch channels into 4 cards (Sales Invoice carries all 5 branches)', () => {
+    expect(pulseGroups.map((g) => g.name)).toEqual(['CRM', 'Finance', 'Sales Invoice', 'Attendance']);
+    expect(pulseGroups.map((g) => g.channels.length)).toEqual([2, 2, 5, 2]);
+    expect(groupById('grp_sales')?.channels.map((c) => c.branch)).toEqual(['BOM', 'AMD', 'NBO', 'DAR', 'FBM']);
   });
 
   it('group ids can never collide with a backend channel id', () => {
@@ -72,6 +83,7 @@ describe('system-alert channel groups', () => {
     expect(groupForChannel('tk_att_bom')?.id).toBe('grp_hr');
     expect(groupForChannel('tk_fin_amd')?.id).toBe('grp_accounts');
     expect(groupForChannel('tk_crm_bom')?.id).toBe('grp_crm');
+    expect(groupForChannel('tk_si_dar')?.id).toBe('grp_sales');
     expect(groupForChannel('user_alerts')).toBeUndefined(); // personal channel — no group
     expect(groupForChannel('announcements')).toBeUndefined();
   });

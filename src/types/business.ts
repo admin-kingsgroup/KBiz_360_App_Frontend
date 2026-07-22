@@ -1,5 +1,8 @@
 export type ModuleKey =
-  | 'crm' | 'accounts' | 'pl' | 'hr' | 'payables' | 'receivables' | 'inventory';
+  | 'crm' | 'accounts' | 'pl' | 'hr' | 'payables' | 'receivables' | 'inventory'
+  // System-alert-only module: ERP-approved sales invoices (no MODULES card of its own —
+  // it exists for the Sales Invoice alert channels/grants, e.g. "BOM-sales").
+  | 'sales';
 
 export type BizStatus = 'active' | 'setup';
 

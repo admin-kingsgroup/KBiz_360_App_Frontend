@@ -31,6 +31,16 @@ export const crmAlertChannels: PulseChannel[] = [
   { id: 'tk_crm_bom', bizId: 'tk', module: 'crm', branch: 'BOM', name: 'CRM - BOM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Mumbai branch', members: [] },
   { id: 'tk_crm_amd', bizId: 'tk', module: 'crm', branch: 'AMD', name: 'CRM - AMD', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Ahmedabad branch', members: [] },
 ];
+// Sales Invoice — the ERP pushes each approved sale invoice (with its PDF) into the branch's
+// channel. One channel per live Books branch — all 5, unlike Finance/CRM which are BOM/AMD only.
+// Ids and grants ("BOM-sales"…) match the backend's alertChannels definitions.
+export const salesInvoiceAlertChannels: PulseChannel[] = [
+  { id: 'tk_si_bom', bizId: 'tk', module: 'sales', branch: 'BOM', name: 'Sales Invoice - BOM', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Mumbai branch', members: [] },
+  { id: 'tk_si_amd', bizId: 'tk', module: 'sales', branch: 'AMD', name: 'Sales Invoice - AMD', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Ahmedabad branch', members: [] },
+  { id: 'tk_si_nbo', bizId: 'tk', module: 'sales', branch: 'NBO', name: 'Sales Invoice - NBO', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Nairobi branch', members: [] },
+  { id: 'tk_si_dar', bizId: 'tk', module: 'sales', branch: 'DAR', name: 'Sales Invoice - DAR', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Dar es Salaam branch', members: [] },
+  { id: 'tk_si_fbm', bizId: 'tk', module: 'sales', branch: 'FBM', name: 'Sales Invoice - FBM', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · DR Congo branch', members: [] },
+];
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -59,6 +69,7 @@ export const pulseChannels: PulseChannel[] = [
   announcementsChannel,
   ...crmAlertChannels,
   ...financeAlertChannels,
+  ...salesInvoiceAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -78,6 +89,7 @@ export interface PulseChannelGroup {
 export const pulseGroups: PulseChannelGroup[] = [
   { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels },
   { id: 'grp_accounts', module: 'accounts', name: 'Finance', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books', channels: financeAlertChannels },
+  { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
   { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 
