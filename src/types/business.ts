@@ -4,8 +4,9 @@ export type ModuleKey =
   // channels/grants): 'sales' = ERP-approved sale invoices ("BOM-sales"),
   // 'bookings' = SO/PO/GP + INB approval GP summaries ("BOM-bookings"),
   // 'acct' = Accounts, the finance-voucher transaction feed ("BOM-acct" — distinct
-  // from 'accounts', which the Finance BOM/AMD channels own).
-  | 'sales' | 'bookings' | 'acct';
+  // from 'accounts', which the Finance BOM/AMD channels own),
+  // 'bankcash' = Bank & Cash, the 11:00 IST balance snapshot ("BOM-bankcash").
+  | 'sales' | 'bookings' | 'acct' | 'bankcash';
 
 export type BizStatus = 'active' | 'setup';
 

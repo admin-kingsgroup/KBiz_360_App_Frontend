@@ -76,6 +76,14 @@ export const acctAlertChannels: PulseChannel[] = [
   { id: 'tk_acc_dar', bizId: 'tk', module: 'acct', branch: 'DAR', name: 'Accounts - DAR', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Dar es Salaam branch', members: [] },
   { id: 'tk_acc_fbm', bizId: 'tk', module: 'acct', branch: 'FBM', name: 'Accounts - FBM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · DR Congo branch', members: [] },
 ];
+// Bank & Cash — the ERP's 11:00 IST snapshot of every bank + cash ledger balance, per branch.
+export const bankCashAlertChannels: PulseChannel[] = [
+  { id: 'tk_bc_bom', bizId: 'tk', module: 'bankcash', branch: 'BOM', name: 'Bank & Cash - BOM', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Mumbai branch', members: [] },
+  { id: 'tk_bc_amd', bizId: 'tk', module: 'bankcash', branch: 'AMD', name: 'Bank & Cash - AMD', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Ahmedabad branch', members: [] },
+  { id: 'tk_bc_nbo', bizId: 'tk', module: 'bankcash', branch: 'NBO', name: 'Bank & Cash - NBO', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Nairobi branch', members: [] },
+  { id: 'tk_bc_dar', bizId: 'tk', module: 'bankcash', branch: 'DAR', name: 'Bank & Cash - DAR', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Dar es Salaam branch', members: [] },
+  { id: 'tk_bc_fbm', bizId: 'tk', module: 'bankcash', branch: 'FBM', name: 'Bank & Cash - FBM', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · DR Congo branch', members: [] },
+];
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -109,6 +117,7 @@ export const pulseChannels: PulseChannel[] = [
   ...payablesAlertChannels,
   ...bookingsAlertChannels,
   ...acctAlertChannels,
+  ...bankCashAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -133,6 +142,7 @@ export const pulseGroups: PulseChannelGroup[] = [
   { id: 'grp_payables', module: 'payables', name: 'Supplier Payables / Onboarding', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & settlement PDFs, supplier onboarding', channels: payablesAlertChannels },
   { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
   { id: 'grp_acct', module: 'acct', name: 'Accounts', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction, branch-wise', channels: acctAlertChannels },
+  { id: 'grp_bankcash', module: 'bankcash', name: 'Bank & Cash', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning 11:00 snapshot of bank & cash balances, branch-wise', channels: bankCashAlertChannels },
   { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 
