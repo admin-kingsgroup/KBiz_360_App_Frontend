@@ -67,6 +67,15 @@ export const bookingsAlertChannels: PulseChannel[] = [
   { id: 'tk_bkg_dar', bizId: 'tk', module: 'bookings', branch: 'DAR', name: 'SO/PO/GP / INB - DAR', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Dar es Salaam branch', members: [] },
   { id: 'tk_bkg_fbm', bizId: 'tk', module: 'bookings', branch: 'FBM', name: 'SO/PO/GP / INB - FBM', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · DR Congo branch', members: [] },
 ];
+// Accounts — every posted finance voucher (receipts, payments, contra, journal, notes,
+// refunds, memos): how much was received or sent, per branch.
+export const acctAlertChannels: PulseChannel[] = [
+  { id: 'tk_acc_bom', bizId: 'tk', module: 'acct', branch: 'BOM', name: 'Accounts - BOM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Mumbai branch', members: [] },
+  { id: 'tk_acc_amd', bizId: 'tk', module: 'acct', branch: 'AMD', name: 'Accounts - AMD', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Ahmedabad branch', members: [] },
+  { id: 'tk_acc_nbo', bizId: 'tk', module: 'acct', branch: 'NBO', name: 'Accounts - NBO', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Nairobi branch', members: [] },
+  { id: 'tk_acc_dar', bizId: 'tk', module: 'acct', branch: 'DAR', name: 'Accounts - DAR', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Dar es Salaam branch', members: [] },
+  { id: 'tk_acc_fbm', bizId: 'tk', module: 'acct', branch: 'FBM', name: 'Accounts - FBM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · DR Congo branch', members: [] },
+];
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -99,6 +108,7 @@ export const pulseChannels: PulseChannel[] = [
   ...receivablesAlertChannels,
   ...payablesAlertChannels,
   ...bookingsAlertChannels,
+  ...acctAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -122,6 +132,7 @@ export const pulseGroups: PulseChannelGroup[] = [
   { id: 'grp_receivables', module: 'receivables', name: 'Clients Receivables / Onboarding', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & settlement PDFs, client onboarding', channels: receivablesAlertChannels },
   { id: 'grp_payables', module: 'payables', name: 'Supplier Payables / Onboarding', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & settlement PDFs, supplier onboarding', channels: payablesAlertChannels },
   { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
+  { id: 'grp_acct', module: 'acct', name: 'Accounts', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction, branch-wise', channels: acctAlertChannels },
   { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 

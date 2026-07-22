@@ -2,8 +2,10 @@ export type ModuleKey =
   | 'crm' | 'accounts' | 'pl' | 'hr' | 'payables' | 'receivables' | 'inventory'
   // System-alert-only modules (no MODULES card of their own — they exist for alert
   // channels/grants): 'sales' = ERP-approved sale invoices ("BOM-sales"),
-  // 'bookings' = SO/PO/GP + INB approval GP summaries ("BOM-bookings").
-  | 'sales' | 'bookings';
+  // 'bookings' = SO/PO/GP + INB approval GP summaries ("BOM-bookings"),
+  // 'acct' = Accounts, the finance-voucher transaction feed ("BOM-acct" — distinct
+  // from 'accounts', which the Finance BOM/AMD channels own).
+  | 'sales' | 'bookings' | 'acct';
 
 export type BizStatus = 'active' | 'setup';
 
