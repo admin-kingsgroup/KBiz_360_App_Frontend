@@ -1,5 +1,5 @@
 import { makeAccessFilters } from '../logic/accessFilters';
-import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, salesInvoiceAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel } from '../data/pulse';
+import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, salesInvoiceAlertChannels, receivablesAlertChannels, payablesAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel } from '../data/pulse';
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
@@ -7,14 +7,18 @@ const restricted = (alerts: string[], branches: string[] = []): AccessControl =>
 });
 
 describe('system-alert access — branch channels', () => {
-  it('defines the branch channels (attendance + finance + crm + sales) with matching grants', () => {
+  it('defines the branch channels (attendance + finance + crm + sales + AR + AP) with matching grants', () => {
     expect(attendanceAlertChannels.map((c) => c.id)).toEqual(['tk_att_bom', 'tk_att_amd']);
     expect(financeAlertChannels.map((c) => c.id)).toEqual(['tk_fin_bom', 'tk_fin_amd']);
     expect(crmAlertChannels.map((c) => c.id)).toEqual(['tk_crm_bom', 'tk_crm_amd']);
     expect(salesInvoiceAlertChannels.map((c) => c.id)).toEqual(['tk_si_bom', 'tk_si_amd', 'tk_si_nbo', 'tk_si_dar', 'tk_si_fbm']);
+    expect(receivablesAlertChannels.map((c) => c.id)).toEqual(['tk_ar_bom', 'tk_ar_amd', 'tk_ar_nbo', 'tk_ar_dar', 'tk_ar_fbm']);
+    expect(payablesAlertChannels.map((c) => c.id)).toEqual(['tk_ap_bom', 'tk_ap_amd', 'tk_ap_nbo', 'tk_ap_dar', 'tk_ap_fbm']);
     expect(pulseChannels.filter((c) => c.branch).map((c) => `${c.branch}-${c.module}`)).toEqual([
       'BOM-crm', 'AMD-crm', 'BOM-accounts', 'AMD-accounts',
       'BOM-sales', 'AMD-sales', 'NBO-sales', 'DAR-sales', 'FBM-sales',
+      'BOM-receivables', 'AMD-receivables', 'NBO-receivables', 'DAR-receivables', 'FBM-receivables',
+      'BOM-payables', 'AMD-payables', 'NBO-payables', 'DAR-payables', 'FBM-payables',
       'BOM-hr', 'AMD-hr',
     ]);
   });
@@ -56,6 +60,14 @@ describe('system-alert access — branch channels', () => {
     expect(f.alertOK('NBO', 'accounts')).toBe(false); // sales grant never opens Finance
   });
 
+  it('AR and AP grants are independent of each other and of Finance', () => {
+    const f = makeAccessFilters(restricted(['DAR-receivables']));
+    expect(f.alertOK('DAR', 'receivables')).toBe(true);
+    expect(f.alertOK('DAR', 'payables')).toBe(false);
+    expect(f.alertOK('DAR', 'accounts')).toBe(false);
+    expect(f.alertOK('BOM', 'receivables')).toBe(false);
+  });
+
 });
 
 // Home shows ONE card per module; the branch split moved to chips inside the detail screen.
@@ -68,10 +80,14 @@ describe('system-alert channel groups', () => {
     expect(new Set(grouped).size).toBe(grouped.length); // no channel in two groups
   });
 
-  it('groups collapse the 11 branch channels into 4 cards (Sales Invoice carries all 5 branches)', () => {
-    expect(pulseGroups.map((g) => g.name)).toEqual(['CRM', 'Finance', 'Sales Invoice', 'Attendance']);
-    expect(pulseGroups.map((g) => g.channels.length)).toEqual([2, 2, 5, 2]);
-    expect(groupById('grp_sales')?.channels.map((c) => c.branch)).toEqual(['BOM', 'AMD', 'NBO', 'DAR', 'FBM']);
+  it('groups collapse the 21 branch channels into 6 cards (Sales/AR/AP carry all 5 branches)', () => {
+    expect(pulseGroups.map((g) => g.name)).toEqual([
+      'CRM', 'Finance', 'Sales Invoice', 'Clients Receivables / Onboarding', 'Supplier Payables / Onboarding', 'Attendance',
+    ]);
+    expect(pulseGroups.map((g) => g.channels.length)).toEqual([2, 2, 5, 5, 5, 2]);
+    for (const gid of ['grp_sales', 'grp_receivables', 'grp_payables']) {
+      expect(groupById(gid)?.channels.map((c) => c.branch)).toEqual(['BOM', 'AMD', 'NBO', 'DAR', 'FBM']);
+    }
   });
 
   it('group ids can never collide with a backend channel id', () => {
@@ -84,6 +100,8 @@ describe('system-alert channel groups', () => {
     expect(groupForChannel('tk_fin_amd')?.id).toBe('grp_accounts');
     expect(groupForChannel('tk_crm_bom')?.id).toBe('grp_crm');
     expect(groupForChannel('tk_si_dar')?.id).toBe('grp_sales');
+    expect(groupForChannel('tk_ar_nbo')?.id).toBe('grp_receivables');
+    expect(groupForChannel('tk_ap_fbm')?.id).toBe('grp_payables');
     expect(groupForChannel('user_alerts')).toBeUndefined(); // personal channel — no group
     expect(groupForChannel('announcements')).toBeUndefined();
   });

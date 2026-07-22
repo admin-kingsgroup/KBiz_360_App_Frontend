@@ -41,6 +41,23 @@ export const salesInvoiceAlertChannels: PulseChannel[] = [
   { id: 'tk_si_dar', bizId: 'tk', module: 'sales', branch: 'DAR', name: 'Sales Invoice - DAR', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Dar es Salaam branch', members: [] },
   { id: 'tk_si_fbm', bizId: 'tk', module: 'sales', branch: 'FBM', name: 'Sales Invoice - FBM', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · DR Congo branch', members: [] },
 ];
+// Clients Receivables / Onboarding — the ERP's daily 11:00 IST Receivables "Ageing & Settlement"
+// PDF (and the weekly overdue nudge) per branch. Module palette: receivables 📥.
+export const receivablesAlertChannels: PulseChannel[] = [
+  { id: 'tk_ar_bom', bizId: 'tk', module: 'receivables', branch: 'BOM', name: 'Clients Receivables - BOM', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Mumbai branch', members: [] },
+  { id: 'tk_ar_amd', bizId: 'tk', module: 'receivables', branch: 'AMD', name: 'Clients Receivables - AMD', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Ahmedabad branch', members: [] },
+  { id: 'tk_ar_nbo', bizId: 'tk', module: 'receivables', branch: 'NBO', name: 'Clients Receivables - NBO', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Nairobi branch', members: [] },
+  { id: 'tk_ar_dar', bizId: 'tk', module: 'receivables', branch: 'DAR', name: 'Clients Receivables - DAR', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Dar es Salaam branch', members: [] },
+  { id: 'tk_ar_fbm', bizId: 'tk', module: 'receivables', branch: 'FBM', name: 'Clients Receivables - FBM', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · DR Congo branch', members: [] },
+];
+// Supplier Payables / Onboarding — the ERP's daily Payables "Ageing & Settlement" PDF per branch.
+export const payablesAlertChannels: PulseChannel[] = [
+  { id: 'tk_ap_bom', bizId: 'tk', module: 'payables', branch: 'BOM', name: 'Supplier Payables - BOM', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Mumbai branch', members: [] },
+  { id: 'tk_ap_amd', bizId: 'tk', module: 'payables', branch: 'AMD', name: 'Supplier Payables - AMD', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Ahmedabad branch', members: [] },
+  { id: 'tk_ap_nbo', bizId: 'tk', module: 'payables', branch: 'NBO', name: 'Supplier Payables - NBO', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Nairobi branch', members: [] },
+  { id: 'tk_ap_dar', bizId: 'tk', module: 'payables', branch: 'DAR', name: 'Supplier Payables - DAR', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Dar es Salaam branch', members: [] },
+  { id: 'tk_ap_fbm', bizId: 'tk', module: 'payables', branch: 'FBM', name: 'Supplier Payables - FBM', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · DR Congo branch', members: [] },
+];
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -70,6 +87,8 @@ export const pulseChannels: PulseChannel[] = [
   ...crmAlertChannels,
   ...financeAlertChannels,
   ...salesInvoiceAlertChannels,
+  ...receivablesAlertChannels,
+  ...payablesAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -90,6 +109,8 @@ export const pulseGroups: PulseChannelGroup[] = [
   { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels },
   { id: 'grp_accounts', module: 'accounts', name: 'Finance', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books', channels: financeAlertChannels },
   { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
+  { id: 'grp_receivables', module: 'receivables', name: 'Clients Receivables / Onboarding', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & settlement PDFs, client onboarding', channels: receivablesAlertChannels },
+  { id: 'grp_payables', module: 'payables', name: 'Supplier Payables / Onboarding', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & settlement PDFs, supplier onboarding', channels: payablesAlertChannels },
   { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 
