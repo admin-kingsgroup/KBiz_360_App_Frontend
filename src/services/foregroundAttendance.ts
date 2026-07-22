@@ -3,7 +3,7 @@ import type * as LocationModuleT from 'expo-location';
 import { getOffices, checkIn, getMyAttendance, type MyAttendance } from '../api/attendance';
 import { getCurrentSsid } from './wifi';
 import { computePresence } from '../logic/attendance';
-import { ssidMatches } from '../logic/wifi';
+import { ssidMatches, cleanSsid } from '../logic/wifi';
 import { useAttendanceStore } from '../store/attendanceStore';
 import { useUiStore } from '../store/uiStore';
 import type { PunchMethod } from '../types';
@@ -61,10 +61,12 @@ export async function autoCheckInOnForeground(): Promise<void> {
     }
     const ssid = await getCurrentSsid();
 
-    // Present at ANY of the user's offices?
+    // Present at ANY of the user's offices? STRICT: inside the geofence AND on the office Wi-Fi
+    // (offices without a configured SSID stay geofence-only).
     const office = offices.find((o) => {
       const wifiOn = ssidMatches(ssid, o.wifiSsid);
-      return computePresence({ wifiOn, coords, office: { lat: o.lat, lng: o.lng, radius: o.radius } }).present;
+      const wifiConfigured = !!cleanSsid(o.wifiSsid);
+      return computePresence({ wifiOn, wifiConfigured, coords, office: { lat: o.lat, lng: o.lng, radius: o.radius } }).present;
     });
     if (!office) return; // not at the office — leave it for a later open / manual punch
 

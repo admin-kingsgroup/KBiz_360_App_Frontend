@@ -42,8 +42,16 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
   const session = await loadSession();
   if (!session) return;
   const url = `${apiBase()}/api/attendance/${kind}`;
+  // The strict rule needs the device's Wi-Fi network too: check-in requires the office SSID, and
+  // check-out drift rejection uses it as the still-at-the-office anchor. Best-effort headlessly.
+  let wifiSsid: string | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getCurrentSsid } = require('./wifi') as typeof import('./wifi');
+    wifiSsid = await getCurrentSsid();
+  } catch { /* SSID unreadable headlessly — server treats it as not on office Wi-Fi */ }
   // source:'geofence' lets the server apply its still-inside drift rejection to these check-outs.
-  const body = JSON.stringify({ method: 'auto', coords, source: 'geofence' });
+  const body = JSON.stringify({ method: 'auto', coords, source: 'geofence', wifiSsid });
   const send = (token: string): Promise<Response> =>
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body });
   let res = await send(session.access);

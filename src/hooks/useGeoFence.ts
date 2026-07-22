@@ -1,6 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Location from 'expo-location';
+import { distanceMeters } from '../logic/geo';
 import type { Coords } from '../types';
+
+// Ignore fixes that moved less than this — indoor GPS jitters a few metres constantly, and every
+// accepted fix re-renders the whole attendance screen. Small vs the 150 m office radius and the
+// 50 m exit buffer, so presence decisions are unaffected.
+const MIN_MOVE_M = 12;
 
 export type GeoState = 'idle' | 'locating' | 'ok' | 'denied' | 'unavailable';
 
@@ -11,10 +17,12 @@ export type GeoState = 'idle' | 'locating' | 'ok' | 'denied' | 'unavailable';
 export function useGeoFence(office: { lat: number; lng: number } | null) {
   const [coords, setCoords] = useState<Coords | null>(null);
   const [geoState, setGeoState] = useState<GeoState>('idle');
+  const lastFix = useRef<Coords | null>(null);
 
   useEffect(() => {
     let sub: Location.LocationSubscription | null = null;
     let cancelled = false;
+    lastFix.current = null;
     setCoords(null);
     (async () => {
       try {
@@ -24,7 +32,14 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
         if (status !== 'granted') { setGeoState('denied'); return; }
         sub = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, timeInterval: 4000, distanceInterval: 5 },
-          (pos) => { if (!cancelled) { setGeoState('ok'); setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); } },
+          (pos) => {
+            if (cancelled) return;
+            setGeoState('ok'); // same-value sets are free — React bails out
+            const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            if (lastFix.current && distanceMeters(lastFix.current, next) < MIN_MOVE_M) return; // jitter, not movement
+            lastFix.current = next;
+            setCoords(next);
+          },
         );
       } catch {
         if (!cancelled) setGeoState('unavailable');
@@ -37,7 +52,9 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
   const simulate = useCallback((here: boolean) => {
     if (!office) return;
     setGeoState('ok');
-    setCoords(here ? { lat: office.lat + 0.0003, lng: office.lng + 0.0003 } : { lat: office.lat + 0.05, lng: office.lng + 0.05 });
+    const next = here ? { lat: office.lat + 0.0003, lng: office.lng + 0.0003 } : { lat: office.lat + 0.05, lng: office.lng + 0.05 };
+    lastFix.current = next;
+    setCoords(next);
   }, [office]);
 
   return { coords, geoState, simulate };

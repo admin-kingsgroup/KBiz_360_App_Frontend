@@ -21,11 +21,11 @@ describe('attendanceStore', () => {
   it('auto punch-in via presence, then face punch-out blocked off-site', () => {
     const s = useAttendanceStore.getState();
     s.reset();
-    s.refreshPresence({ wifiOn: true, coords: null, office: { lat: 23.0225, lng: 72.5714, radius: 150 } });
+    s.refreshPresence({ wifiOn: true, wifiConfigured: true, coords: { lat: 23.0225, lng: 72.5714 }, office: { lat: 23.0225, lng: 72.5714, radius: 150 } });
     expect(useAttendanceStore.getState().runAutoPunch(new Date('2026-06-10T09:00:00Z'))).toBe(true);
     expect(useAttendanceStore.getState().att.inTime).not.toBeNull();
     // leave office
-    s.refreshPresence({ wifiOn: false, coords: { lat: 19.07, lng: 72.87 }, office: { lat: 23.0225, lng: 72.5714, radius: 150 } });
+    s.refreshPresence({ wifiOn: false, wifiConfigured: true, coords: { lat: 19.07, lng: 72.87 }, office: { lat: 23.0225, lng: 72.5714, radius: 150 } });
     expect(useAttendanceStore.getState().punchByFace()).toBe(false); // off-site → blocked
   });
 });

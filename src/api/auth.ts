@@ -152,7 +152,10 @@ export function refresh(): Promise<boolean> {
         body: { refreshToken: rt },
       });
       setTokens(t.accessToken, t.refreshToken);
-      void updateStoredTokens(t.accessToken, t.refreshToken); // keep the persisted session current
+      // AWAIT the persistence: tokens rotate server-side, so if the app dies before this write
+      // lands, the next launch replays the OLD refresh token. (The server now also keeps a
+      // rotated token alive for a 48h grace window as the second half of this fix.)
+      await updateStoredTokens(t.accessToken, t.refreshToken);
       return true;
     } catch (e) {
       // Only wipe the session when the server GENUINELY rejects the refresh token (401/403). A

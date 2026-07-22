@@ -1,19 +1,21 @@
 import type { AttendanceRecord, Coords, OfficeGeo, OfficePresence, PunchMethod } from '../types';
 import { distanceMeters } from './geo';
 
-// Presence model. Extracted from AttendanceScreen: distance -> inside -> present -> viaNow.
-// present = wifiOn || inside; viaNow = wifiOn ? 'Wi-Fi' : (inside ? 'Geofence' : '').
+// Presence model — STRICT: present requires being INSIDE the geofence AND on the office Wi-Fi
+// (when the office has an SSID configured). An office with no configured SSID falls back to
+// geofence-only so attendance isn't bricked for branches that haven't set their network yet.
 export function computePresence(input: {
   wifiOn: boolean;
+  wifiConfigured: boolean;
   coords: Coords | null;
   office: OfficeGeo;
 }): OfficePresence {
-  const { wifiOn, coords, office } = input;
+  const { wifiOn, wifiConfigured, coords, office } = input;
   const distance = coords ? distanceMeters(coords, office) : null;
   const inside = distance != null && distance <= office.radius;
-  const present = wifiOn || inside;
-  const viaNow: OfficePresence['viaNow'] = wifiOn ? 'Wi-Fi' : (inside ? 'Geofence' : '');
-  return { distance, inside, present, viaNow };
+  const present = inside && (wifiOn || !wifiConfigured);
+  const viaNow: OfficePresence['viaNow'] = present ? (wifiOn ? 'Wi-Fi' : 'Geofence') : '';
+  return { distance, inside, wifiOn, wifiConfigured, present, viaNow };
 }
 
 // AUTOMATIC punch reducer. Extracted verbatim from the attendance auto-effect.
@@ -33,16 +35,19 @@ export function autoPunch(
   return null;
 }
 
-// ── auto check-out: immediate on a confirmed exit ──
-// The day auto-closes the MOMENT the user is confirmed away: they're off the office Wi-Fi AND a real
-// GPS fix places them CLEARLY beyond the geofence (radius + buffer). No time grace. Two safeguards
-// keep this from mis-firing at the desk: (1) the Wi-Fi anchor — while on office Wi-Fi `present` is
-// true, so GPS drift can never close the day; (2) the buffer — a boundary wobble just past the
-// radius isn't "clearly beyond". A LOST GPS fix (distance null) is UNKNOWN and never auto-closes.
+// ── auto check-out: immediate the moment either required signal breaks ──
+// STRICT rule: presence needs office Wi-Fi AND the geofence together, so the day auto-closes
+// IMMEDIATELY when either leg provably breaks:
+//   - the device is not on the office Wi-Fi (when the office has an SSID configured), OR
+//   - a real GPS fix places the device CLEARLY beyond the geofence (radius + buffer).
+// The buffer keeps indoor GPS drift (30–80 m wobbles are routine) from closing the day; a LOST
+// fix (distance null) is UNKNOWN, not an exit — only real evidence checks someone out.
 export const AUTO_OUT_BUFFER_M = 50;
 
 export function confirmedAway(p: OfficePresence, radius: number): boolean {
-  return !p.present && p.distance != null && p.distance > radius + AUTO_OUT_BUFFER_M;
+  if (p.present) return false;
+  if (p.wifiConfigured && !p.wifiOn) return true; // office Wi-Fi required and not connected → out now
+  return p.distance != null && p.distance > radius + AUTO_OUT_BUFFER_M;
 }
 
 // ── background geofence exit verification ──

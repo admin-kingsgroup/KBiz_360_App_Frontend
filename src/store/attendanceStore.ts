@@ -14,7 +14,7 @@ export interface AttendanceState {
   setPerm: (k: keyof Permissions, v: boolean) => void;
   hydrate: (p: { perms?: Permissions; consent?: boolean }) => void;
   setAtt: (att: AttendanceRecord) => void; // adopt the server's record (today's punch)
-  refreshPresence: (input: { wifiOn: boolean; coords: Coords | null; office: OfficeGeo }) => OfficePresence;
+  refreshPresence: (input: { wifiOn: boolean; wifiConfigured: boolean; coords: Coords | null; office: OfficeGeo }) => OfficePresence;
   runAutoPunch: (now?: Date) => boolean;        // returns true if a transition fired
   punchByFace: (now?: Date) => boolean;         // returns true if punched
   reset: () => void;
@@ -34,7 +34,13 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     set((s) => ({ perms: perms ?? s.perms, consent: consent ?? s.consent })),
   refreshPresence: (input) => {
     const presence = computePresence(input);
-    set({ presence });
+    // Only publish a new presence object when a field ACTUALLY changed. computePresence returns a
+    // fresh object every call, so an unconditional set() re-rendered every subscriber on each 15s
+    // heartbeat even when nothing moved. Idempotent set → no needless re-renders.
+    const cur = get().presence;
+    if (!cur || cur.present !== presence.present || cur.inside !== presence.inside || cur.distance !== presence.distance || cur.viaNow !== presence.viaNow || cur.wifiOn !== presence.wifiOn || cur.wifiConfigured !== presence.wifiConfigured) {
+      set({ presence });
+    }
     return presence;
   },
   runAutoPunch: (now = new Date()) => {

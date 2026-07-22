@@ -20,6 +20,8 @@ export interface Coords {
 export interface OfficePresence {
   distance: number | null;
   inside: boolean;
+  wifiOn: boolean; // device is on this office's configured Wi-Fi
+  wifiConfigured: boolean; // office has a Wi-Fi SSID configured (the strict Wi-Fi+geofence rule applies)
   present: boolean;
   viaNow: '' | 'Wi-Fi' | 'Geofence';
 }

@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Alert, Linking, AppState } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { ChevronLeft, ChevronRight, Clock, Check, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPinOff, MapPin, Building2, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Check, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPinOff, MapPin, Building2, X, Wifi } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { colors } from '../src/theme';
@@ -15,7 +15,7 @@ import { canFacePunch, confirmedAway } from '../src/logic/attendance';
 import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { getCurrentSsid } from '../src/services/wifi';
-import { ssidMatches } from '../src/logic/wifi';
+import { ssidMatches, cleanSsid } from '../src/logic/wifi';
 import { syncAttendanceGeofencing, getBackgroundLocationState, type BackgroundLocationState } from '../src/services/backgroundAttendance';
 import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
@@ -44,7 +44,9 @@ export default function Attendance() {
   const [offices, setOffices] = useState<AttendanceOffice[]>([]);
   const [office, setOffice] = useState<AttendanceOffice | null>(null);
   const [tab, setTab] = useState<'mine' | 'team'>('mine');
-  const [clock, setClock] = useState(new Date());
+  // NOTE: no per-second state here. The ticking clock lives in <LiveClock /> (its own leaf
+  // component) so the seconds display doesn't re-render this whole screen — that re-render is
+  // what made the page lag and stutter while scrolling.
   const [scanning, setScanning] = useState(false);
   const [team, setTeam] = useState<TeamAttendanceEntry[]>([]);
   const [teamDate, setTeamDate] = useState(todayKey()); // day shown on the admin team tab
@@ -71,7 +73,11 @@ export default function Attendance() {
 
   const { coords, geoState } = useGeoFence(office);
 
-  useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
+  // Presence heartbeat: re-evaluates auto-punch even when no GPS/Wi-Fi event arrives (e.g. the
+  // away-grace timer maturing). 15s against a 5-minute grace is ample — this used to be a
+  // 1-second clock tick, which re-rendered the entire screen 60×/min.
+  const [beat, setBeat] = useState(0);
+  useEffect(() => { const t = setInterval(() => setBeat((b) => b + 1), 15000); return () => clearInterval(t); }, []);
 
   // Poll the connected Wi-Fi SSID (Android needs location perms/services on to read it; the
   // consent flow already asks). Drives the Wi-Fi half of presence — verified again server-side.
@@ -190,17 +196,22 @@ export default function Attendance() {
   useEffect(() => {
     if (!office) return;
     const wifiOn = ssidMatches(ssid, office.wifiSsid);
-    const p = refreshPresence({ wifiOn, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
+    const wifiConfigured = !!cleanSsid(office.wifiSsid);
+    const p = refreshPresence({ wifiOn, wifiConfigured, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
     if (!p.present && !confirmedAway(p, office.radius)) return; // not present, but not a confirmed exit → wait
-    if (Date.now() < autoBlockedUntilRef.current) return; // recent server rejection — wait before retrying
+    if (Date.now() < autoBlockedUntilRef.current) return; // throttled — one auto-punch per minute, see below
     const fired = runAutoPunch();
     if (fired) {
+      // Throttle EVERY auto-punch (not just server rejections) to at most once a minute. A punch's
+      // own success can re-open/close the day and flip presence, so an unthrottled auto-punch could
+      // ping-pong (check-out ↔ re-open) when Wi-Fi/GPS presence is ambiguous — the "blinking".
+      autoBlockedUntilRef.current = Date.now() + 60_000;
       const a = useAttendanceStore.getState().att;
       if (a.outTime) { showToast('Auto check-out · ' + fmt(a.outTime)); void apiPunch('out', 'auto', true); }
       else if (a.inTime) { showToast('Auto check-in · ' + fmt(a.inTime) + ' · ' + (p.viaNow || 'Auto')); void apiPunch('in', 'auto', true); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords, ssid, office, clock, refreshPresence, runAutoPunch, showToast]);
+  }, [coords, ssid, office, beat, refreshPresence, runAutoPunch, showToast]);
 
   const inTime = att.inTime;
   const outTime = att.outTime;
@@ -208,12 +219,14 @@ export default function Attendance() {
   const viaNow = presence?.viaNow ?? '';
   const distance = presence?.distance ?? null;
   const inside = presence?.inside ?? false;
+  const wifiOnNow = presence?.wifiOn ?? false;
+  const wifiConfigured = presence?.wifiConfigured ?? false;
 
   const agree = () => { useAttendanceStore.getState().setConsent(true); void saveConsent(true); };
 
   // Biometric face fallback (no ML) — gated by foundation canFacePunch.
   const faceScan = async () => {
-    if (!canFacePunch(present, att, scanning)) { if (!present) showToast('Face punch needs office Wi-Fi or geofence'); return; }
+    if (!canFacePunch(present, att, scanning)) { if (!present) showToast('Face punch needs office Wi-Fi + geofence'); return; }
     setScanning(true);
     try {
       const has = await LocalAuthentication.hasHardwareAsync();
@@ -233,7 +246,7 @@ export default function Attendance() {
   };
 
   const punchPresent = () => {
-    if (!present) { showToast('Need office Wi-Fi or geofence'); return; }
+    if (!present) { showToast('Need office Wi-Fi + geofence'); return; }
     const kind: 'in' | 'out' | null = !inTime ? 'in' : (!outTime ? 'out' : null);
     if (kind) void apiPunch(kind, 'auto');
   };
@@ -246,9 +259,9 @@ export default function Attendance() {
         <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32 }}>
           <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}><Clock size={28} color={colors.primary} /></View>
           <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginBottom: 8 }}>How attendance works</Text>
-          <Text style={{ color: colors.coolText, fontSize: 14, lineHeight: 20, marginBottom: 16 }}>When you open KBiz 360 at the office, you are checked in automatically via office Wi-Fi or geofence. Face punch is a manual backup if auto-detection fails.</Text>
+          <Text style={{ color: colors.coolText, fontSize: 14, lineHeight: 20, marginBottom: 16 }}>When you open KBiz 360 at the office, you are checked in automatically when you are on the office Wi-Fi and inside the office area. Face punch is a manual backup if auto-detection fails.</Text>
           {([
-            ['Automatic first', 'On office Wi-Fi or inside the geofence, check-in / check-out happen on their own.'],
+            ['Automatic first', 'On the office Wi-Fi and inside the geofence together, check-in / check-out happen on their own.'],
             ['Face = backup', 'If auto-detection fails, punch manually by face (still at the office) so no one is wrongly marked absent.'],
             ['What we record', 'Only check-in / check-out time, date, and method (Wi-Fi, Geofence or Face).'],
             ['Who can see it', 'You see your own record. Only your Super Admin sees the team dashboard. Times feed your Accounts software.'],
@@ -266,8 +279,6 @@ export default function Attendance() {
     );
   }
 
-  const dateStr = clock.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const timeStr = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const punchedVia = att.via || '';
   const statusColor = inTime ? (outTime ? colors.coolText : colors.primary) : (present ? colors.primary : colors.danger);
   const statusText = inTime ? (outTime ? 'Done for today' : 'Checked in') : (present ? 'Detecting' : 'Not checked in');
@@ -402,10 +413,7 @@ export default function Attendance() {
           </View>
         ) : (
           <>
-            <View className="items-center mb-4">
-              <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '600' }}>{dateStr}</Text>
-              <Text style={{ color: colors.ink, fontSize: 36, fontWeight: '800', letterSpacing: -1.2 }}>{timeStr}</Text>
-            </View>
+            <LiveClock />
 
             <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 6, paddingHorizontal: 4 }}>OFFICE</Text>
             {offices.length === 0 ? (
@@ -449,21 +457,32 @@ export default function Attendance() {
             <View className="flex-row items-center gap-1.5 mb-2 px-1"><Zap size={13} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>AUTOMATIC · PRIMARY</Text></View>
             <View style={{ gap: 8, marginBottom: 12 }}>
               <AutoCard
+                icon={<Wifi size={18} color={wifiOnNow ? colors.primary : colors.coolText} />}
+                title="Office Wi-Fi"
+                sub={!office ? 'No office set' : !wifiConfigured ? 'No office Wi-Fi configured — geofence only' : wifiOnNow ? `Connected · ${cleanSsid(ssid) ?? office.wifiSsid}` : ssid ? `On “${cleanSsid(ssid)}” — not the office Wi-Fi` : 'Not connected to Wi-Fi'}
+                on={wifiOnNow}
+                color={colors.primary}
+              />
+              <AutoCard
                 icon={<Navigation size={18} color={inside ? colors.primary : colors.coolText} />}
                 title="Office geofence"
                 sub={!office ? 'No office set' : distance != null ? `${distance} m away · radius ${office.radius} m` : `Radius ${office.radius} m · ${geoState}`}
                 on={inside}
                 color={colors.primary}
               />
-              <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center' }}>You are checked in automatically when you are inside the office area, and checked out when you leave. Your location is verified on the server.</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center' }}>
+                {wifiConfigured
+                  ? 'Check-in needs the office Wi-Fi AND the office area together. The moment either drops, you are checked out. Both are verified on the server.'
+                  : 'You are checked in automatically when you are inside the office area, and checked out when you leave. Your location is verified on the server.'}
+              </Text>
             </View>
 
             {/* Face fallback */}
             <View className="flex-row items-center gap-1.5 mb-2 px-1"><ScanFace size={13} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MANUAL FALLBACK · IF AUTO FAILS</Text></View>
             <View style={{ padding: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: present ? colors.primary + '55' : colors.coolDivider, marginBottom: 12 }}>
-              <Text style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 10 }}>If auto did not trigger, punch manually while at the office (Wi-Fi or geofence). Works for check-in and check-out so no one can punch from outside.</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 10 }}>If auto did not trigger, punch manually while at the office (Wi-Fi + geofence). Works for check-in and check-out so no one can punch from outside.</Text>
               {!present ? (
-                <View className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: colors.coolMuted }}><Lock size={16} color={colors.coolText3} /><Text style={{ color: colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Needs office Wi-Fi / geofence</Text></View>
+                <View className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: colors.coolMuted }}><Lock size={16} color={colors.coolText3} /><Text style={{ color: colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Needs office Wi-Fi + geofence</Text></View>
               ) : inTime && outTime ? (
                 <View className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: colors.coolMuted }}><CheckCircle2 size={16} color={colors.coolText3} /><Text style={{ color: colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Done for today</Text></View>
               ) : (
@@ -594,6 +613,19 @@ export default function Attendance() {
         </Pressable>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+// The big date + seconds clock. A LEAF with its own 1-second tick, so only these two <Text>
+// nodes re-render every second — never the screen around it.
+function LiveClock() {
+  const [clock, setClock] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
+  return (
+    <View className="items-center mb-4">
+      <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '600' }}>{clock.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+      <Text style={{ color: colors.ink, fontSize: 36, fontWeight: '800', letterSpacing: -1.2 }}>{clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
+    </View>
   );
 }
 
