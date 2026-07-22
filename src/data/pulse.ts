@@ -58,6 +58,15 @@ export const payablesAlertChannels: PulseChannel[] = [
   { id: 'tk_ap_dar', bizId: 'tk', module: 'payables', branch: 'DAR', name: 'Supplier Payables - DAR', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Dar es Salaam branch', members: [] },
   { id: 'tk_ap_fbm', bizId: 'tk', module: 'payables', branch: 'FBM', name: 'Supplier Payables - FBM', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · DR Congo branch', members: [] },
 ];
+// SO/PO/GP / INB — deal summary (sale · purchase · GP · Link No · voucher numbers) pushed by
+// the ERP on every booking approval and INB deal approval, per branch.
+export const bookingsAlertChannels: PulseChannel[] = [
+  { id: 'tk_bkg_bom', bizId: 'tk', module: 'bookings', branch: 'BOM', name: 'SO/PO/GP / INB - BOM', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Mumbai branch', members: [] },
+  { id: 'tk_bkg_amd', bizId: 'tk', module: 'bookings', branch: 'AMD', name: 'SO/PO/GP / INB - AMD', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Ahmedabad branch', members: [] },
+  { id: 'tk_bkg_nbo', bizId: 'tk', module: 'bookings', branch: 'NBO', name: 'SO/PO/GP / INB - NBO', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Nairobi branch', members: [] },
+  { id: 'tk_bkg_dar', bizId: 'tk', module: 'bookings', branch: 'DAR', name: 'SO/PO/GP / INB - DAR', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Dar es Salaam branch', members: [] },
+  { id: 'tk_bkg_fbm', bizId: 'tk', module: 'bookings', branch: 'FBM', name: 'SO/PO/GP / INB - FBM', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · DR Congo branch', members: [] },
+];
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -89,6 +98,7 @@ export const pulseChannels: PulseChannel[] = [
   ...salesInvoiceAlertChannels,
   ...receivablesAlertChannels,
   ...payablesAlertChannels,
+  ...bookingsAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -111,6 +121,7 @@ export const pulseGroups: PulseChannelGroup[] = [
   { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
   { id: 'grp_receivables', module: 'receivables', name: 'Clients Receivables / Onboarding', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & settlement PDFs, client onboarding', channels: receivablesAlertChannels },
   { id: 'grp_payables', module: 'payables', name: 'Supplier Payables / Onboarding', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & settlement PDFs, supplier onboarding', channels: payablesAlertChannels },
+  { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
   { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 
