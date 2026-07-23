@@ -104,11 +104,35 @@ export const userAlertsChannel: PulseChannel = {
   description: 'Your personal alerts — check-in, check-out & more', members: [],
 };
 
+// Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
+// "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
+// (Sales Invoice, Receivables, Payables, SO/PO/GP, Accounts, Bank & Cash, Attendance) stays live.
+// The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
+// true restores that family's cards/grants with zero data loss.
+export const FINANCE_ALERTS_ENABLED = false;
+export const CRM_ALERTS_ENABLED = false;
+export const ANNOUNCEMENTS_ENABLED = false;
+
 // Only backend-registered channels are shown. The source app also generated one mock channel per
 // (business × enabled module) — those had no backend counterpart and rendered as permanent dummy
 // cards, so they were dropped. Re-add channels here only when the backend defines them
 // (Backend src/mongo/alerts/alertChannels.ts) and emits their events.
 export const pulseChannels: PulseChannel[] = [
+  ...(ANNOUNCEMENTS_ENABLED ? [announcementsChannel] : []),
+  ...(CRM_ALERTS_ENABLED ? crmAlertChannels : []),
+  ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
+  ...salesInvoiceAlertChannels,
+  ...receivablesAlertChannels,
+  ...payablesAlertChannels,
+  ...bookingsAlertChannels,
+  ...acctAlertChannels,
+  ...bankCashAlertChannels,
+  ...attendanceAlertChannels,
+];
+
+// FULL registry (visible or not) — id lookups must keep resolving hidden channels so a stray
+// Finance push notification or old deep link never crashes the alert detail screen.
+const allChannels: PulseChannel[] = [
   announcementsChannel,
   ...crmAlertChannels,
   ...financeAlertChannels,
@@ -134,9 +158,15 @@ export interface PulseChannelGroup {
   channels: PulseChannel[]; // the per-branch channels this card stands for
 }
 
+const financeGroup: PulseChannelGroup =
+  { id: 'grp_accounts', module: 'accounts', name: 'Finance', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books', channels: financeAlertChannels };
+
+const crmGroup: PulseChannelGroup =
+  { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels };
+
 export const pulseGroups: PulseChannelGroup[] = [
-  { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels },
-  { id: 'grp_accounts', module: 'accounts', name: 'Finance', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books', channels: financeAlertChannels },
+  ...(CRM_ALERTS_ENABLED ? [crmGroup] : []),
+  ...(FINANCE_ALERTS_ENABLED ? [financeGroup] : []),
   { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
   { id: 'grp_receivables', module: 'receivables', name: 'Clients Receivables / Onboarding', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & settlement PDFs, client onboarding', channels: receivablesAlertChannels },
   { id: 'grp_payables', module: 'payables', name: 'Supplier Payables / Onboarding', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & settlement PDFs, supplier onboarding', channels: payablesAlertChannels },
@@ -152,11 +182,12 @@ export const groupById = (id: string): PulseChannelGroup | undefined => pulseGro
 export const groupForChannel = (channelId: string): PulseChannelGroup | undefined =>
   pulseGroups.find((g) => g.channels.some((c) => c.id === channelId));
 
-// Resolve any channel by id — the registered channels plus the personal User Alerts channel.
-// Used by the alert detail screen (which must render user_alerts too, though it isn't in the
-// grant-visible list).
+// Resolve any channel by id — the FULL registry (including hidden finance channels) plus the
+// personal User Alerts channel. Used by the alert detail screen (which must render user_alerts
+// too, though it isn't in the grant-visible list) and by push deep links, which may still carry
+// hidden-channel ids.
 export const channelById = (id: string): PulseChannel | undefined =>
-  id === userAlertsChannel.id ? userAlertsChannel : pulseChannels.find((c) => c.id === id);
+  id === userAlertsChannel.id ? userAlertsChannel : allChannels.find((c) => c.id === id);
 
 // Demo events removed — alerts now start empty until real events are wired in.
 export const pulseEvents: PulseEvent[] = [];

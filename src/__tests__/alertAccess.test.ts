@@ -1,5 +1,5 @@
 import { makeAccessFilters } from '../logic/accessFilters';
-import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, salesInvoiceAlertChannels, receivablesAlertChannels, payablesAlertChannels, bookingsAlertChannels, acctAlertChannels, bankCashAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel } from '../data/pulse';
+import { attendanceAlertChannels, financeAlertChannels, crmAlertChannels, salesInvoiceAlertChannels, receivablesAlertChannels, payablesAlertChannels, bookingsAlertChannels, acctAlertChannels, bankCashAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel, channelById, FINANCE_ALERTS_ENABLED, CRM_ALERTS_ENABLED } from '../data/pulse';
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
@@ -17,8 +17,11 @@ describe('system-alert access — branch channels', () => {
     expect(bookingsAlertChannels.map((c) => c.id)).toEqual(['tk_bkg_bom', 'tk_bkg_amd', 'tk_bkg_nbo', 'tk_bkg_dar', 'tk_bkg_fbm']);
     expect(acctAlertChannels.map((c) => c.id)).toEqual(['tk_acc_bom', 'tk_acc_amd', 'tk_acc_nbo', 'tk_acc_dar', 'tk_acc_fbm']);
     expect(bankCashAlertChannels.map((c) => c.id)).toEqual(['tk_bc_bom', 'tk_bc_amd', 'tk_bc_nbo', 'tk_bc_dar', 'tk_bc_fbm']);
+    // The grant-visible list is what the app SHOWS: only the "Finance" (accounts) channels are
+    // hidden from pulseChannels while FINANCE_ALERTS_ENABLED is false — every other family stays.
     expect(pulseChannels.filter((c) => c.branch).map((c) => `${c.branch}-${c.module}`)).toEqual([
-      'BOM-crm', 'AMD-crm', 'BOM-accounts', 'AMD-accounts',
+      ...(CRM_ALERTS_ENABLED ? ['BOM-crm', 'AMD-crm'] : []),
+      ...(FINANCE_ALERTS_ENABLED ? ['BOM-accounts', 'AMD-accounts'] : []),
       'BOM-sales', 'AMD-sales', 'NBO-sales', 'DAR-sales', 'FBM-sales',
       'BOM-receivables', 'AMD-receivables', 'NBO-receivables', 'DAR-receivables', 'FBM-receivables',
       'BOM-payables', 'AMD-payables', 'NBO-payables', 'DAR-payables', 'FBM-payables',
@@ -86,14 +89,22 @@ describe('system-alert channel groups', () => {
     expect(new Set(grouped).size).toBe(grouped.length); // no channel in two groups
   });
 
-  it('groups collapse the 36 branch channels into 9 cards (5-branch families + BOM/AMD pairs)', () => {
+  it('groups collapse the branch channels into one card per visible module ("Finance" hidden while disabled)', () => {
     expect(pulseGroups.map((g) => g.name)).toEqual([
-      'CRM', 'Finance', 'Sales Invoice', 'Clients Receivables / Onboarding', 'Supplier Payables / Onboarding', 'SO/PO/GP / INB', 'Accounts', 'Bank & Cash', 'Attendance',
+      ...(CRM_ALERTS_ENABLED ? ['CRM'] : []),
+      ...(FINANCE_ALERTS_ENABLED ? ['Finance'] : []),
+      'Sales Invoice', 'Clients Receivables / Onboarding', 'Supplier Payables / Onboarding', 'SO/PO/GP / INB', 'Accounts', 'Bank & Cash', 'Attendance',
     ]);
-    expect(pulseGroups.map((g) => g.channels.length)).toEqual([2, 2, 5, 5, 5, 5, 5, 5, 2]);
+    expect(pulseGroups.map((g) => g.channels.length)).toEqual([
+      ...(CRM_ALERTS_ENABLED ? [2] : []),
+      ...(FINANCE_ALERTS_ENABLED ? [2] : []),
+      5, 5, 5, 5, 5, 5, 2,
+    ]);
     for (const gid of ['grp_sales', 'grp_receivables', 'grp_payables', 'grp_bookings', 'grp_acct', 'grp_bankcash']) {
       expect(groupById(gid)?.channels.map((c) => c.branch)).toEqual(['BOM', 'AMD', 'NBO', 'DAR', 'FBM']);
     }
+    if (!FINANCE_ALERTS_ENABLED) expect(groupById('grp_accounts')).toBeUndefined(); // hidden — no card
+    if (!CRM_ALERTS_ENABLED) expect(groupById('grp_crm')).toBeUndefined(); // hidden — no card
   });
 
   it('group ids can never collide with a backend channel id', () => {
@@ -103,14 +114,22 @@ describe('system-alert channel groups', () => {
 
   it('groupForChannel resolves a push deep link back to its group', () => {
     expect(groupForChannel('tk_att_bom')?.id).toBe('grp_hr');
-    expect(groupForChannel('tk_fin_amd')?.id).toBe('grp_accounts');
-    expect(groupForChannel('tk_crm_bom')?.id).toBe('grp_crm');
+    if (CRM_ALERTS_ENABLED) expect(groupForChannel('tk_crm_bom')?.id).toBe('grp_crm');
+    else { expect(groupForChannel('tk_crm_bom')).toBeUndefined(); expect(channelById('tk_crm_bom')?.id).toBe('tk_crm_bom'); }
     expect(groupForChannel('tk_si_dar')?.id).toBe('grp_sales');
     expect(groupForChannel('tk_ar_nbo')?.id).toBe('grp_receivables');
     expect(groupForChannel('tk_ap_fbm')?.id).toBe('grp_payables');
     expect(groupForChannel('tk_bkg_amd')?.id).toBe('grp_bookings');
     expect(groupForChannel('tk_acc_dar')?.id).toBe('grp_acct');
     expect(groupForChannel('tk_bc_nbo')?.id).toBe('grp_bankcash');
+    if (FINANCE_ALERTS_ENABLED) {
+      expect(groupForChannel('tk_fin_amd')?.id).toBe('grp_accounts');
+    } else {
+      // Hidden "Finance": no visible group card — but channelById must STILL resolve the channel,
+      // so a stray Finance push notification never crashes the alert detail screen.
+      expect(groupForChannel('tk_fin_amd')).toBeUndefined();
+      expect(channelById('tk_fin_amd')?.id).toBe('tk_fin_amd');
+    }
     expect(groupForChannel('user_alerts')).toBeUndefined(); // personal channel — no group
     expect(groupForChannel('announcements')).toBeUndefined();
   });

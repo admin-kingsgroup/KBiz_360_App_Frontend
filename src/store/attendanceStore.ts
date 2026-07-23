@@ -37,8 +37,13 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     // Only publish a new presence object when a field ACTUALLY changed. computePresence returns a
     // fresh object every call, so an unconditional set() re-rendered every subscriber on each 15s
     // heartbeat even when nothing moved. Idempotent set → no needless re-renders.
+    // Distance compares in 10 m buckets: raw distance has 1 m granularity, so ordinary indoor GPS
+    // wobble changed it on every accepted fix and republished (a visible "N m away" repaint every
+    // ~4s). Decisions (inside/present/confirmedAway) always use the RAW value returned below —
+    // bucketing only gates what subscribers repaint on.
+    const bucket = (d: number | null): number | null => (d == null ? null : Math.round(d / 10));
     const cur = get().presence;
-    if (!cur || cur.present !== presence.present || cur.inside !== presence.inside || cur.distance !== presence.distance || cur.viaNow !== presence.viaNow || cur.wifiOn !== presence.wifiOn || cur.wifiConfigured !== presence.wifiConfigured) {
+    if (!cur || cur.present !== presence.present || cur.inside !== presence.inside || bucket(cur.distance) !== bucket(presence.distance) || cur.viaNow !== presence.viaNow || cur.wifiOn !== presence.wifiOn || cur.wifiConfigured !== presence.wifiConfigured) {
       set({ presence });
     }
     return presence;

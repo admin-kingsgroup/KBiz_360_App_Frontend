@@ -139,7 +139,7 @@ export default function OfficeLocations() {
       {loading ? (
         <View className="items-center" style={{ paddingVertical: 56 }}><ActivityIndicator color={colors.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 14, gap: 10 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, padding: 14, gap: 10 }}>
           <Text style={{ color: colors.coolText, fontSize: 12.5, lineHeight: 18, marginBottom: 2, paddingHorizontal: 2 }}>
             A branch can have several offices (e.g. HQ + Operational). Mark one as ★ default — staff with no specific office report there. Use “Assign staff” to lock specific people to an office.
           </Text>

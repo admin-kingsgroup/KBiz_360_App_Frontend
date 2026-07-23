@@ -1,18 +1,31 @@
+import { memo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Paperclip, Star } from 'lucide-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import { Paperclip, Star, Trash2 } from 'lucide-react-native';
 import { Avatar } from '../ui';
 import { colors } from '../../theme';
 import type { Email, EmailFolder } from '../../types';
 import { initialsOf, relativeTime } from '../../logic/email';
 
 // One row in the mail list. In Sent/Drafts we show the recipient instead of the sender.
-export function EmailListItem({ email, folder, onPress }: { email: Email; folder: EmailFolder; onPress: () => void }) {
+//
+// memo + stable callbacks: the list re-renders on every store change (search keystrokes, the 30s
+// background refresh, read/star updates) — rows must only repaint when THEIR email object changes.
+// The store's merges preserve object identity for unchanged messages, so this memo actually holds.
+// onOpen/onDelete receive the email (instead of per-row closures) so the parent can pass the same
+// function reference to every row.
+export const EmailListItem = memo(function EmailListItem({ email, folder, onOpen, onDelete }: {
+  email: Email;
+  folder: EmailFolder;
+  onOpen: (e: Email) => void;
+  onDelete?: (e: Email) => void; // when set, swiping left reveals Delete
+}) {
   const outgoing = folder === 'sent' || folder === 'drafts';
   const person = outgoing ? (email.to[0] ?? email.from) : email.from;
   const unread = !email.read && folder === 'inbox';
 
-  return (
-    <Pressable onPress={onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row px-4 py-3" style={{ gap: 10, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+  const row = (
+    <Pressable onPress={() => onOpen(email)} android_ripple={{ color: colors.coolMuted }} className="flex-row px-4 py-3" style={{ gap: 10, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
       <View style={{ width: 8, alignItems: 'center', paddingTop: 18 }}>
         {unread ? <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary }} /> : null}
       </View>
@@ -35,4 +48,19 @@ export function EmailListItem({ email, folder, onPress }: { email: Email; folder
       </View>
     </Pressable>
   );
-}
+
+  if (!onDelete) return row;
+  return (
+    <Swipeable
+      overshootRight={false}
+      renderRightActions={() => (
+        <Pressable onPress={() => onDelete(email)} style={{ width: 84, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.danger }}>
+          <Trash2 size={20} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 4 }}>Delete</Text>
+        </Pressable>
+      )}
+    >
+      {row}
+    </Swipeable>
+  );
+});

@@ -45,6 +45,10 @@ export interface Email {
   hasAttachments?: boolean;
   attachments?: EmailAttachment[];
   color: string;   // avatar background (display only)
+  // Set when the message lives in a USER folder (Outlook-created / smart) — the Graph mailFolder
+  // id. Such mail is cached in the same store (offline-readable) but excluded from the standard
+  // folder views (its `folder` field is just the backend's 'inbox' stamp, not a real location).
+  graphFolderId?: string;
 }
 
 // What the compose form produces. Recipient fields are raw strings (comma/semicolon separated);
@@ -66,6 +70,14 @@ export interface SmartFolder {
   name: string;
   graphFolderId: string;
   from: string[]; // sender match substrings (domain like "travkings.com" or a full address)
+}
+
+// A real Outlook mail folder the user created (in Outlook or via a smart folder), with live counts.
+export interface OutlookFolder {
+  id: string;     // Graph mailFolder id
+  name: string;
+  total: number;  // totalItemCount
+  unread: number; // unreadItemCount
 }
 
 export const EMAIL_FOLDERS: { key: EmailFolder; label: string }[] = [

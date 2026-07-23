@@ -186,7 +186,7 @@ export default function Home() {
           {/* Today's attendance at a glance — green Present / red Absent; tap to open Attendance.
               Hidden for exempt users (attendance not tracked) and until the first fetch resolves. */}
           {attToday && !attToday.exempt ? (
-            <Pressable onPress={() => router.push('/attendance')} className="flex-row items-center" style={{ height: 36, paddingHorizontal: 12, gap: 6, borderRadius: 999, marginLeft: 2, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
+            <Pressable onPress={() => router.navigate('/attendance')} className="flex-row items-center" style={{ height: 36, paddingHorizontal: 12, gap: 6, borderRadius: 999, marginLeft: 2, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
               {attToday.present ? <UserCheck size={16} color={colors.primary} /> : <UserX size={16} color={colors.danger} />}
               {/* Show today's check-in → check-out times when present; "Absent" until the first punch. */}
               <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 13, fontWeight: '700' }}>

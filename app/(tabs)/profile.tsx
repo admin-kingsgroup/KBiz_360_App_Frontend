@@ -161,7 +161,7 @@ export default function Profile() {
         <View className="mx-4" style={{ flex: 1, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, overflow: 'hidden' }}>
           {[
             // Everyone: personal settings.
-            { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, onPress: () => router.push('/attendance') },
+            { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, onPress: () => router.navigate('/attendance') },
             { key: 'password', label: 'Change password', sub: 'Update your sign-in password', Icon: KeyRound, onPress: () => setPwOpen(true) },
             // Workspace administration: Super-Admin only (each target screen also enforces its own guard).
             ...(isSuper ? [

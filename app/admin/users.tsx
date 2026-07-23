@@ -127,7 +127,7 @@ export default function Users() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 32 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, padding: 14, paddingBottom: 32 }}>
         {loading && users.length === 0 ? (
           <View className="items-center" style={{ paddingVertical: 40 }}>
             <ActivityIndicator color={colors.primary} />
@@ -192,10 +192,12 @@ export default function Users() {
         </Pressable>
       </ScrollView>
 
-      {/* System-alert channel access (super-admin): which channels this user sees on Home. */}
+      {/* System-alert channel access (super-admin): which channels this user sees on Home.
+          The card is height-capped with the channel list scrolling inside it, so it stays a
+          proper modal no matter how many channels the registry grows to. */}
       <Modal visible={!!alertsUser} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAlertsUser(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18 }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18, maxHeight: '78%' }}>
             <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
               <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>System Alerts</Text>
               <Pressable onPress={() => setAlertsUser(null)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
@@ -203,20 +205,22 @@ export default function Users() {
             <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 10 }}>
               {alertsUser?.name}{alertsUser?.roleName ? ` · ${alertsUser.roleName}` : ''}
             </Text>
-            {channelOptions.map((opt, i) => (
-              <View key={opt.grant} className="flex-row items-center gap-3"
-                style={{ paddingVertical: 10, borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
-                <Text style={{ fontSize: 18 }}>{opt.icon}</Text>
-                <Text style={{ flex: 1, color: colors.ink, fontSize: 14, fontWeight: '600' }}>{opt.name}</Text>
-                {alertsUser ? (
-                  <Switch
-                    value={(alertGrants[alertsUser.id] || []).includes(opt.grant)}
-                    onValueChange={(v) => toggleAlertGrant(alertsUser.id, opt.grant, v)}
-                    trackColor={{ true: colors.primary, false: colors.coolDivider }}
-                  />
-                ) : null}
-              </View>
-            ))}
+            <ScrollView style={{ flexGrow: 0 }} showsVerticalScrollIndicator={false}>
+              {channelOptions.map((opt, i) => (
+                <View key={opt.grant} className="flex-row items-center gap-3"
+                  style={{ paddingVertical: 10, borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
+                  <Text style={{ fontSize: 18 }}>{opt.icon}</Text>
+                  <Text style={{ flex: 1, color: colors.ink, fontSize: 14, fontWeight: '600' }}>{opt.name}</Text>
+                  {alertsUser ? (
+                    <Switch
+                      value={(alertGrants[alertsUser.id] || []).includes(opt.grant)}
+                      onValueChange={(v) => toggleAlertGrant(alertsUser.id, opt.grant, v)}
+                      trackColor={{ true: colors.primary, false: colors.coolDivider }}
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
             <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 10 }}>
               Changes apply instantly on the user&apos;s phone. Super-admins always see every channel regardless of these switches.
             </Text>

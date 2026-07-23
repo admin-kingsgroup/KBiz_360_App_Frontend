@@ -3,10 +3,11 @@ import * as Location from 'expo-location';
 import { distanceMeters } from '../logic/geo';
 import type { Coords } from '../types';
 
-// Ignore fixes that moved less than this — indoor GPS jitters a few metres constantly, and every
-// accepted fix re-renders the whole attendance screen. Small vs the 150 m office radius and the
-// 50 m exit buffer, so presence decisions are unaffected.
-const MIN_MOVE_M = 12;
+// Ignore fixes that moved less than this — indoor GPS jitters constantly (fused-location wobbles
+// of 30-80 m are routine), and every accepted fix re-renders the whole attendance screen. 12 m let
+// ordinary indoor wander through every few seconds; 25 m swallows most of it while staying small
+// vs the 150 m office radius and the 50 m exit buffer, so presence decisions are unaffected.
+const MIN_MOVE_M = 25;
 
 export type GeoState = 'idle' | 'locating' | 'ok' | 'denied' | 'unavailable';
 
@@ -24,6 +25,8 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
     let cancelled = false;
     lastFix.current = null;
     setCoords(null);
+    // No office (not loaded yet, or the caller is attendance-exempt) → no GPS watch at all.
+    if (!office) { setGeoState('idle'); return; }
     (async () => {
       try {
         setGeoState('locating');
@@ -41,11 +44,18 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
             setCoords(next);
           },
         );
+        // Cleanup may have run while watchPositionAsync was still resolving — `sub` was null then,
+        // so nothing was removed. Without this check the native High/4s watcher leaks for the life
+        // of the process (one per raced open/close of the screen), silently burning GPS + memory.
+        if (cancelled) { sub.remove(); sub = null; }
       } catch {
         if (!cancelled) setGeoState('unavailable');
       }
     })();
     return () => { cancelled = true; sub?.remove(); };
+    // Deliberately keyed on the coordinates (not the object identity) so a re-fetched office
+    // with the same location doesn't restart the GPS watch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [office?.lat, office?.lng]);
 
   // Test control: drop a coord near (inside) or far (outside) the office, like source simGeo.

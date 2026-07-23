@@ -22,8 +22,8 @@ describe('confirmGeofenceExit', () => {
     expect(confirmGeofenceExit({ coords: at(500), accuracy: EXIT_MAX_ACCURACY_M + 1 }, [REGION])).toBe(false);
   });
 
-  it('no fresh fix → let the server-side guard decide (punch proceeds)', () => {
-    expect(confirmGeofenceExit(null, [REGION])).toBe(true);
+  it('no fresh fix → UNKNOWN, do NOT check out (proven in prod: indoors GPS has no fix and the OS fires a bogus Exit the moment geofences re-arm on login — the old "punch anyway" checked people out at their desk)', () => {
+    expect(confirmGeofenceExit(null, [REGION])).toBe(false);
   });
 
   it('no cached regions → nothing to verify against, punch proceeds', () => {

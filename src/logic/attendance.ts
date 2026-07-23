@@ -55,7 +55,12 @@ export function confirmedAway(p: OfficePresence, radius: number): boolean {
 // headless task punches out, it takes a FRESH fix and confirms the exit against the armed regions:
 //   - fix inside any region (+EXIT_BUFFER_M hysteresis) → drift, don't punch
 //   - fix accuracy worse than EXIT_MAX_ACCURACY_M      → unreliable, don't punch
-//   - no fix at all → punch anyway (the server's own drift guard is the backstop)
+//   - no fix at all → DON'T punch. Same principle as the foreground rule: a missing fix is
+//     UNKNOWN, not an exit. "Punch anyway" checked real people out while they sat at their desk —
+//     indoors GPS often has no fix at all, and the OS fires a bogus Exit the moment the geofences
+//     (re)arm (fresh login / app reopen), so the old rule fired a false check-out on login.
+//     A REAL exit is confirmed minutes later anyway: outdoors a fix arrives and the next Exit
+//     event (or the hourly refresh) verifies it with evidence.
 export const EXIT_BUFFER_M = 50;
 export const EXIT_MAX_ACCURACY_M = 150;
 export interface ArmedRegion { lat: number; lng: number; radius: number }
@@ -63,7 +68,7 @@ export function confirmGeofenceExit(
   fix: { coords: Coords; accuracy: number | null } | null,
   regions: ArmedRegion[],
 ): boolean {
-  if (!fix) return true; // couldn't re-verify — let the server decide
+  if (!fix) return false; // no evidence → no punch (a lost fix is unknown, not an exit)
   if (fix.accuracy != null && fix.accuracy > EXIT_MAX_ACCURACY_M) return false;
   return !regions.some((r) => distanceMeters(fix.coords, r) <= r.radius + EXIT_BUFFER_M);
 }

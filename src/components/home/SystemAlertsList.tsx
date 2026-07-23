@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { Bell, Paperclip, Plus } from 'lucide-react-native';
+import { Bell, Paperclip } from 'lucide-react-native';
 import { colors } from '../../theme';
-import { announcementsChannel, userAlertsChannel, pulseGroups, type PulseEvent } from '../../data/pulse';
+import { announcementsChannel, userAlertsChannel, pulseGroups, ANNOUNCEMENTS_ENABLED, type PulseEvent } from '../../data/pulse';
 import { usePulseStore } from '../../store/pulseStore';
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { dateStamp } from '../../utils/time';
@@ -14,12 +14,12 @@ interface CardData { key: string; openId: string; name: string; icon: string; co
 
 // System Alerts segment. One card PER MODULE — "Attendance", not "BOM Attendance" + "AMD
 // Attendance" — so branches don't multiply the list; the branch split lives on chips inside the
-// detail screen. Super-admins see every module and can compose announcements; everyone else sees
-// announcements addressed to them PLUS the modules a super-admin granted them from Team & Users,
-// narrowed to their granted branches (the API is the real gate — it only ever sends granted
-// events). View-As-aware.
-export function SystemAlertsList({ activeBizId, access, onOpen, onCreate }: { activeBizId: string; access: AccessControl | null; onOpen: (id: string) => void; onCreate?: () => void }) {
-  const { isSuper, bizOK, alertOK } = makeAccessFilters(access);
+// detail screen. Everyone sees the modules a super-admin granted them from Team & Users, narrowed
+// to their granted branches (the API is the real gate — it only ever sends granted events).
+// View-As-aware. Alert creation (announcements) is removed for now, along with the hidden
+// channel families — see the flags in data/pulse.
+export function SystemAlertsList({ activeBizId, access, onOpen }: { activeBizId: string; access: AccessControl | null; onOpen: (id: string) => void }) {
+  const { bizOK, alertOK } = makeAccessFilters(access);
   const pulseEvents = usePulseStore((s) => s.events);
 
   const stats: Record<string, { unread: number; last: PulseEvent | null }> = {};
@@ -34,10 +34,12 @@ export function SystemAlertsList({ activeBizId, access, onOpen, onCreate }: { ac
   const ua = stats[userAlertsChannel.id];
   cards.push({ key: userAlertsChannel.id, openId: userAlertsChannel.id, name: userAlertsChannel.name, icon: userAlertsChannel.icon, color: userAlertsChannel.color, description: userAlertsChannel.description, last: ua?.last ?? null, unread: ua?.unread ?? 0 });
 
-  // Announcements — company-wide, so it stays hidden until it actually has something (same rule
-  // as before; branch-scoped modules stay visible while empty).
-  const ann = stats[announcementsChannel.id];
-  if (ann?.last) cards.push({ key: announcementsChannel.id, openId: announcementsChannel.id, name: announcementsChannel.name, icon: announcementsChannel.icon, color: announcementsChannel.color, description: announcementsChannel.description, last: ann.last, unread: ann.unread });
+  // Announcements — hidden while disabled; when enabled it stays hidden until it actually has
+  // something (company-wide, unlike branch-scoped modules which stay visible while empty).
+  if (ANNOUNCEMENTS_ENABLED) {
+    const ann = stats[announcementsChannel.id];
+    if (ann?.last) cards.push({ key: announcementsChannel.id, openId: announcementsChannel.id, name: announcementsChannel.name, icon: announcementsChannel.icon, color: announcementsChannel.color, description: announcementsChannel.description, last: ann.last, unread: ann.unread });
+  }
 
   // One card per module the user can see any branch of. Branch-scoped channels match their branch
   // grant ("BOM-hr"); a user granted only BOM gets a card that means BOM alone.
@@ -55,19 +57,9 @@ export function SystemAlertsList({ activeBizId, access, onOpen, onCreate }: { ac
   });
   const unreadCards = cards.filter((c) => c.unread > 0);
 
-  // Super-admins: compose an announcement and pick who sees it.
-  const createBtn = isSuper && onCreate ? (
-    <Pressable onPress={onCreate} className="flex-row items-center justify-center gap-1.5"
-      style={{ borderRadius: 999, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary, paddingVertical: 12, backgroundColor: colors.card }}>
-      <Plus size={17} color={colors.primary} />
-      <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>New alert</Text>
-    </Pressable>
-  ) : null;
-
   if (cards.length === 0) {
     return (
       <View className="px-4 pt-3 pb-6" style={{ gap: 8 }}>
-        {createBtn}
         <Empty icon={<Bell size={36} color={colors.coolText3} />} title="No system alerts yet" sub="Alert channels appear as modules go live." />
       </View>
     );
@@ -98,7 +90,6 @@ export function SystemAlertsList({ activeBizId, access, onOpen, onCreate }: { ac
 
   return (
     <View className="px-4 pt-3 pb-6" style={{ gap: 8 }}>
-      {createBtn}
       {unreadCards.length > 0 ? (
         <View style={{ gap: 6 }}>
           <View className="flex-row items-center gap-1.5 px-1">

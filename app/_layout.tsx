@@ -1,6 +1,6 @@
 import '../global.css';
 import { useEffect, useState } from 'react';
-import { View, AppState, Keyboard, TouchableWithoutFeedback } from 'react-native';
+import { View, AppState } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -137,6 +137,7 @@ function GateController() {
       <Stack.Screen name="reminder/archive" />
       <Stack.Screen name="email/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="email/folder/[id]" options={{ presentation: 'card' }} />
+      <Stack.Screen name="email/outlook/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="email/compose" options={{ presentation: 'modal' }} />
       <Stack.Screen name="call/[id]" options={{ presentation: 'card' }} />
     </Stack>
@@ -168,14 +169,17 @@ export default function RootLayout() {
         <KeyboardProvider>
           <ErrorBoundary>
             <OfflineBanner />
-            {/* App-wide: tapping empty space dismisses the keyboard. TouchableWithoutFeedback only
-                becomes the touch responder for taps NOT claimed by a child (inputs, buttons, scroll
-                views, gesture handlers all claim first) — so it never blocks interaction or scrolling. */}
-            <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
-              <View style={{ flex: 1 }}>
-                {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
-              </View>
-            </TouchableWithoutFeedback>
+            {/* NO app-wide tap-to-dismiss-keyboard wrapper. The old TouchableWithoutFeedback here
+                claimed the JS responder on every touch that started on non-interactive space; on
+                the New Architecture its responder release is lost when a ScrollView takes over the
+                drag, leaving a STUCK responder that permanently blocks native scroll interception
+                for that screen — the "attendance page scrolls once then never again" bug (repro:
+                drag empty space twice; verified fixed by removing this wrapper). If tap-to-dismiss
+                is wanted back, implement it per-screen with a RNGH Tap gesture (outside the RN
+                responder system) — NEVER with a Touchable wrapping the navigator. */}
+            <View style={{ flex: 1 }}>
+              {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
+            </View>
             {/* Global call overlays — render over any screen and survive navigation (call state
                 lives in callSessionStore). Active first so an incoming call layers above it. */}
             <ActiveCallOverlay />

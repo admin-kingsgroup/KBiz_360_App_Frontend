@@ -1,20 +1,16 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { View, Text, Pressable, Modal, ScrollView } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, Star, Trash2, RotateCcw, MailOpen, Reply, ReplyAll, Forward, Paperclip, Download, Pencil } from 'lucide-react-native';
+import { ChevronLeft, Star, Trash2, RotateCcw, MailOpen, Reply, ReplyAll, Forward, Pencil, FolderInput, Folder as FolderIcon, X } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { Avatar } from '../../src/components/ui';
-import { EmailBody } from '../../src/components/email';
+import { EmailMessageView } from '../../src/components/email';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useUiStore } from '../../src/store/uiStore';
 import * as emailApi from '../../src/api/email';
-import { initialsOf, relativeTime } from '../../src/logic/email';
 import type { AttachmentMeta } from '../../src/types';
-
-const humanSize = (b: number): string => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(1)} MB`);
 
 export default function EmailDetail() {
   const router = useRouter();
@@ -24,11 +20,25 @@ export default function EmailDetail() {
   const toggleRead = useEmailStore((s) => s.toggleRead);
   const toggleStar = useEmailStore((s) => s.toggleStar);
   const moveToFolder = useEmailStore((s) => s.moveToFolder);
+  const moveToGraphFolder = useEmailStore((s) => s.moveToGraphFolder);
   const deleteForever = useEmailStore((s) => s.deleteForever);
+  const smartFolders = useEmailStore((s) => s.smartFolders);
+  const outlookFolders = useEmailStore((s) => s.outlookFolders);
   const showToast = useUiStore((s) => s.showToast);
 
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+
+  // Every folder the message can be filed into: smart folders + Outlook-created folders, de-duped
+  // (a smart folder IS an Outlook folder — same graph id).
+  const moveTargets = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { id: string; name: string }[] = [];
+    for (const sf of smartFolders) if (!seen.has(sf.graphFolderId)) { seen.add(sf.graphFolderId); out.push({ id: sf.graphFolderId, name: sf.name }); }
+    for (const f of outlookFolders) if (!seen.has(f.id)) { seen.add(f.id); out.push({ id: f.id, name: f.name }); }
+    return out;
+  }, [smartFolders, outlookFolders]);
 
   // Fetch the full message body (the list only carries a preview) + attachment list.
   useEffect(() => { if (id) void useEmailStore.getState().loadMessage(id); }, [id]);
@@ -62,10 +72,19 @@ export default function EmailDetail() {
   const editDraft = () => router.push({ pathname: '/email/compose', params: { id: email.id } });
 
   const trash = () => { moveToFolder(email.id, 'deleted'); showToast('Moved to Deleted'); router.back(); };
+  const fileInto = (folderId: string, name: string) => {
+    setMoveOpen(false);
+    moveToGraphFolder(email.id, folderId);
+    showToast(`Moved to "${name}"`);
+    router.back();
+  };
   const restore = () => { moveToFolder(email.id, 'inbox'); showToast('Restored to Inbox'); router.back(); };
   const purge = () => { deleteForever(email.id); showToast('Deleted permanently'); router.back(); };
 
-  const openAttachment = async (att: AttachmentMeta) => {
+  // Attachment chip tapped inside the message WebView → download + share/open natively.
+  const openAttachment = async (attId: string) => {
+    const att = attachments.find((a) => a.id === attId);
+    if (!att || downloading) return;
     setDownloading(att.id);
     try {
       const data = await emailApi.downloadAttachment(email.id, att.id);
@@ -77,6 +96,9 @@ export default function EmailDetail() {
     finally { setDownloading(null); }
   };
 
+  // mailto: links inside a message body open OUR composer (Outlook behavior), not an external app.
+  const composeTo = (address: string) => router.push({ pathname: '/email/compose', params: { to: address } });
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
       {/* Header actions */}
@@ -85,6 +107,9 @@ export default function EmailDetail() {
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => toggleStar(email.id)} style={iconBtn}><Star size={20} color={email.starred ? colors.orange : colors.ink} fill={email.starred ? colors.orange : 'transparent'} /></Pressable>
         <Pressable onPress={() => { toggleRead(email.id); showToast(email.read ? 'Marked unread' : 'Marked read'); }} style={iconBtn}><MailOpen size={20} color={colors.ink} /></Pressable>
+        {!isDraft && !inTrash ? (
+          <Pressable onPress={() => setMoveOpen(true)} accessibilityLabel="Move to folder" style={iconBtn}><FolderInput size={20} color={colors.ink} /></Pressable>
+        ) : null}
         {inTrash ? (
           <>
             <Pressable onPress={restore} style={iconBtn}><RotateCcw size={20} color={colors.ink} /></Pressable>
@@ -95,44 +120,15 @@ export default function EmailDetail() {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 28 }}>
-        <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3, lineHeight: 29 }}>{email.subject}</Text>
-
-        {/* Sender */}
-        <View className="flex-row items-center" style={{ gap: 12, marginTop: 16 }}>
-          <Avatar initials={initialsOf(email.from)} color={email.color} size={46} />
-          <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{email.from.name}</Text>
-            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{email.from.email}</Text>
-          </View>
-          <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{relativeTime(email.ts, Date.now())}</Text>
-        </View>
-        <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 8 }}>
-          To: {email.to.map((a) => a.name).join(', ')}{email.cc?.length ? `  ·  Cc: ${email.cc.map((a) => a.name).join(', ')}` : ''}
-        </Text>
-
-        <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.coolDivider, marginVertical: 16 }} />
-
-        {/* Body — HTML via WebView, plain text otherwise */}
-        <EmailBody body={email.body} bodyType={email.bodyType} />
-
-        {/* Attachments (tap to download + open) */}
-        {attachments.length ? (
-          <View style={{ marginTop: 20, gap: 8 }}>
-            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 }}>{attachments.length} ATTACHMENT{attachments.length > 1 ? 'S' : ''}</Text>
-            {attachments.map((at) => (
-              <Pressable key={at.id} onPress={() => openAttachment(at)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center" style={{ gap: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
-                <Paperclip size={17} color={colors.coolText} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{at.name}</Text>
-                  <Text style={{ color: colors.coolText, fontSize: 11.5 }}>{humanSize(at.size)}</Text>
-                </View>
-                <Download size={17} color={downloading === at.id ? colors.coolText3 : colors.primary} />
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-      </ScrollView>
+      {/* The whole message (subject, sender, attachments, body) scrolls as ONE document inside a
+          WebView — native-smooth for any length of email, images render, pinch-zoom works. */}
+      <EmailMessageView
+        email={email}
+        attachments={attachments}
+        downloadingId={downloading}
+        onAttachment={(attId) => void openAttachment(attId)}
+        onMailto={composeTo}
+      />
 
       {/* Bottom bar — pad the bottom by the safe-area inset so the buttons clear the Android nav bar.
           Drafts get a single "Edit draft" action (reply/forward make no sense for an unsent message). */}
@@ -147,6 +143,35 @@ export default function EmailDetail() {
           </>
         )}
       </View>
+
+      {/* Move to folder — pick any of the user's folders (smart + Outlook-created). */}
+      <Modal visible={moveOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMoveOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }} onPress={() => setMoveOpen(false)}>
+          <Pressable onPress={() => undefined} style={{ backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 16, paddingBottom: insets.bottom + 16, maxHeight: '60%' }}>
+            <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 20, marginBottom: 8 }}>
+              <View className="flex-row items-center" style={{ gap: 8 }}><FolderInput size={18} color={colors.primary} /><Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>Move to folder</Text></View>
+              <Pressable onPress={() => setMoveOpen(false)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
+            </View>
+            {moveTargets.length === 0 ? (
+              <Text style={{ color: colors.coolText, fontSize: 13.5, paddingHorizontal: 20, paddingVertical: 16 }}>
+                No folders yet — create one from the Email tab (the ＋ Folder chip), or in Outlook. Folders you make in Outlook show up here too.
+              </Text>
+            ) : (
+              <ScrollView style={{ flexGrow: 0 }}>
+                {moveTargets.map((t) => (
+                  <Pressable key={t.id} onPress={() => fileInto(t.id, t.name)} android_ripple={{ color: colors.coolMuted }}
+                    className="flex-row items-center" style={{ gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                      <FolderIcon size={17} color={colors.primary} />
+                    </View>
+                    <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>{t.name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

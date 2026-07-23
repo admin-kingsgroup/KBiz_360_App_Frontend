@@ -1,5 +1,13 @@
 import { apiFetch } from './client';
-import type { Email, EmailDraft, EmailFolder, AttachmentMeta, SmartFolder } from '../types';
+import type { Email, EmailDraft, EmailFolder, AttachmentMeta, SmartFolder, OutlookFolder } from '../types';
+
+// ── real Outlook folders (user-created, mailbox-wide) ──
+export const listOutlookFolders = (): Promise<OutlookFolder[]> => apiFetch('/api/email/outlook-folders');
+export const listOutlookFolderMessages = (id: string, skip = 0): Promise<Email[]> =>
+  apiFetch(`/api/email/outlook-folders/${encodeURIComponent(id)}/messages${skip ? `?skip=${skip}` : ''}`);
+// File a message into an arbitrary Outlook folder. Graph re-keys the message — returns the new id.
+export const moveToOutlookFolder = (id: string, folderId: string): Promise<{ id: string } | null> =>
+  apiFetch(`/api/email/messages/${id}/move-to`, { method: 'POST', body: { folderId } });
 
 // ── smart folders (auto-categorize incoming mail by sender) ──
 export const listSmartFolders = (): Promise<SmartFolder[]> => apiFetch('/api/email/folders');

@@ -58,8 +58,12 @@ export async function clearBodies(): Promise<void> {
 // run quietly — the next page load retries. Also prunes cached bodies for messages the store no
 // longer knows about, so the cache tracks the mailbox instead of growing forever.
 let running = false;
+let queued: { candidates: Email[]; keepIds: string[] } | null = null;
 export async function hydrateBodies(candidates: Email[], keepIds: string[]): Promise<void> {
-  if (running) return;
+  // Single-flight with a one-slot queue: a call that arrives mid-run is remembered (latest wins)
+  // and re-runs after — so the full-sync's "hydrate everything" pass can't be silently dropped
+  // just because a page-load hydration was in flight.
+  if (running) { queued = { candidates, keepIds }; return; }
   running = true;
   try {
     const o = await open();
@@ -84,5 +88,6 @@ export async function hydrateBodies(candidates: Email[], keepIds: string[]): Pro
     /* best-effort */
   } finally {
     running = false;
+    if (queued) { const q = queued; queued = null; void hydrateBodies(q.candidates, q.keepIds); }
   }
 }

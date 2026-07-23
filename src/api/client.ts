@@ -32,19 +32,33 @@ export interface RequestOptions {
   _retried?: boolean;
 }
 
+// Hung-request guard. fetch has NO default timeout in RN: a request the server accepts but never
+// answers (flaky mobile network, dying keep-alive socket) used to hang FOREVER — the caller's
+// .then/.catch never ran, so screens waiting on that data (attendance offices/history) stayed
+// half-empty with no error and no retry. 15s is generous for every API this app calls.
+const TIMEOUT_MS = 15_000;
+
 export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true, headers = {} } = opts;
   const token = auth ? getAccessToken() : null;
 
-  const res = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (res.status === 401 && auth && refresher && !opts._retried) {
     const ok = await refresher();

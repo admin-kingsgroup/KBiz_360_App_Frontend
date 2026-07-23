@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { View, Text, TextInput, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,8 +10,11 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useUiStore } from '../../src/store/uiStore';
+import { useAccessStore } from '../../src/store/accessStore';
 import { ApiError } from '../../src/api/client';
-import { buildReplyBody, htmlToText } from '../../src/logic/email';
+import { buildReplyBody, buildSignatureHtml, buildNewBody, stripSignatureHtml, htmlToText, SIG_LOGO_CID } from '../../src/logic/email';
+import { SIG_LOGO_DATA_URI } from '../../src/constants/sigLogo';
+import { EmailBody } from '../../src/components/email';
 import type { EmailDraft, OutAttachment } from '../../src/types';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // per-file cap
@@ -44,10 +47,24 @@ export default function Compose() {
   const [bcc, setBcc] = useState('');
   const [showCc, setShowCc] = useState(false);
   const [subject, setSubject] = useState(params.subject ?? '');
+  // The editor holds ONLY the user's text. The branded signature is appended at send time
+  // (buildSignatureHtml via buildOutgoing) — uniform for every user, never editable into an
+  // inconsistent shape — and previewed in a card below the editor so nothing feels hidden.
   const [body, setBody] = useState(params.body ?? '');
+  const sigUser = useAccessStore((s) => s.user);
+  // The composer previews the REAL signature HTML (what recipients see), with the cid: logo
+  // reference swapped for a bundled data URI — WebViews can't resolve cid:.
+  const sigPreviewHtml = buildSignatureHtml(sigUser).split(`cid:${SIG_LOGO_CID}`).join(SIG_LOGO_DATA_URI);
+  // Caret starts at the TOP (message text goes above the quote for replies). Controlled only
+  // until the first user interaction, then released.
+  const [sel, setSel] = useState<{ start: number; end: number } | undefined>(draftId ? undefined : { start: 0, end: 0 });
+  useEffect(() => { const t = setTimeout(() => setSel(undefined), 500); return () => clearTimeout(t); }, []);
   const [attachments, setAttachments] = useState<OutAttachment[]>([]);
   const [prefilled, setPrefilled] = useState(false);
   const [sending, setSending] = useState(false);
+  // The body as it was prefilled — "did the user actually type anything" is measured against
+  // this, so an untouched composer doesn't save a junk draft.
+  const initialBodyRef = useRef(body);
 
   useEffect(() => {
     if (draftId) void useEmailStore.getState().loadMessage(draftId);
@@ -62,25 +79,29 @@ export default function Compose() {
     const ccList = (editDraft.cc ?? []).map((a) => a.email);
     if (ccList.length) { setCc(ccList.join(', ')); setShowCc(true); }
     setSubject(editDraft.subject === '(no subject)' ? '' : editDraft.subject);
-    setBody(editDraft.bodyType === 'html' ? htmlToText(editDraft.body) : editDraft.body);
+    setBody(editDraft.bodyType === 'html' ? htmlToText(stripSignatureHtml(editDraft.body)) : editDraft.body);
     setPrefilled(true);
   }, [draftId, editDraft, prefilled]);
 
-  // Assemble the outgoing draft, quoting the original for replies/forwards.
+  // Assemble the outgoing draft: quote the original for replies/forwards, and append the branded
+  // HTML signature (send-time, below the typed text, above any quote).
   const buildOutgoing = (): EmailDraft => {
     const atts = attachments.length ? attachments : undefined;
+    const signatureHtml = buildSignatureHtml(sigUser) || undefined;
     if (replyTo && original) {
-      const quoted = buildReplyBody({ userText: body, original, mode: mode ?? 'reply' });
+      const quoted = buildReplyBody({ userText: body, original, mode: mode ?? 'reply', signatureHtml });
       return { to, cc, bcc, subject, body: quoted.body, bodyType: quoted.bodyType, attachments: atts, id: draftId };
     }
-    return { to, cc, bcc, subject, body, bodyType: 'text', attachments: atts, id: draftId };
+    const fresh = buildNewBody(body, signatureHtml);
+    return { to, cc, bcc, subject, body: fresh.body, bodyType: fresh.bodyType, attachments: atts, id: draftId };
   };
 
-  // Worth saving as a draft on close? Require something the user actually authored — for a reply the
-  // recipients/subject are pre-filled, so a bare quote alone shouldn't spawn a junk draft.
+  // Worth saving as a draft on close? Require something the user actually authored — an untouched
+  // composer (body unchanged since open) shouldn't spawn a junk draft.
   const worthSaving = (): boolean => {
-    if (body.trim() || attachments.length) return true;
-    if (replyTo) return false; // only a pre-filled quote — nothing typed
+    const authored = body.trim() !== initialBodyRef.current.trim();
+    if (authored || attachments.length) return true;
+    if (replyTo) return false; // nothing typed — the quote alone isn't worth a draft
     return [to, cc, bcc, subject].some((v) => v.trim());
   };
 
@@ -194,8 +215,19 @@ export default function Compose() {
         {/* Body */}
         <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
           <TextInput value={body} onChangeText={setBody} placeholder="Write your message…" placeholderTextColor={colors.coolText3}
-            multiline textAlignVertical="top" autoFocus={!!replyTo} style={{ color: colors.ink, fontSize: 15.5, lineHeight: 22, minHeight: 220 }} />
+            multiline textAlignVertical="top" autoFocus={!!replyTo}
+            selection={sel} onSelectionChange={() => { if (sel) setSel(undefined); }}
+            style={{ color: colors.ink, fontSize: 15.5, lineHeight: 22, minHeight: 220 }} />
         </View>
+
+        {/* Signature preview — the REAL branded signature appended at send time (buildOutgoing),
+            rendered exactly as recipients will see it. */}
+        {sigPreviewHtml ? (
+          <View style={{ marginHorizontal: 18, marginTop: 6, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.coolDivider, overflow: 'hidden' }}>
+            <Text style={{ color: colors.coolText3, fontSize: 10.5, fontWeight: '700', letterSpacing: 0.8, paddingHorizontal: 12, paddingTop: 10 }}>SIGNATURE · ADDED AUTOMATICALLY</Text>
+            <EmailBody body={sigPreviewHtml} bodyType="html" />
+          </View>
+        ) : null}
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );

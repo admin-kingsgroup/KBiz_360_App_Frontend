@@ -72,6 +72,18 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
   void res;
 }
 
+// Today's record, fetched headlessly (same cold-start-safe auth as postPunch). null = couldn't
+// read (offline / no session) — callers must treat that as "unknown", not "no punches".
+async function fetchTodayHeadless(): Promise<{ inTime: string | null; outTime: string | null } | null> {
+  try {
+    const session = await loadSession();
+    if (!session) return null;
+    const res = await fetch(`${apiBase()}/api/attendance/me`, { headers: { Authorization: `Bearer ${session.access}` } });
+    if (!res.ok) return null;
+    return (await res.json()) as { inTime: string | null; outTime: string | null };
+  } catch { return null; }
+}
+
 // Armed regions cached for the headless Exit verification (AsyncStorage — survives app kills).
 const REGIONS_KEY = 'kb360-geofence-regions';
 async function readCachedRegions(): Promise<ArmedRegion[]> {
@@ -110,6 +122,13 @@ function ensureTaskRegistered(): void {
     } catch { /* keep region centre */ }
     try {
       if (eventType === Location.GeofencingEventType.Enter) {
+        // Background Enter may only OPEN a fresh day — never re-open a closed one. A returning
+        // GPS fix after a (possibly false) exit used to re-check-in silently, which let the next
+        // noise blip stamp a new, later check-out: rolling bogus punch times while the person sat
+        // at their desk. If today already has any check-in (open or closed), leave it alone; if
+        // the record can't be read, do nothing — the foreground reconciles on next open.
+        const today = await fetchTodayHeadless();
+        if (!today || today.inTime) return;
         await postPunch('check-in', coords);
       } else if (eventType === Location.GeofencingEventType.Exit) {
         // The OS fires Exit on indoor GPS drift. Re-verify with the fresh fix against the armed
@@ -148,8 +167,9 @@ async function armOfficeRegions(): Promise<void> {
 
 // Periodic headless refresh (survives reboots on Android via startOnBoot). Only re-arms when the
 // user is signed in and "Always" location is ALREADY granted — a background task must never prompt.
+let refreshRegistered = false;
 function ensureRefreshTaskRegistered(): void {
-  if (isRunningInExpoGo()) return;
+  if (refreshRegistered || isRunningInExpoGo()) return;
   try {
     task().defineTask(GEOFENCE_REFRESH_TASK, async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -165,6 +185,7 @@ function ensureRefreshTaskRegistered(): void {
         return BackgroundFetch.BackgroundFetchResult.Failed;
       }
     });
+    refreshRegistered = true; // defineTask overwrites, but there's no need to redefine every sync
   } catch { /* task manager unavailable */ }
 }
 
@@ -192,18 +213,47 @@ export async function getBackgroundLocationState(): Promise<BackgroundLocationSt
   }
 }
 
+// Exempt (untracked) accounts: the server rejects every punch, so armed geofences are pure
+// battery drain + server noise (each OS Enter/Exit fires a doomed punch). Stop the regions and
+// the hourly healing task entirely.
+export async function disarmAttendanceGeofencing(): Promise<void> {
+  if (isRunningInExpoGo()) return;
+  try {
+    const Location = loc();
+    if (await Location.hasStartedGeofencingAsync(GEOFENCE_TASK).catch(() => false)) {
+      await Location.stopGeofencingAsync(GEOFENCE_TASK);
+    }
+    await writeCachedRegions([]);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const BackgroundFetch = require('expo-background-fetch') as typeof import('expo-background-fetch');
+    await BackgroundFetch.unregisterTaskAsync(GEOFENCE_REFRESH_TASK).catch(() => undefined);
+  } catch { /* best-effort */ }
+}
+
 // Start (or refresh) OS geofencing for the signed-in user's offices. Requires "Always" location.
 // Safe to call repeatedly (sign-in, app foreground, after an admin edits office coordinates).
+//
+// NEVER requests permissions — checks only. This path runs from AppState 'active' handlers, and a
+// permission REQUEST launches the (transparent, auto-granting) system permission activity, which
+// pauses/resumes MainActivity and fires AppState 'active' again → a self-sustaining request loop
+// (measured at ~24 iterations/second on Samsung/Android 16: 202 permission-activity launches in
+// 8.5s, each re-rendering the app and leaking GPS registrations until the process hit 1.3GB and
+// froze). Prompting lives ONLY in the explicit permission/consent screens. The 60s re-entry guard
+// is belt-and-braces: even if a future edit re-introduces an activity round-trip here, the
+// AppState echo lands inside the guard window and the loop cannot close.
+let lastSync = 0;
 export async function syncAttendanceGeofencing(): Promise<void> {
   if (isRunningInExpoGo()) return;
+  if (Date.now() - lastSync < 60_000) return;
+  lastSync = Date.now();
   try {
     ensureTaskRegistered();
     ensureRefreshTaskRegistered();
     const Location = loc();
-    const fg = await Location.requestForegroundPermissionsAsync();
+    const fg = await Location.getForegroundPermissionsAsync();
     if (fg.status !== 'granted') return;
-    const bg = await Location.requestBackgroundPermissionsAsync();
-    if (bg.status !== 'granted') return; // user declined "Always" — background auto-punch can't run
+    const bg = await Location.getBackgroundPermissionsAsync();
+    if (bg.status !== 'granted') return; // "Always" not granted — background auto-punch can't run
     await armOfficeRegions();
     await scheduleRefreshTask(); // reboot/eviction healing once everything is armed
   } catch { /* geofencing unavailable (Expo Go / perms / no native module) — silently skip */ }

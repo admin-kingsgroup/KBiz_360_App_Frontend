@@ -22,10 +22,22 @@ export default function SmartFolderScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
 
+  const openEmail = useCallback((e: Email) => router.push(`/email/${e.id}`), [router]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    try { const list = await listFolderMessages(folderId, 0); setEmails(list); setHasMore(list.length >= EMAIL_PAGE); }
-    catch { /* keep */ } finally { setLoading(false); }
+    try {
+      const list = await listFolderMessages(folderId, 0);
+      setEmails(list);
+      setHasMore(list.length >= EMAIL_PAGE);
+      const gid = useEmailStore.getState().smartFolders.find((f) => f.id === folderId)?.graphFolderId;
+      if (gid) useEmailStore.getState().cacheFolderPage(gid, list); // keep the offline copy fresh
+    } catch {
+      // Offline: serve the synced offline copy (cached under the smart folder's Graph folder id).
+      const gid = useEmailStore.getState().smartFolders.find((f) => f.id === folderId)?.graphFolderId;
+      const cached = gid ? useEmailStore.getState().emails.filter((e) => e.graphFolderId === gid).sort((a, b) => b.ts - a.ts) : [];
+      if (cached.length) { setEmails(cached); setHasMore(false); }
+    } finally { setLoading(false); }
   }, [folderId]);
 
   useEffect(() => { void load(); if (useEmailStore.getState().smartFolders.length === 0) void useEmailStore.getState().loadSmartFolders(); }, [load]);
@@ -59,7 +71,7 @@ export default function SmartFolderScreen() {
       <FlatList
         data={emails}
         keyExtractor={(e) => e.id}
-        renderItem={({ item }) => <EmailListItem email={item} folder={item.folder} onPress={() => router.push(`/email/${item.id}`)} />}
+        renderItem={({ item }) => <EmailListItem email={item} folder={item.folder} onOpen={openEmail} />}
         contentContainerStyle={emails.length === 0 ? { flex: 1 } : { paddingBottom: 12 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
         onEndReachedThreshold={0.4}

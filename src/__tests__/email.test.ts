@@ -1,4 +1,4 @@
-import { emailsInFolder, searchEmails, unreadCount, parseRecipients, initialsOf, relativeTime, escapeHtml, htmlToText, buildReplyBody } from '../logic/email';
+import { emailsInFolder, searchEmails, unreadCount, parseRecipients, initialsOf, relativeTime, escapeHtml, htmlToText, buildReplyBody, buildSignature, buildSignatureHtml, buildNewBody, stripSignatureHtml, mergeSearchResults } from '../logic/email';
 import type { Email } from '../types';
 
 const base = (over: Partial<Email>): Email => ({
@@ -17,6 +17,12 @@ describe('email logic', () => {
   it('emailsInFolder filters and sorts newest first', () => {
     expect(emailsInFolder(emails, 'inbox').map((e) => e.id)).toEqual(['1', '2']);
     expect(emailsInFolder(emails, 'sent').map((e) => e.id)).toEqual(['3']);
+  });
+
+  it('mail cached from a user folder (graphFolderId) is excluded from standard views and counts', () => {
+    const withFolderMail = [...emails, base({ id: '5', folder: 'inbox', graphFolderId: 'gf1', ts: 400, read: false })];
+    expect(emailsInFolder(withFolderMail, 'inbox').map((e) => e.id)).toEqual(['1', '2']); // no '5'
+    expect(unreadCount(withFolderMail, 'inbox')).toBe(1); // '5' unread but not in inbox
   });
 
   it('searchEmails matches subject case-insensitively', () => {
@@ -80,5 +86,79 @@ describe('email logic', () => {
     expect(body).toContain('<blockquote');
     expect(body).toContain('<p>Please pay</p>'); // original HTML preserved
     expect(body).toContain('---------- Forwarded message ----------');
+  });
+
+  it('buildSignature: full profile → name, title, company, email', () => {
+    const sig = buildSignature({ name: 'Sujeet Kumar', position: 'Travel Consultant', email: 'sujeet@travkings.com', phone: '+91 98x' });
+    expect(sig).toBe('Best regards,\nSujeet Kumar\nTravel Consultant\nTravkings Tours & Travels Pvt. Ltd.\nsujeet@travkings.com');
+  });
+  it('buildSignature: falls back to roleName, skips missing fields, empty without a name', () => {
+    expect(buildSignature({ name: 'A', roleName: 'Company Manager' })).toBe('Best regards,\nA\nCompany Manager\nTravkings Tours & Travels Pvt. Ltd.');
+    expect(buildSignature({ name: 'B' })).toBe('Best regards,\nB\nTravkings Tours & Travels Pvt. Ltd.');
+    expect(buildSignature(null)).toBe('');
+    expect(buildSignature({ name: '' })).toBe('');
+  });
+
+  it('buildSignatureHtml: Travkings banner with uppercased name, title, email, cid logo, countries', () => {
+    const sig = buildSignatureHtml({ name: 'Sujeet <K>', position: 'Travel Consultant', email: 'sujeet@travkings.com', phone: '+91 98x' });
+    expect(sig).toContain('class="kb360-sig"');
+    expect(sig).toContain('SUJEET &lt;K&gt;'); // name uppercased + escaped
+    expect(sig).toContain('Travel Consultant');
+    expect(sig).toContain('cid:tk-sig-logo'); // logo attached inline by the backend on send
+    expect(sig).toContain('INDIA'); // country strip
+    expect(sig).toContain('www.travkings.com');
+    expect(sig).toContain('sujeet@travkings.com');
+    expect(buildSignatureHtml(null)).toBe('');
+    expect(buildSignatureHtml({ name: '' })).toBe('');
+  });
+
+  it('stripSignatureHtml removes every kb360-sig block and nothing else', () => {
+    const sig = buildSignatureHtml({ name: 'A', roleName: 'Manager' });
+    const body = `<div>hello</div>${sig}<br><div>quote</div>`;
+    const stripped = stripSignatureHtml(body);
+    expect(stripped).not.toContain('kb360-sig');
+    expect(stripped).toContain('<div>hello</div>');
+    expect(stripped).toContain('<div>quote</div>');
+    expect(stripSignatureHtml('<div>plain</div>')).toBe('<div>plain</div>');
+  });
+
+  it('buildNewBody: plain text without a signature, HTML (escaped text + signature) with one', () => {
+    expect(buildNewBody('hi\nthere')).toEqual({ body: 'hi\nthere', bodyType: 'text' });
+    const sig = buildSignatureHtml({ name: 'A' });
+    const { body, bodyType } = buildNewBody('hi <all>\nteam', sig);
+    expect(bodyType).toBe('html');
+    expect(body).toContain('hi &lt;all&gt;<br>team');
+    expect(body).toContain('kb360-sig');
+  });
+
+  it('buildReplyBody with signatureHtml: signature sits between the typed text and the quote', () => {
+    const sig = buildSignatureHtml({ name: 'A' });
+    const original = base({ subject: 'Inv', body: '<p>Pay</p>', bodyType: 'html', from: { name: 'Acct', email: 'ar@x.com' } });
+    const { body, bodyType } = buildReplyBody({ userText: 'Done', original, mode: 'reply', signatureHtml: sig });
+    expect(bodyType).toBe('html');
+    expect(body.indexOf('Done')).toBeLessThan(body.indexOf('kb360-sig'));
+    expect(body.indexOf('kb360-sig')).toBeLessThan(body.indexOf('<blockquote'));
+  });
+
+  it('buildReplyBody with signatureHtml upgrades a text original to HTML with an escaped quote', () => {
+    const sig = buildSignatureHtml({ name: 'A' });
+    const original = base({ subject: 'Q', body: 'line1\nline2 <raw>', bodyType: 'text', from: { name: 'F', email: 'f@x.com' } });
+    const { body, bodyType } = buildReplyBody({ userText: 'ok', original, mode: 'reply', signatureHtml: sig });
+    expect(bodyType).toBe('html');
+    expect(body).toContain('line1<br>line2 &lt;raw&gt;'); // quoted text escaped, breaks kept
+    expect(body).toContain('kb360-sig');
+  });
+
+  it('mergeSearchResults: server hits first, client-only matches appended, no duplicates', () => {
+    const server = [base({ id: 's1' }), base({ id: 'both' })];
+    const client = [base({ id: 'both' }), base({ id: 'c1' })];
+    expect(mergeSearchResults(server, client).map((e) => e.id)).toEqual(['s1', 'both', 'c1']);
+    expect(mergeSearchResults([], client).map((e) => e.id)).toEqual(['both', 'c1']); // server miss/failure → client still shows
+  });
+
+  it('searchEmails matches sender name prefix (contact-style search)', () => {
+    const mail = [base({ id: 'm1', from: { name: 'Sujeet Kumar Maurya', email: 'sujeet@travkings.com' } }), base({ id: 'm2' })];
+    expect(searchEmails(mail, 'sujeet').map((e) => e.id)).toEqual(['m1']);
+    expect(searchEmails(mail, 'suj').map((e) => e.id)).toEqual(['m1']);
   });
 });

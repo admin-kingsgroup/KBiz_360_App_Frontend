@@ -1,7 +1,7 @@
 import { View, Text, Pressable, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
-import { UsersRound, UserPlus, FolderKanban, Building2, MapPin, Megaphone, X } from 'lucide-react-native';
+import { UsersRound, UserPlus, FolderKanban, Building2, MapPin, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 
 // Single "Create" hub (Super-Admin only entry point). Every org/admin creation lives here so the
@@ -12,7 +12,8 @@ const OPTIONS: { key: string; label: string; sub: string; Icon: typeof UsersRoun
   { key: 'department', label: 'New department', sub: 'Add a department to a business', Icon: FolderKanban, href: { pathname: '/admin/departments', params: { create: '1' } } },
   { key: 'business', label: 'New business', sub: 'Add a company to the directory', Icon: Building2, href: { pathname: '/admin/businesses', params: { create: '1' } } },
   { key: 'branch', label: 'New branch', sub: 'Add a branch under a business', Icon: MapPin, href: '/admin/branch-form' },
-  { key: 'alert', label: 'New alert', sub: 'Broadcast an announcement', Icon: Megaphone, href: '/alert/new' },
+  // "New alert" (announcement broadcast) removed from the hub for now — the /alert/new screen
+  // stays registered so it can be re-linked here when alerts creation returns.
 ];
 
 export function CreateMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {

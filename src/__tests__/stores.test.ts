@@ -28,6 +28,25 @@ describe('attendanceStore', () => {
     s.refreshPresence({ wifiOn: false, wifiConfigured: true, coords: { lat: 19.07, lng: 72.87 }, office: { lat: 23.0225, lng: 72.5714, radius: 150 } });
     expect(useAttendanceStore.getState().punchByFace()).toBe(false); // off-site → blocked
   });
+
+  it('refreshPresence does not republish on sub-10m GPS wobble, republishes on real movement', () => {
+    const s = useAttendanceStore.getState();
+    s.reset();
+    const office = { lat: 23.0225, lng: 72.5714, radius: 150 };
+    // ~0.00001° lat ≈ 1.1 m — build coords at controlled distances from the office centre.
+    const at = (metersNorth: number) => ({ lat: office.lat + metersNorth / 111_320, lng: office.lng });
+    s.refreshPresence({ wifiOn: true, wifiConfigured: true, coords: at(100), office });
+    const published = useAttendanceStore.getState().presence;
+    expect(published?.distance).toBe(100);
+    // 3 m wobble: same 10 m bucket → the published object must be IDENTICAL (no re-render).
+    const ret = s.refreshPresence({ wifiOn: true, wifiConfigured: true, coords: at(103), office });
+    expect(useAttendanceStore.getState().presence).toBe(published);
+    expect(ret.distance).toBe(103); // …but the RETURNED value stays raw for presence decisions
+    // 20 m of real movement: bucket changes → republish.
+    s.refreshPresence({ wifiOn: true, wifiConfigured: true, coords: at(120), office });
+    expect(useAttendanceStore.getState().presence).not.toBe(published);
+    expect(useAttendanceStore.getState().presence?.distance).toBe(120);
+  });
 });
 
 describe('chatStore', () => {

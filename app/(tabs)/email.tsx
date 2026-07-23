@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, KeyboardAvoidingView, Platform } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, KeyboardAvoidingView, Platform, type ListRenderItem } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Trash2, FolderPlus, X, ChevronDown, Check } from 'lucide-react-native';
+import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Folder as FolderIcon, FolderPlus, X, ChevronDown, Check } from 'lucide-react-native';
 import { EmailListItem } from '../../src/components/email';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMicrosoftEmail } from '../../src/hooks/useMicrosoftEmail';
-import { emailsInFolder, searchEmails } from '../../src/logic/email';
+import { emailsInFolder, searchEmails, mergeSearchResults } from '../../src/logic/email';
 import { EMAIL_FOLDERS, type EmailFolder, type Email } from '../../src/types';
 
 export default function EmailScreen() {
@@ -31,6 +30,9 @@ export default function EmailScreen() {
   const moveToFolder = useEmailStore((s) => s.moveToFolder);
   const deleteForever = useEmailStore((s) => s.deleteForever);
   const smartFolders = useEmailStore((s) => s.smartFolders);
+  const outlookFolders = useEmailStore((s) => s.outlookFolders);
+  const syncing = useEmailStore((s) => s.syncing);
+  const syncProgress = useEmailStore((s) => s.syncProgress);
   const showToast = useUiStore((s) => s.showToast);
   const ms = useMicrosoftEmail();
 
@@ -54,11 +56,19 @@ export default function EmailScreen() {
     router.push(`/email/folder/${sf.id}`);
   };
 
+  // Real Outlook folders that AREN'T already shown as a smart folder (a smart folder IS an Outlook
+  // folder — its graphFolderId would otherwise render the same folder twice).
+  const customFolders = useMemo(
+    () => outlookFolders.filter((f) => !smartFolders.some((sf) => sf.graphFolderId === f.id)),
+    [outlookFolders, smartFolders],
+  );
+
   // Swipe a row → delete (move to Deleted, or permanently if already in Deleted).
-  const onDelete = (item: Email) => {
+  // Stable references (rows are memoized — a fresh callback per render would repaint every row).
+  const onDelete = useCallback((item: Email) => {
     if (item.folder === 'deleted') { deleteForever(item.id); showToast('Deleted permanently'); }
     else { moveToFolder(item.id, 'deleted'); showToast('Moved to Deleted'); }
-  };
+  }, [deleteForever, moveToFolder, showToast]);
 
   // Keep the list (not just the tab badge) fresh: refresh on focus, then poll lightly while the
   // tab stays open. silentRefresh re-fetches the newest page without a spinner and merges in new
@@ -67,7 +77,7 @@ export default function EmailScreen() {
     useCallback(() => {
       const st = useEmailStore.getState();
       if (st.connected === null) void st.checkStatus();
-      else if (st.connected) { void st.silentRefresh(); void st.refreshUnread(); }
+      else if (st.connected) { void st.silentRefresh(); void st.refreshUnread(); void st.loadOutlookFolders(); void st.syncAll(); }
       const timer = setInterval(() => {
         const s = useEmailStore.getState();
         if (s.connected && !s.search.trim()) { void s.silentRefresh(); void s.refreshUnread(); }
@@ -86,17 +96,24 @@ export default function EmailScreen() {
   const list = useMemo(() => {
     const q = search.trim();
     if (!q) return emailsInFolder(emails, folder);
-    // Server results when ready; while the query is in flight show an instant client-side preview of
-    // already-loaded mail so typing feels responsive.
-    if (searchResults.length > 0 || !searching) return searchResults;
-    return searchEmails(emailsInFolder(emails, folder), search);
-  }, [emails, folder, search, searchResults, searching]);
+    // Server results ($search spans the whole mailbox) UNIONED with client-side matches of every
+    // loaded message — so results appear instantly while the query is in flight, AND a Graph
+    // failure/miss (partial words, transient errors) still shows the locally loaded matches
+    // instead of a false "No matching mail".
+    return mergeSearchResults(searchResults, searchEmails(emails, q));
+  }, [emails, folder, search, searchResults]);
 
-  const open = (item: Email) => {
+  const open = useCallback((item: Email) => {
     if (item.folder === 'drafts') { router.push({ pathname: '/email/compose', params: { id: item.id } }); return; } // resume editing
     if (item.folder === 'inbox' && !item.read) markRead(item.id);
     router.push(`/email/${item.id}`);
-  };
+  }, [router, markRead]);
+
+  // Rows are memo components — with stable onOpen/onDelete, a keystroke in search or the 30s
+  // silent refresh no longer repaints every visible row (that repainting was the list lag).
+  const renderItem: ListRenderItem<Email> = useCallback(({ item }) => (
+    <EmailListItem email={item} folder={item.folder} onOpen={open} onDelete={onDelete} />
+  ), [open, onDelete]);
 
   // ── checking connection ──
   if (connected === null) {
@@ -165,12 +182,34 @@ export default function EmailScreen() {
           autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 15 }} />
       </View>
 
-      {/* Smart folders (user-created) — tap to view; ＋ to create. Standard folders live in the
-          dropdown next to the Email title. */}
+      {/* Full offline sync progress — walking every folder + downloading bodies in the background. */}
+      {syncing ? (
+        <View className="flex-row items-center mx-4" style={{ gap: 8, marginTop: 8 }}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={{ color: colors.coolText, fontSize: 12 }}>
+            Downloading mail for offline…{syncProgress ? ` ${syncProgress} messages` : ''}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Your folders — smart folders (auto-file rules) + every folder created in Outlook itself.
+          Tap to view its mail; ＋ to create. Standard folders live in the dropdown next to the title. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10, alignItems: 'center' }}>
         {smartFolders.map((sf) => (
           <Pressable key={sf.id} onPress={() => router.push(`/email/folder/${sf.id}`)} className="flex-row items-center" style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
             <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>{sf.name}</Text>
+          </Pressable>
+        ))}
+        {customFolders.map((f) => (
+          <Pressable key={f.id} onPress={() => router.push({ pathname: '/email/outlook/[id]', params: { id: f.id, name: f.name } })}
+            className="flex-row items-center" style={{ gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+            <FolderIcon size={13} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>{f.name}</Text>
+            {f.unread > 0 ? (
+              <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{f.unread}</Text>
+              </View>
+            ) : null}
           </Pressable>
         ))}
         <Pressable onPress={() => setNewOpen(true)} className="flex-row items-center" style={{ gap: 4, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.coolDivider, borderStyle: 'dashed' }}>
@@ -182,19 +221,11 @@ export default function EmailScreen() {
       <FlatList
         data={list}
         keyExtractor={(e) => e.id}
-        renderItem={({ item }) => (
-          <Swipeable
-            overshootRight={false}
-            renderRightActions={() => (
-              <Pressable onPress={() => onDelete(item)} style={{ width: 84, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.danger }}>
-                <Trash2 size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 4 }}>Delete</Text>
-              </Pressable>
-            )}
-          >
-            <EmailListItem email={item} folder={item.folder} onPress={() => open(item)} />
-          </Swipeable>
-        )}
+        renderItem={renderItem}
+        windowSize={9}
+        maxToRenderPerBatch={12}
+        initialNumToRender={12}
+        removeClippedSubviews
         contentContainerStyle={list.length === 0 ? { flex: 1 } : { paddingBottom: 24 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void useEmailStore.getState().loadFolder()} tintColor={colors.primary} />}
         onEndReachedThreshold={0.4}
