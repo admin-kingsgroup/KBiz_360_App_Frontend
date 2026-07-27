@@ -1,9 +1,13 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useMemo } from 'react';
 import { Linking } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { escapeHtml, initialsOf } from '../../logic/email';
+import { WebView } from 'react-native-webview';
+import { escapeHtml, initialsOf, sanitizeEmailHtml } from '../../logic/email';
 import { getApiBaseUrl } from '../../api/client';
 import type { Email, AttachmentMeta } from '../../types';
+
+// Attachment chips open via a custom-scheme link (not in-page JS) so the WebView can run with
+// JavaScript DISABLED: tapping one triggers a navigation that onShouldStartLoadWithRequest catches.
+const ATT_SCHEME = 'kbizatt:';
 
 // Outlook-style message viewer. The ENTIRE message — subject, sender header, attachment chips and
 // the body — renders inside ONE WebView that owns its own scrolling, exactly like Outlook mobile.
@@ -29,11 +33,11 @@ function headerHtml(email: Email, attachments: AttachmentMeta[]): string {
   const to = email.to.map((a) => a.name || a.email).join(', ');
   const cc = (email.cc ?? []).map((a) => a.name || a.email).join(', ');
   const chips = attachments.map((at) => `
-    <div class="att" data-att="${escapeHtml(at.id).replace(/"/g, '&quot;')}">
+    <a class="att" href="${ATT_SCHEME}${encodeURIComponent(at.id)}">
       ${CLIP}
       <div class="att-t"><div class="att-n">${escapeHtml(at.name)}</div><div class="att-s">${humanSize(at.size)}</div></div>
       <div class="att-dl">↓</div>
-    </div>`).join('');
+    </a>`).join('');
   return `
   <div class="hdr">
     <div class="subject">${escapeHtml(email.subject)}</div>
@@ -56,8 +60,11 @@ function docHtml(email: Email, attachments: AttachmentMeta[]): string {
   // senders serving Cross-Origin-Resource-Policy: same-origin images (claude.ai etc.) can only
   // render via our own origin. Point those paths at the real backend host here.
   const api = getApiBaseUrl();
+  // Sanitize the untrusted sender body (strip scripts/handlers/iframes/…) BEFORE embedding, then
+  // point the backend-rewritten proxy image paths at the real API host. (JS is also disabled on the
+  // WebView below, so this is defence-in-depth, not the only guard.)
   const body = email.bodyType === 'html'
-    ? email.body.split('src="/api/email/img').join(`src="${api}/api/email/img`).split("src='/api/email/img").join(`src='${api}/api/email/img`)
+    ? sanitizeEmailHtml(email.body).split('src="/api/email/img').join(`src="${api}/api/email/img`).split("src='/api/email/img").join(`src='${api}/api/email/img`)
     : `<div class="plain">${escapeHtml(email.body)}</div>`;
   // Full body still on its way (list rows only carry the preview snippet) → preview + spinner.
   const loading = !email.bodyFull && email.folder !== 'drafts';
@@ -76,8 +83,8 @@ function docHtml(email: Email, attachments: AttachmentMeta[]): string {
   .when { font-size:11.5px; color:#5A6472; flex:none; align-self:flex-start; margin-top:2px; }
   .rcpt { font-size:12px; color:#5A6472; margin-top:8px; }
   .atts { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-  .att { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid #E3E7EC; border-radius:12px; max-width:100%; background:#fff; }
-  .att.busy { opacity:0.45; }
+  .att { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid #E3E7EC; border-radius:12px; max-width:100%; background:#fff; text-decoration:none; color:inherit; }
+  .att:active { opacity:0.55; }
   .att svg { flex:none; }
   .att-t { min-width:0; }
   .att-n { font-size:12.5px; font-weight:600; color:#101418; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px; }
@@ -98,41 +105,19 @@ function docHtml(email: Email, attachments: AttachmentMeta[]): string {
 ${headerHtml(email, attachments)}
 ${loading ? '<div class="loading"><div class="spin"></div>Loading full message…</div>' : ''}
 <div class="body-wrap">${body}</div>
-<script>
-  var post = function (m) { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(m)); };
-  // One capture-phase click handler: attachment chips + every link open on the NATIVE side.
-  document.addEventListener('click', function (ev) {
-    var el = ev.target;
-    while (el && el !== document.documentElement) {
-      if (el.getAttribute && el.getAttribute('data-att')) { ev.preventDefault(); post({ type: 'att', id: el.getAttribute('data-att') }); return; }
-      if (el.tagName === 'A' && el.getAttribute('href')) { ev.preventDefault(); post({ type: 'link', url: el.href || el.getAttribute('href') }); return; }
-      el = el.parentElement;
-    }
-  }, true);
-  // Native toggles a chip's busy state while an attachment downloads.
-  window.setBusy = function (id) {
-    var b = document.querySelectorAll('.att.busy'); for (var i = 0; i < b.length; i++) b[i].classList.remove('busy');
-    if (id) { var all = document.querySelectorAll('.att'); for (var j = 0; j < all.length; j++) if (all[j].getAttribute('data-att') === id) all[j].classList.add('busy'); }
-  };
-</script></body></html>`;
+</body></html>`;
+  // No in-page JavaScript: attachment chips are ATT_SCHEME links and body links are plain <a> — both
+  // are handled natively by onShouldStartLoadWithRequest, so the WebView runs with JS disabled.
 }
 
-export const EmailMessageView = memo(function EmailMessageView({ email, attachments, downloadingId, onAttachment, onMailto }: {
+export const EmailMessageView = memo(function EmailMessageView({ email, attachments, onAttachment, onMailto }: {
   email: Email;
   attachments: AttachmentMeta[];
-  downloadingId: string | null;
+  downloadingId: string | null; // accepted for API stability; no longer drives an in-page busy state (JS off)
   onAttachment: (id: string) => void;
   onMailto?: (address: string) => void;
 }) {
-  const ref = useRef<WebView>(null);
-
-  // The document only changes when the body itself or the attachment list does — NOT when the
-  // busy state toggles (that goes through injectJavaScript so the page never reloads).
   const html = useMemo(() => docHtml(email, attachments), [email, attachments]);
-
-  useEffect(() => {
-    ref.current?.injectJavaScript(`window.setBusy && window.setBusy(${JSON.stringify(downloadingId ?? '')}); true;`);
-  }, [downloadingId]);
 
   const openExternally = (url: string): void => {
     if (url.startsWith('mailto:')) {
@@ -142,24 +127,26 @@ export const EmailMessageView = memo(function EmailMessageView({ email, attachme
     Linking.openURL(url).catch(() => undefined);
   };
 
-  const onMessage = (e: WebViewMessageEvent): void => {
-    try {
-      const m = JSON.parse(e.nativeEvent.data) as { type: string; id?: string; url?: string };
-      if (m.type === 'att' && m.id) onAttachment(m.id);
-      else if (m.type === 'link' && m.url) openExternally(m.url);
-    } catch { /* ignore malformed */ }
-  };
-
   return (
     <WebView
-      ref={ref}
-      originWhitelist={['*']}
+      // Only the message document's own origin loads in-frame; everything else is gated below.
+      originWhitelist={[BASE_URL]}
       source={{ html, baseUrl: BASE_URL }}
       style={{ flex: 1, backgroundColor: '#fff' }}
-      onMessage={onMessage}
-      // Safety net for navigations the click handler didn't catch (redirects, window.open with
-      // multiple-windows off): keep the message document, open everything else outside.
+      // Untrusted sender HTML → no scripting. Attachment/link taps are handled natively here instead.
+      javaScriptEnabled={false}
+      domStorageEnabled={false}
+      allowFileAccess={false}
+      allowFileAccessFromFileURLs={false}
+      allowUniversalAccessFromFileURLs={false}
+      javaScriptCanOpenWindowsAutomatically={false}
+      // Attachment chips are ATT_SCHEME links; body links are plain <a>. Everything except the
+      // message document itself is intercepted: attachments download, links open outside the WebView.
       onShouldStartLoadWithRequest={(req) => {
+        if (req.url.startsWith(ATT_SCHEME)) {
+          onAttachment(decodeURIComponent(req.url.slice(ATT_SCHEME.length)));
+          return false;
+        }
         if (req.url.startsWith(BASE_URL) || req.url.startsWith('about:') || req.url.startsWith('data:')) return true;
         openExternally(req.url);
         return false;
@@ -169,7 +156,7 @@ export const EmailMessageView = memo(function EmailMessageView({ email, attachme
       setBuiltInZoomControls
       setDisplayZoomControls={false}
       // http images inside an https-based document (newsletters still use them) — allow, or they
-      // fall back to alt text.
+      // fall back to alt text. Remote images are proxied to our https origin by the backend.
       mixedContentMode="always"
       nestedScrollEnabled
       showsVerticalScrollIndicator

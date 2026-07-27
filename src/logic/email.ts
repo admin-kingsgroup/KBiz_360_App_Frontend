@@ -7,6 +7,36 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Tags that can execute code, load external resources, hijack navigation, or phish. Removed entirely
+// (with their content) from untrusted email HTML.
+const DANGEROUS_TAGS = [
+  'script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option',
+  'svg', 'math', 'link', 'base', 'meta', 'applet', 'frame', 'frameset', 'noscript', 'template',
+];
+
+// Strip executable / dangerous constructs from untrusted email HTML while preserving normal
+// formatting (tables, inline styles, images, links). Defence-in-depth: EmailMessageView also renders
+// with JavaScript DISABLED, so scripts cannot execute even if one slipped past this regex pass — this
+// additionally removes non-script vectors (iframes/forms/external CSS/<base> hijack) and visual
+// phishing. Regex-based because React Native has no DOM; it is paired with JS-off, never relied on alone.
+export function sanitizeEmailHtml(html: string): string {
+  let out = html;
+  // Drop HTML comments — can hide conditional-comment / mutation payloads.
+  out = out.replace(/<!--[\s\S]*?-->/g, '');
+  for (const tag of DANGEROUS_TAGS) {
+    out = out.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}\\s*>`, 'gi'), ''); // paired <tag>…</tag>
+    out = out.replace(new RegExp(`</?${tag}\\b[^>]*>`, 'gi'), ''); // stray opening / self-closing / closing
+  }
+  // Inline event handlers: onclick / onerror / onload / …
+  out = out.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  // Dangerous URL schemes anywhere (href/src/CSS url()/plain text).
+  out = out.replace(/(javascript|vbscript)\s*:/gi, 'blocked:');
+  out = out.replace(/data\s*:\s*text\/html/gi, 'blocked:text/html');
+  // Legacy IE CSS expression().
+  out = out.replace(/expression\s*\(/gi, 'blocked(');
+  return out;
+}
+
 // Rough HTML → readable plain text. Used when a stored draft body is HTML but we need to edit it in
 // the plain-text composer (so the user sees clean text, not tag soup).
 export function htmlToText(html: string): string {
