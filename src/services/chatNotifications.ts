@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
+import Constants from 'expo-constants';
 import { applyChatPush, type ChatPushData } from '../logic/chatPushApply';
+import { loadSession } from './storage/session';
 import type { ChatConversation } from '../api/chat';
 
 // WhatsApp-style chat notifications + app-icon unread badge.
@@ -119,9 +121,28 @@ export async function displayChatNotification(data: ChatPushData, lines: string[
   }
 }
 
+// Delivered receipt from the killed/backgrounded app (WhatsApp semantics: the push reaching the
+// device IS delivery — the sender's tick turns ✓✓ without the app being opened). The socket is not
+// alive here, so ack over REST with the persisted session token. Best-effort: if it fails (device
+// offline, expired access token) the delivered-on-connect sweep catches up at the next app open.
+async function ackDeliveredViaRest(conversationId: string): Promise<void> {
+  try {
+    const s = await loadSession();
+    const base = (Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? '';
+    if (!s?.access || !base) return;
+    await fetch(`${base}/api/conversations/${conversationId}/delivered`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${s.access}` },
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 // BACKGROUND entry point (called from callBackground's FCM handler; app killed or backgrounded).
 export async function handleChatMessagePush(data: ChatPushData): Promise<void> {
   if (!data.conversationId) return;
+  void ackDeliveredViaRest(data.conversationId); // fire-and-forget — never delays the notification
 
   // 1) Fold the message into the persisted store snapshot → cold open shows it instantly.
   let totalUnread: number | null = null;
