@@ -36,7 +36,18 @@ export default function BusinessDetail() {
         const br = allBranches.filter((b) => b.companyId === id);
         setBranches(br);
         const branchIds = new Set(br.map((b) => b.id));
-        setDepts(allDepts.filter((d) => (d.branchId ? branchIds.has(d.branchId) : false)));
+        // Departments are stored per-branch, and company-wide (app) departments are expanded across
+        // every branch — so the same department appears once per branch. Dedupe by name for this
+        // company-level view (matching the New Group picker) so a company-wide dept like
+        // "KBIZ360 - SUPPORT" shows once, not once per branch. Per-branch groups are unaffected.
+        const companyDepts = allDepts.filter((d) => (d.branchId ? branchIds.has(d.branchId) : false));
+        const seenDept = new Set<string>();
+        setDepts(companyDepts.filter((d) => {
+          const key = (d.name ?? d.code ?? d.id).toLowerCase().trim();
+          if (seenDept.has(key)) return false;
+          seenDept.add(key);
+          return true;
+        }));
         setUsers(allUsers.map(toUser)); // 1 company = tenant → all directory users belong
       })
       .catch(() => { /* offline */ })

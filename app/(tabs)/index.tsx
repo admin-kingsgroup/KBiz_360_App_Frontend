@@ -11,6 +11,7 @@ import { CreateMenu } from '../../src/components/home/CreateMenu';
 import { colors } from '../../src/theme';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useAccessStore } from '../../src/store/accessStore';
+import { canCreateGroups } from '../../src/logic/groupCreate';
 import { useAuthStore } from '../../src/store/authStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
@@ -85,6 +86,8 @@ export default function Home() {
   const { width } = useWindowDimensions();
   const pagerRef = useAnimatedRef<Animated.ScrollView>();
   const [pagerH, setPagerH] = useState(0);
+  // Pager paging pauses while a nested horizontal row (branch chips) is being touched.
+  const [pagerScrollEnabled, setPagerScrollEnabled] = useState(true);
   // Live underline driven entirely on the UI thread (Reanimated): scrollX mirrors the pager's offset
   // so the indicator slides + resizes to each tab's measured width with zero JS-bridge work per frame.
   const scrollX = useSharedValue(0);
@@ -125,6 +128,8 @@ export default function Home() {
   const bizSource = dir.businesses;
 
   const isSuper = !!access?.isSuper;
+  // Delegated group creators (allow-listed emails) get the "+" hub too, but limited to New group.
+  const mayCreateGroup = canCreateGroups(useAccessStore((s) => s.effUser()), access);
   const totalUnread = bizSource.reduce((s, b) => s + (b.unread || 0), 0);
   const pills = [
     ...(isSuper ? [{ id: 'all', code: 'ALL', name: 'All businesses', color: colors.ink, unread: totalUnread }] : []),
@@ -182,7 +187,7 @@ export default function Home() {
         <View className="flex-row items-center" style={{ gap: 6 }}>
           {/* Single "+" create hub — group / user / department / business / alert. Super-Admin only;
               every individual "New …" button was removed in favour of this menu. */}
-          {isSuper ? <Pressable onPress={() => setCreateOpen(true)} style={ibtn}><Plus size={24} color={colors.ink} strokeWidth={2.4} /></Pressable> : null}
+          {(isSuper || mayCreateGroup) ? <Pressable onPress={() => setCreateOpen(true)} style={ibtn}><Plus size={24} color={colors.ink} strokeWidth={2.4} /></Pressable> : null}
           {/* Today's attendance at a glance — green Present / red Absent; tap to open Attendance.
               Hidden for exempt users (attendance not tracked) and until the first fetch resolves. */}
           {attToday && !attToday.exempt ? (
@@ -309,6 +314,9 @@ export default function Home() {
             ref={pagerRef}
             horizontal
             pagingEnabled
+            // Paused while a finger is on a nested horizontal row (branch chips) — otherwise the
+            // pager intercepts the drag on Android and the row can never scroll.
+            scrollEnabled={pagerScrollEnabled}
             showsHorizontalScrollIndicator={false}
             scrollEventThrottle={16}
             onScroll={onPagerScroll}
@@ -343,6 +351,7 @@ export default function Home() {
                 {!dir.loaded ? <SkeletonList /> : (
                 <GroupsList
                   activeBizId={activeBizId} access={access} serverFiltered
+                  onChipRowTouch={(touching) => setPagerScrollEnabled(!touching)}
                   businesses={dir.businesses}
                   branches={dir.branches}
                   groupConversations={groupConvs}
@@ -384,7 +393,7 @@ export default function Home() {
       </View>
 
       {/* Toast is mounted app-wide in app/_layout.tsx (GlobalToast) — not here. */}
-      {isSuper ? <CreateMenu visible={createOpen} onClose={() => setCreateOpen(false)} /> : null}
+      {(isSuper || mayCreateGroup) ? <CreateMenu groupOnly={!isSuper} visible={createOpen} onClose={() => setCreateOpen(false)} /> : null}
     </SafeAreaView>
   );
 }

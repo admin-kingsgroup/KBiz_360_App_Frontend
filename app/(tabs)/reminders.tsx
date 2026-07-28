@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl, Modal } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -8,9 +8,11 @@ import { ReminderCard } from '../../src/components/reminders';
 import { colors } from '../../src/theme';
 import { FILTERS } from '../../src/constants/filters';
 import { useUiStore } from '../../src/store/uiStore';
+import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
 import { listReminders, completeReminder, approveReminder, reassignReminder, type ReminderTab, type ReminderListResponse } from '../../src/api/reminders';
+import { cancelReminderLocal } from '../../src/services/notifications/reminderLocal';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
 import type { ReminderRecord } from '../../src/data/reminders';
 
@@ -26,37 +28,71 @@ export default function Reminders() {
   const insets = useSafeAreaInsets();
   const showToast = useUiStore((s) => s.showToast);
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
+  // The All tab (company-wide view) is super-admin only. Honors "View as", so a super admin
+  // previewing another role sees it disappear too.
+  const isSuper = useAccessStore((s) => (s.viewAsUser ?? s.user)?.role === 'SUPER_ADMIN');
+  const filters = isSuper ? FILTERS : FILTERS.slice(0, 3);
 
   const [f, setF] = useState(0);
   const [data, setData] = useState<ReminderListResponse | null>(null);
+  // Chip counts computed client-side when the backend predates response.counts — it costs one
+  // extra request per remaining tab. Removable once the deployed backend always sends counts.
+  const [fallbackCounts, setFallbackCounts] = useState<{ forme: number; iset: number; review: number; all?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reassignFor, setReassignFor] = useState<ReminderRecord | null>(null);
   const [people, setPeople] = useState<DirectoryUser[]>([]);
 
+  // The selected tab at resolve time, so async work (fetches, snapshot reads) started for one tab
+  // never writes its result over another tab's data after a fast tab flip.
+  const fRef = useRef(f);
+  fRef.current = f;
+  // Only ever render data that belongs to the selected tab — switching chips must not keep
+  // showing the previous tab's list while the new one loads.
+  const current = data && data.tab === TABS[f] ? data : null;
+
   // Directory for the reassign picker.
   useEffect(() => { listUsers().then(setPeople).catch(() => undefined); }, []);
+
+  // If the role drops mid-session (logout/login, "View as") while All is selected, snap back.
+  useEffect(() => { if (!isSuper && f >= filters.length) setF(0); }, [isSuper, f, filters.length]);
 
   // Offline snapshot: show the last-known list for the tab instantly on a cold/offline start,
   // then let the network fetch replace it (and refresh the cache) when it succeeds.
   const cacheKey = (tab: ReminderTab): string => `kb360_reminders_${tab}`;
   useEffect(() => {
     let alive = true;
+    const tab = TABS[f];
     void (async () => {
       try {
         const AS = (await import('@react-native-async-storage/async-storage')).default;
-        const raw = await AS.getItem(cacheKey(TABS[f]));
-        if (alive && raw) setData((cur) => cur ?? (JSON.parse(raw) as ReminderListResponse));
+        const raw = await AS.getItem(cacheKey(tab));
+        if (alive && raw && TABS[fRef.current] === tab) {
+          setData((cur) => (cur && cur.tab === tab ? cur : (JSON.parse(raw) as ReminderListResponse)));
+        }
       } catch { /* no snapshot */ }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f]);
 
+  const buildFallbackCounts = useCallback(async (seedTab: ReminderTab, seedCount: number) => {
+    const acc = useAccessStore.getState();
+    const wantAll = (acc.viewAsUser ?? acc.user)?.role === 'SUPER_ADMIN';
+    const tabs: ReminderTab[] = wantAll ? ['forme', 'iset', 'review', 'all'] : ['forme', 'iset', 'review'];
+    const entries = await Promise.all(tabs.map(async (t): Promise<readonly [ReminderTab, number]> => {
+      if (t === seedTab) return [t, seedCount] as const;
+      try { return [t, (await listReminders(t)).visible.length] as const; } catch { return [t, 0] as const; }
+    }));
+    const m = Object.fromEntries(entries) as Record<ReminderTab, number>;
+    setFallbackCounts({ forme: m.forme ?? 0, iset: m.iset ?? 0, review: m.review ?? 0, ...(wantAll ? { all: m.all ?? 0 } : {}) });
+  }, []);
+
   const load = useCallback(async (tab: ReminderTab) => {
     try {
       const fresh = await listReminders(tab);
-      setData(fresh);
+      if (TABS[fRef.current] === tab) setData(fresh);
+      if (!fresh.counts && tab !== 'archive') void buildFallbackCounts(tab, fresh.visible.length);
       void (async () => {
         try {
           const AS = (await import('@react-native-async-storage/async-storage')).default;
@@ -65,13 +101,14 @@ export default function Reminders() {
       })();
     } catch { /* offline / not signed in — keep the snapshot */ } finally { setLoading(false); }
     void useReminderBadgeStore.getState().refresh(); // keep the tab badge in sync
-  }, []);
+  }, [buildFallbackCounts]);
 
   // Refetch on focus or tab change (e.g. after creating a reminder in the modal).
-  useFocusEffect(useCallback(() => { void load(TABS[f]); }, [f, load]));
+  useFocusEffect(useCallback(() => { setLoading(true); void load(TABS[f]); }, [f, load]));
   const onRefresh = useCallback(() => { setRefreshing(true); void load(TABS[f]).finally(() => setRefreshing(false)); }, [f, load]);
 
   const onComplete = async (id: string) => {
+    void cancelReminderLocal(id); // a completed self-reminder must not still ring at its due time
     try { const res = await completeReminder(id); showToast(res.result === 'archived' ? 'Done · archived' : 'Complete · sent for review'); }
     catch { showToast('Could not update reminder'); }
     void load(TABS[f]);
@@ -85,13 +122,24 @@ export default function Reminders() {
     const r = reassignFor;
     setReassignFor(null);
     if (!r) return;
-    try { await reassignReminder(r.id, forId); showToast('Reminder reassigned'); } catch { showToast('Could not reassign'); }
+    try {
+      await reassignReminder(r.id, forId);
+      void cancelReminderLocal(r.id); // it's no longer mine to be reminded of
+      showToast('Reminder reassigned');
+    } catch { showToast('Could not reassign'); }
     void load(TABS[f]);
   };
 
-  const groups = data?.groups ?? [];
-  const visible = data?.visible ?? [];
-  const reviewCount = data?.reviewCount ?? 0;
+  const groups = current?.groups ?? [];
+  const visible = current?.visible ?? [];
+  const reviewCount = data?.reviewCount ?? 0; // global count — any tab's response carries it
+  // Chip counts: server-provided when available, else the client-side fallback; as a last
+  // resort only the Review badge shows, from reviewCount.
+  const chipCount = (label: string): number | undefined => {
+    const c = data?.counts ?? fallbackCounts;
+    if (!c) return label === 'Review' && reviewCount > 0 ? reviewCount : undefined;
+    return { 'For me': c.forme, 'I set': c.iset, Review: c.review, All: c.all }[label];
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
@@ -105,20 +153,23 @@ export default function Reminders() {
 
       {/* Filter chips — grey, green when active (Home chips language) */}
       <View className="flex-row gap-2 px-4" style={{ paddingVertical: 10 }}>
-        {FILTERS.map((label, i) => {
+        {filters.map((label, i) => {
           const on = i === f;
-          const showBadge = label === 'Review' && reviewCount > 0;
+          const n = chipCount(label);
+          // Review = attention (red); the rest are neutral counts that adapt to the chip state.
+          const badgeBg = label === 'Review' ? '#EF4444' : on ? 'rgba(255,255,255,0.3)' : colors.card;
+          const badgeFg = label === 'Review' || on ? '#fff' : colors.coolText;
           return (
             <Pressable key={label} onPress={() => setF(i)} className="flex-row items-center gap-1.5"
               style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
               <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{label}</Text>
-              {showBadge ? <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 999, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '700' }}>{reviewCount}</Text></View> : null}
+              {n !== undefined && n > 0 ? <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 999, backgroundColor: badgeBg, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: badgeFg, fontSize: 9.5, fontWeight: '700' }}>{n}</Text></View> : null}
             </Pressable>
           );
         })}
       </View>
 
-      {loading && !data ? (
+      {loading && !current ? (
         <View className="flex-1 items-center justify-center"><ActivityIndicator color={colors.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 96 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>

@@ -87,7 +87,14 @@ export default function DepartmentDetail() {
             <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '700', marginTop: 10 }}>No branches in your access</Text>
             <Text style={{ color: colors.coolText3, fontSize: 12.5, marginTop: 4, textAlign: 'center' }}>This department has no branches you can see.</Text>
           </View>
-        ) : sections.map((s) => (
+        ) : totalGroups === 0 ? (
+          // All branches are group-less — one clean empty state instead of a column of bare branch headers.
+          <View className="items-center px-6" style={{ paddingVertical: 48 }}>
+            <MessageCircle size={30} color={colors.coolText3} />
+            <Text style={{ color: colors.coolText, fontSize: 14, fontWeight: '700', marginTop: 10 }}>No groups yet</Text>
+            <Text style={{ color: colors.coolText3, fontSize: 12.5, marginTop: 4, textAlign: 'center' }}>This department has no group chats yet. Create one from the “+” button on Home.</Text>
+          </View>
+        ) : sections.filter((s) => s.groups.length > 0).map((s) => (
           <View key={s.branchId} style={{ marginBottom: 6 }}>
             <Text style={{ color: colors.coolText3, fontSize: 10.5, fontWeight: '800', letterSpacing: 1.2, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 }}>{s.branchLabel.toUpperCase()}</Text>
             <View style={{ paddingHorizontal: 14, gap: 8 }}>

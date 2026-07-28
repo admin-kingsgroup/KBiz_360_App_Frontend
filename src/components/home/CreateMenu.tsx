@@ -16,10 +16,13 @@ const OPTIONS: { key: string; label: string; sub: string; Icon: typeof UsersRoun
   // stays registered so it can be re-linked here when alerts creation returns.
 ];
 
-export function CreateMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+// `groupOnly` limits the hub to just "New group" — used for delegated group creators who can create
+// team chat groups but are not full super-admins (so the org/admin creations stay hidden for them).
+export function CreateMenu({ visible, onClose, groupOnly = false }: { visible: boolean; onClose: () => void; groupOnly?: boolean }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const go = (href: Href): void => { onClose(); router.push(href); };
+  const options = groupOnly ? OPTIONS.filter((o) => o.key === 'group') : OPTIONS;
 
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
@@ -32,7 +35,7 @@ export function CreateMenu({ visible, onClose }: { visible: boolean; onClose: ()
             <Pressable onPress={onClose} hitSlop={8} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={17} color={colors.coolText} /></Pressable>
           </View>
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
-            {OPTIONS.map((o) => (
+            {options.map((o) => (
               <Pressable key={o.key} onPress={() => go(o.href)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-3" style={{ paddingVertical: 13, borderRadius: 14 }}>
                 <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
                   <o.Icon size={22} color={colors.primary} />

@@ -10,7 +10,8 @@ import { TimeWheel } from './TimeWheel';
 
 // Bottom-sheet date & time picker (pure JS — no native picker module, so it works in Expo Go and
 // existing dev builds). Calendar month grid + alarm-style scroll wheels; confirm returns one Date.
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+// Week runs Monday-first with Sunday (in red) as the last column.
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export interface DateTimeSheetProps {
@@ -52,12 +53,13 @@ export function DateTimeSheet({ visible, initial, onClose, onConfirm }: DateTime
     onConfirm(d);
   };
 
-  // Calendar cells for the shown month: leading blanks so day 1 lands on its weekday.
+  // Calendar cells for the shown month: leading blanks so day 1 lands on its weekday
+  // (Monday-first, so Sunday's getDay() 0 maps to column 6).
   const cells = useMemo(() => {
     const first = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     return [
-      ...Array.from({ length: first.getDay() }, () => null),
+      ...Array.from({ length: (first.getDay() + 6) % 7 }, () => null),
       ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
     ];
   }, [year, month]);
@@ -102,7 +104,7 @@ export function DateTimeSheet({ visible, initial, onClose, onConfirm }: DateTime
           <View className="flex-row px-4">
             {WEEKDAYS.map((w, i) => (
               <View key={i} style={{ flexBasis: `${100 / 7}%`, alignItems: 'center', paddingVertical: 4 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: '800' }}>{w}</Text>
+                <Text style={{ color: i === 6 ? colors.danger : colors.textMuted, fontSize: 10, fontWeight: '800' }}>{w}</Text>
               </View>
             ))}
           </View>
@@ -112,10 +114,12 @@ export function DateTimeSheet({ visible, initial, onClose, onConfirm }: DateTime
               const selected = d === day;
               const disabled = isPastDay(d);
               const isToday = atCurrentMonth && d === now.getDate();
+              const isSunday = new Date(year, month, d).getDay() === 0;
               return (
                 <Pressable key={d} disabled={disabled} onPress={() => setDay(d)} style={{ flexBasis: `${100 / 7}%`, height: 34, alignItems: 'center', justifyContent: 'center' }}>
                   <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? colors.ink : 'transparent', borderWidth: isToday && !selected ? 1 : 0, borderColor: colors.ink }}>
-                    <Text style={{ color: disabled ? colors.textMuted2 : selected ? '#fff' : colors.ink, fontSize: 13, fontWeight: selected ? '800' : '600' }}>{d}</Text>
+                    {/* Sundays stay red even when past — faded, like the grey of other past days. */}
+                    <Text style={{ color: disabled ? (isSunday ? 'rgba(220,38,38,0.45)' : colors.textMuted2) : selected ? '#fff' : isSunday ? colors.danger : colors.ink, fontSize: 13, fontWeight: selected ? '800' : '600' }}>{d}</Text>
                   </View>
                 </Pressable>
               );

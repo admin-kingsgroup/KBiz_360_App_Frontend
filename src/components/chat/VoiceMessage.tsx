@@ -1,10 +1,14 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Play, Pause } from 'lucide-react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { colors } from '../../theme';
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(Math.max(0, s) % 60).toString().padStart(2, '0')}`;
+
+// At most one voice note plays at a time (WhatsApp-style): starting a note pauses whichever
+// other note is currently playing. Module-level because each bubble owns its own player.
+let pauseActive: (() => void) | null = null;
 
 // A single voice-note bubble: play/pause + progress track + remaining time. Each instance owns
 // its own player (one per message), so threads with a few notes are fine.
@@ -15,15 +19,30 @@ export function VoiceMessage({ uri, durationSec, outgoing }: { uri: string; dura
   const fg = outgoing ? '#fff' : colors.ink;
   const track = outgoing ? 'rgba(255,255,255,0.3)' : colors.cardEdge;
 
+  const pauseSelf = useCallback(() => player.pause(), [player]);
+  const clearActive = useCallback(() => { if (pauseActive === pauseSelf) pauseActive = null; }, [pauseSelf]);
+
   // Reset to the start once playback completes so it can be replayed.
   useEffect(() => {
-    if (status.didJustFinish) { player.seekTo(0); player.pause(); }
-  }, [status.didJustFinish, player]);
+    if (status.didJustFinish) { player.seekTo(0); player.pause(); clearActive(); }
+  }, [status.didJustFinish, player, clearActive]);
+
+  // Don't leave a stale pause callback registered if this bubble unmounts mid-play.
+  useEffect(() => clearActive, [clearActive]);
 
   const total = status.duration && status.duration > 0 ? status.duration : durationSec;
   const progress = total > 0 ? Math.min(1, status.currentTime / total) : 0;
   const remaining = status.currentTime > 0 ? Math.max(0, total - status.currentTime) : total;
-  const toggle = () => { if (status.playing) player.pause(); else player.play(); };
+  const toggle = () => {
+    if (status.playing) {
+      player.pause();
+      clearActive();
+    } else {
+      if (pauseActive && pauseActive !== pauseSelf) pauseActive();
+      pauseActive = pauseSelf;
+      player.play();
+    }
+  };
 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 168 }}>

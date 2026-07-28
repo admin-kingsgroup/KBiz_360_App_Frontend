@@ -22,10 +22,14 @@ interface Block { id: string; label: string; color: string; subs: Sub[]; }
 // nesting, Unread pinned on top, collapsible. `serverFiltered` skips client access filters (the
 // backend already scoped the rows). View-As-aware otherwise.
 export function GroupsList({
-  activeBizId, access, onOpen,
+  activeBizId, access, onOpen, onChipRowTouch,
   businesses = mockBusinesses, branches = mockBranches, serverFiltered = false, groupConversations = [],
 }: {
   activeBizId: string; access: AccessControl | null; onOpen: (g: GroupOpen) => void;
+  // Fires true while a finger is on the branch-chip row, false on release. The Home pager uses it
+  // to pause its own horizontal paging so the nested chip row can actually scroll (Android: the
+  // outer horizontal ScrollView otherwise intercepts the drag).
+  onChipRowTouch?: (touching: boolean) => void;
   businesses?: Business[]; branches?: Branch[]; serverFiltered?: boolean; groupConversations?: GroupConv[];
 }) {
   const f = makeAccessFilters(access);
@@ -98,7 +102,10 @@ export function GroupsList({
             </View>
 
             {/* Branch chips — the badge is the branch's UNREAD count (hidden when there are none). */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}
+              onTouchStart={() => onChipRowTouch?.(true)}
+              onTouchEnd={() => onChipRowTouch?.(false)}
+              onTouchCancel={() => onChipRowTouch?.(false)}>
               {subs.map((s) => {
                 const on = s.code === active.code;
                 const unread = s.items.reduce((n, g) => n + (g.unread || 0), 0);

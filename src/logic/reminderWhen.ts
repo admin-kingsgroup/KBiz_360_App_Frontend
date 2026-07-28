@@ -39,17 +39,19 @@ export function formatTime(d: Date): string {
   return `${h}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
 }
 
-// Human label for a due time, relative to `now`:
-//   same day → "Today · 5:00 PM" · next day → "Tomorrow · 9:00 AM"
-//   within 6 days → "Mon · 9:00 AM" · same year → "14 Jul · 9:00 AM" · else "14 Jul 2027 · 9:00 AM"
+// Human label for a due time, relative to `now`. The calendar date is ALWAYS present so no
+// reminder is ambiguous; near days additionally get a relative word:
+//   "Yesterday, 14 Jul · 5:00 PM" · "Today, 15 Jul · 5:00 PM" · "Tomorrow, 16 Jul · 9:00 AM"
+//   within 6 days → "Mon, 20 Jul · 9:00 AM" · beyond → "3 Aug · 2:15 PM" · other year → "5 Jan 2027 · 9:00 AM"
 export function formatWhenLabel(due: Date, now: Date = new Date()): string {
   const startOf = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round((startOf(due) - startOf(now)) / DAY_MS);
   const time = formatTime(due);
-  if (dayDiff === 0) return `Today · ${time}`;
-  if (dayDiff === 1) return `Tomorrow · ${time}`;
-  if (dayDiff > 1 && dayDiff < 7) return `${WEEKDAYS[due.getDay()]} · ${time}`;
   const datePart = `${due.getDate()} ${MONTHS[due.getMonth()]}${due.getFullYear() !== now.getFullYear() ? ` ${due.getFullYear()}` : ''}`;
+  if (dayDiff === -1) return `Yesterday, ${datePart} · ${time}`;
+  if (dayDiff === 0) return `Today, ${datePart} · ${time}`;
+  if (dayDiff === 1) return `Tomorrow, ${datePart} · ${time}`;
+  if (dayDiff > 1 && dayDiff < 7) return `${WEEKDAYS[due.getDay()]}, ${datePart} · ${time}`;
   return `${datePart} · ${time}`;
 }
 

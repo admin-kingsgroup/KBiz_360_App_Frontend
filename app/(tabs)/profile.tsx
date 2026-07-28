@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, FolderKanban } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
@@ -110,15 +111,15 @@ export default function Profile() {
   const n = (v: number) => (loaded ? String(v) : '–');
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
+    // top only — the tab navigator already reserves the bottom inset inside the tab bar height;
+    // including 'bottom' here would double it and strand the footer above a dead strip.
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
       {/* White header bar (standard chrome) */}
       <View className="flex-row items-center px-4" style={{ height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
         <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3 }}>Profile</Text>
       </View>
 
-      {/* flexGrow lets the content fill the screen height so the menu card can stretch to the bottom
-          bar instead of leaving a gap above it (short lists on non-super accounts / tall screens). */}
-      <ScrollView contentContainerStyle={{ paddingBottom: 32, paddingTop: 12, flexGrow: 1 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingTop: 12 }}>
         {/* Identity card — green hero */}
         <Pressable onPress={openEdit} className="mx-4 mb-4" style={{ borderRadius: 20, padding: 16, backgroundColor: colors.primary }}>
           <View className="flex-row items-center gap-3">
@@ -157,44 +158,63 @@ export default function Profile() {
           ) : null}
         </Pressable>
 
-        {/* Admin sections — grows to fill the space between the identity card and the sign-out button. */}
-        <View className="mx-4" style={{ flex: 1, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, overflow: 'hidden' }}>
-          {[
-            // Everyone: personal settings.
-            { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, onPress: () => router.navigate('/attendance') },
-            { key: 'password', label: 'Change password', sub: 'Update your sign-in password', Icon: KeyRound, onPress: () => setPwOpen(true) },
-            // Workspace administration: Super-Admin only (each target screen also enforces its own guard).
-            ...(isSuper ? [
-              { key: 'office-locations', label: 'Office locations', sub: 'Set branch geofences for attendance', Icon: MapPin, onPress: () => router.push('/admin/office-locations') },
-              { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, onPress: () => router.push('/admin/businesses') },
-              { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, onPress: () => router.push('/admin/users') },
-              { key: 'roles', label: 'Roles & Permissions', sub: loaded ? `${counts.roles}-tier access hierarchy` : 'Access hierarchy', Icon: Shield, onPress: () => router.push('/admin/roles') },
-              { key: 'departments', label: 'Departments', sub: 'Create departments for a business or branch', Icon: FolderKanban, onPress: () => router.push('/admin/departments') },
-              { key: 'kbiz-members', label: 'KBiz360 Members', sub: 'Toggle who belongs to KBiz360 · BOM', Icon: Building2, onPress: () => router.push('/admin/kbiz-members') },
-              { key: 'chat-analytics', label: 'Chat Analytics', sub: 'Messaging insights & activity', Icon: Activity, onPress: () => router.push('/admin/chat-analytics') },
-            ] : []),
-          ].map((row, i) => (
-            <Pressable key={row.key} onPress={row.onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-4 py-3.5"
-              style={{ borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
-              <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                <row.Icon size={19} color={colors.primary} />
-              </View>
-              <View className="flex-1">
-                <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{row.label}</Text>
-                <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 1 }}>{row.sub}</Text>
-              </View>
-              <ChevronRight size={18} color={colors.coolText3} />
-            </Pressable>
-          ))}
-        </View>
+        {/* Menu — labeled sections, each row with its own tinted icon chip (settings-app language).
+            Cards hug their rows; the flexible spacer after them absorbs leftover height. */}
+        {[
+          {
+            title: 'Account',
+            rows: [
+              { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, tint: colors.primary, onPress: () => router.navigate('/attendance') },
+              { key: 'password', label: 'Change password', sub: 'Update your sign-in password', Icon: KeyRound, tint: colors.orange, onPress: () => setPwOpen(true) },
+            ],
+          },
+          // Workspace administration: Super-Admin only (each target screen also enforces its own guard).
+          ...(isSuper ? [{
+            title: 'Administration',
+            rows: [
+              { key: 'office-locations', label: 'Office locations', sub: 'Set branch geofences for attendance', Icon: MapPin, tint: colors.coral, onPress: () => router.push('/admin/office-locations') },
+              { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, tint: colors.blue, onPress: () => router.push('/admin/businesses') },
+              { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, tint: colors.purple, onPress: () => router.push('/admin/users') },
+              { key: 'roles', label: 'Roles & Permissions', sub: loaded ? `${counts.roles}-tier access hierarchy` : 'Access hierarchy', Icon: Shield, tint: colors.teal, onPress: () => router.push('/admin/roles') },
+              { key: 'departments', label: 'Departments', sub: 'Create departments for a business or branch', Icon: FolderKanban, tint: colors.orange, onPress: () => router.push('/admin/departments') },
+              { key: 'kbiz-members', label: 'KBiz360 Members', sub: 'Toggle who belongs to KBiz360 · BOM', Icon: Building2, tint: colors.primary, onPress: () => router.push('/admin/kbiz-members') },
+              { key: 'chat-analytics', label: 'Chat Analytics', sub: 'Messaging insights & activity', Icon: Activity, tint: colors.blue, onPress: () => router.push('/admin/chat-analytics') },
+            ],
+          }] : []),
+        ].map((sec) => (
+          <View key={sec.title} className="mb-4">
+            <Text className="mx-5 mb-1.5" style={{ color: colors.coolText, fontSize: 11, fontWeight: '800', letterSpacing: 1.2 }}>{sec.title.toUpperCase()}</Text>
+            <View className="mx-4" style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, overflow: 'hidden' }}>
+              {sec.rows.map((row, i) => (
+                <Pressable key={row.key} onPress={row.onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-4 py-3.5"
+                  style={{ borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
+                  <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: `${row.tint}1A`, alignItems: 'center', justifyContent: 'center' }}>
+                    <row.Icon size={19} color={row.tint} />
+                  </View>
+                  <View className="flex-1">
+                    <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{row.label}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 1 }}>{row.sub}</Text>
+                  </View>
+                  <ChevronRight size={18} color={colors.coolText3} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ))}
 
-        {/* Sign out */}
-        <Pressable onPress={() => { void authApi.logout(); showToast('Signed out'); }} className="flex-row items-center justify-center gap-2 mx-4 mt-4"
+      </ScrollView>
+
+      {/* Fixed footer — Sign out stays pinned above the tab bar; the list scrolls beneath it. */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, backgroundColor: colors.coolBg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.coolDivider }}>
+        <Pressable onPress={() => { void authApi.logout(); showToast('Signed out'); }} className="flex-row items-center justify-center gap-2"
           style={{ height: 50, borderRadius: 999, borderWidth: 1.5, borderColor: colors.danger + '55', backgroundColor: colors.card }}>
           <LogOut size={17} color={colors.danger} />
           <Text style={{ color: colors.danger, fontSize: 14, fontWeight: '700' }}>Sign out</Text>
         </Pressable>
-      </ScrollView>
+        <Text style={{ color: colors.coolText3, fontSize: 11.5, marginTop: 8, textAlign: 'center' }}>
+          KBiz360 Smart Connect · v{Constants.expoConfig?.version ?? '1.0.0'}
+        </Text>
+      </View>
 
       {/* Edit profile */}
       <Modal visible={editing} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditing(false)}>

@@ -9,6 +9,7 @@ import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { createGroup } from '../../src/api/chat';
+import { canCreateGroups } from '../../src/logic/groupCreate';
 import { listUsers, toUser, listCompanies, listBranches, listDepartments, type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment } from '../../src/api/directory';
 
 // Company-wide leadership is not tied to any branch but can join any group.
@@ -19,22 +20,24 @@ export default function NewGroup() {
   const showToast = useUiStore((s) => s.showToast);
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
   const users = useAccessStore((s) => s.users);
-  // Group creation is Super-Admin only. The entry points are hidden for everyone else, but the
-  // route is still reachable (deep link, stale UI) — bounce non-supers back.
-  const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
+  // Group creation is Super-Admin plus a delegated allow-list. The entry points are hidden for
+  // everyone else, but the route is still reachable (deep link, stale UI) — bounce anyone who can't.
+  const canCreate = canCreateGroups(useAccessStore((s) => s.effUser()), useAccessStore((s) => s.access()));
   useEffect(() => {
-    if (!isSuper) {
-      showToast('Only Super Admin can create groups');
+    if (!canCreate) {
+      showToast('You don’t have permission to create groups');
       if (router.canGoBack()) router.back(); else router.replace('/(tabs)');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuper]);
+  }, [canCreate]);
   // Optional prefill when opened from a department ("+ New group in this department").
   const prefill = useLocalSearchParams<{ companyId?: string; branchId?: string; departmentId?: string; deptName?: string }>();
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
+  // Members only need the directory USERS (+ the picked branch), so track their load on its own —
+  // don't make the member list wait on the slower companies/branches/departments fetches.
+  const [usersLoading, setUsersLoading] = useState(users.length === 0);
   const [creating, setCreating] = useState(false);
 
   const [companies, setCompanies] = useState<DirectoryCompany[]>([]);
@@ -60,13 +63,19 @@ export default function NewGroup() {
   }, [allDepts, branchId, companyId]);
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      users.length === 0 ? listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))) : Promise.resolve(),
-      listCompanies().then(setCompanies).catch(() => undefined),
-      listBranches().then(setBranches).catch(() => undefined),
-      listDepartments().then(setAllDepts).catch(() => undefined),
-    ]).catch(() => undefined).finally(() => setLoading(false));
+    // Load USERS independently and gate only the member list on them (see usersLoading below), so
+    // members appear the moment the directory users arrive — the member area no longer waits on the
+    // companies/branches/departments fetches. Those populate their own chips as each resolves.
+    if (users.length === 0) {
+      setUsersLoading(true);
+      listUsers()
+        .then((l) => useAccessStore.getState().setUsers(l.map(toUser)))
+        .catch(() => undefined)
+        .finally(() => setUsersLoading(false));
+    }
+    listCompanies().then(setCompanies).catch(() => undefined);
+    listBranches().then(setBranches).catch(() => undefined);
+    listDepartments().then(setAllDepts).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -182,13 +191,13 @@ export default function NewGroup() {
         </View>
       </View>
 
-      {loading ? (
-        <View className="items-center" style={{ paddingVertical: 40 }}><ActivityIndicator color={colors.primary} /></View>
-      ) : !branchId ? (
+      {!branchId ? (
         <View className="items-center px-8" style={{ paddingVertical: 40 }}>
           <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700', textAlign: 'center' }}>Select a branch to choose members</Text>
           <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 5, textAlign: 'center' }}>You can add anyone from that branch, plus company Directors.</Text>
         </View>
+      ) : usersLoading ? (
+        <View className="items-center" style={{ paddingVertical: 40 }}><ActivityIndicator color={colors.primary} /></View>
       ) : (
         <FlatList
           data={candidates}

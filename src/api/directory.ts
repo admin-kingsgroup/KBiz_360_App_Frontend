@@ -50,7 +50,11 @@ export interface DirectoryRole {
   permissions: string[];
 }
 
-export const listUsers = (): Promise<DirectoryUser[]> => apiFetch('/api/users');
+// Deactivated (app-access-off) users are excluded by default so they don't appear in any picker or
+// list. The admin "Team & Users" screen passes { includeDisabled: true } (super-admin only) to still
+// show and re-enable them.
+export const listUsers = (opts?: { includeDisabled?: boolean }): Promise<DirectoryUser[]> =>
+  apiFetch(`/api/users${opts?.includeDisabled ? '?includeDisabled=1' : ''}`);
 export const listCompanies = (): Promise<DirectoryCompany[]> => apiFetch('/api/companies');
 export const listBranches = (): Promise<DirectoryBranch[]> => apiFetch('/api/branches');
 export const listDepartments = (branchId?: string): Promise<DirectoryDepartment[]> =>

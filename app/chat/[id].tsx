@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, StyleSheet, Vibration } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, StyleSheet, Vibration } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -277,7 +277,9 @@ export default function ChatDetail() {
             keyExtractor={(m) => m.id}
             style={{ flex: 1, backgroundColor: colors.coolBg }}
             contentContainerStyle={{ padding: 12 }}
-            ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48, transform: [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View>}
+            // Counter-flip must mirror the list's inversion exactly: Android inverts with
+            // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
+            ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View>}
             renderItem={({ item: m, index }) => {
               // Inverted list: `index+1` is the chronologically OLDER message. WhatsApp-style day
               // separator: a centered date pill before the FIRST (oldest) message of each calendar

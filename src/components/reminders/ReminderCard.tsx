@@ -4,6 +4,7 @@ import { Clock, Check, RotateCcw } from 'lucide-react-native';
 import { colors } from '../../theme';
 import type { Business } from '../../types';
 import { type ReminderRecord } from '../../data/reminders';
+import { formatWhenLabel } from '../../logic/reminderWhen';
 
 // Status/affordances depend on for-me/by-me + state. `meId` is the signed-in user's real id.
 // White card on the cool canvas; the left stripe keeps the semantic accent (pink = personal,
@@ -20,13 +21,23 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
   const showWaiting = r.state === 'pending' && byMe && !forMe;
 
   const accent = isPersonal ? '#D6336C' : (biz?.color || colors.primary);
+  // The stored label ("Today · 5:00 PM") freezes at creation and goes wrong as days pass —
+  // re-derive it from the real due time whenever the record carries one. Same for overdue: the
+  // server flag freezes in offline snapshots, so judge it against the clock at render time.
+  const when = r.dueAt ? formatWhenLabel(new Date(r.dueAt)) : r.when;
+  const overdue = r.state === 'pending' && r.dueAt ? new Date(r.dueAt).getTime() < Date.now() : !!r.overdue;
+  const stripe = overdue ? colors.danger : accent;
 
   return (
     <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 12, overflow: 'hidden' }}>
-      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: accent }} />
+      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: stripe }} />
       <View className="flex-row items-start gap-3">
         {forMe && r.state === 'pending' ? (
-          <Pressable onPress={() => onComplete(r.id)} accessibilityLabel="Mark complete" hitSlop={8} style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.primary, marginTop: 1 }} />
+          <Pressable onPress={() => onComplete(r.id)} accessibilityLabel="Mark complete" hitSlop={8} style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: overdue ? colors.danger : colors.primary, marginTop: 1 }} />
+        ) : showReviewActions ? (
+          // The creator's dot on a completed reminder: tapping approves it → moves to the archive
+          // (same one-tap language as the assignee's complete dot, in the review accent).
+          <Pressable onPress={() => onApprove(r.id)} accessibilityLabel="Approve · move to archive" hitSlop={8} style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.orange, marginTop: 1 }} />
         ) : isReview ? (
           <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.orange, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
             <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>!</Text>
@@ -40,8 +51,8 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
         <View className="flex-1">
           <Text numberOfLines={3} style={{ color: colors.ink, fontSize: 15, fontWeight: '500', lineHeight: 21 }}>{r.text}</Text>
           <View className="flex-row items-center gap-1.5" style={{ marginTop: 6 }}>
-            {r.when ? <Text style={{ color: r.overdue ? colors.danger : colors.coolText, fontSize: 12, fontWeight: '600' }}>{r.when}</Text> : null}
-            {r.when ? <Text style={{ color: colors.coolText3, fontSize: 11 }}>•</Text> : null}
+            {when ? <Text style={{ color: overdue ? colors.danger : colors.coolText, fontSize: 12, fontWeight: overdue ? '700' : '600' }}>{overdue ? `${when} · Overdue` : when}</Text> : null}
+            {when ? <Text style={{ color: colors.coolText3, fontSize: 11 }}>•</Text> : null}
             <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: forMe ? (r.byColor || colors.ink) : (r.forColor || colors.ink), alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{(forMe ? (r.byInitials || '') : (r.forInitials || '')).charAt(0)}</Text>
             </View>

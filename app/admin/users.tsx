@@ -18,7 +18,10 @@ import type { User } from '../../src/types/user';
 // switch = app access. "Other staff" aggregate rows just toast (source behavior preserved).
 export default function Users() {
   const router = useRouter();
-  const users = useAccessStore((s) => s.users);
+  // This admin screen shows ALL users INCLUDING deactivated ones (so they can be re-enabled), so it
+  // holds them in LOCAL state — never the shared accessStore, which the rest of the app reads and
+  // must stay free of disabled users (they're hidden from every other list).
+  const [users, setUsers] = useState<User[]>([]);
   const me = useAccessStore((s) => s.user);
   const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
   const showToast = useUiStore((s) => s.showToast);
@@ -37,11 +40,11 @@ export default function Users() {
     .filter((c) => c.branch)
     .map((c) => ({ grant: `${c.branch}-${c.module}`, name: c.name, icon: c.icon }));
 
-  // Hydrate the canonical user list from the real CRM directory (read-only).
+  // Hydrate the full user list (incl. deactivated) from the CRM directory into LOCAL state only.
   useEffect(() => {
     let active = true;
-    listUsers()
-      .then((list) => { if (active) useAccessStore.getState().setUsers(list.map(toUser)); })
+    listUsers({ includeDisabled: true })
+      .then((list) => { if (active) setUsers(list.map(toUser)); })
       .catch(() => { /* keep any cached users */ })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -94,11 +97,11 @@ export default function Users() {
     adminApi.setUserPosition(id, position)
       .then(() => {
         // Optimistic: reflect immediately…
-        useAccessStore.getState().setUsers(useAccessStore.getState().users.map((u) => (u.id === id ? { ...u, position: position || null } : u)));
+        setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, position: position || null } : u)));
         showToast(position ? 'Position updated' : 'Position cleared');
         setEditing(null);
         // …then re-sync from the server so it stays put across reloads (authoritative).
-        listUsers().then((list) => useAccessStore.getState().setUsers(list.map(toUser))).catch(() => undefined);
+        listUsers({ includeDisabled: true }).then((list) => setUsers(list.map(toUser))).catch(() => undefined);
       })
       .catch(() => showToast('Could not save position'))
       .finally(() => setSavingPos(false));

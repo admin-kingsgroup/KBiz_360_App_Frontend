@@ -42,14 +42,20 @@ describe('formatTime', () => {
 });
 
 describe('formatWhenLabel', () => {
-  it('same day → Today', () => {
-    expect(formatWhenLabel(new Date(2026, 6, 15, 17, 0), NOW)).toBe('Today · 5:00 PM');
+  it('day before → Yesterday + date (overdue reminders re-labelled live)', () => {
+    expect(formatWhenLabel(new Date(2026, 6, 14, 17, 0), NOW)).toBe('Yesterday, 14 Jul · 5:00 PM');
   });
-  it('next day → Tomorrow', () => {
-    expect(formatWhenLabel(new Date(2026, 6, 16, 9, 0), NOW)).toBe('Tomorrow · 9:00 AM');
+  it('further past → date form', () => {
+    expect(formatWhenLabel(new Date(2026, 6, 10, 17, 0), NOW)).toBe('10 Jul · 5:00 PM');
   });
-  it('within the week → weekday name', () => {
-    expect(formatWhenLabel(new Date(2026, 6, 20, 9, 0), NOW)).toBe('Mon · 9:00 AM');
+  it('same day → Today + date', () => {
+    expect(formatWhenLabel(new Date(2026, 6, 15, 17, 0), NOW)).toBe('Today, 15 Jul · 5:00 PM');
+  });
+  it('next day → Tomorrow + date', () => {
+    expect(formatWhenLabel(new Date(2026, 6, 16, 9, 0), NOW)).toBe('Tomorrow, 16 Jul · 9:00 AM');
+  });
+  it('within the week → weekday name + date', () => {
+    expect(formatWhenLabel(new Date(2026, 6, 20, 9, 0), NOW)).toBe('Mon, 20 Jul · 9:00 AM');
   });
   it('beyond a week, same year → day + month', () => {
     expect(formatWhenLabel(new Date(2026, 7, 3, 14, 15), NOW)).toBe('3 Aug · 2:15 PM');

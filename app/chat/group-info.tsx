@@ -43,9 +43,16 @@ export default function GroupInfo() {
   const memberIds = new Set(members.map((m) => m.userId));
   const canManage = conv?.myRole === 'admin' || conv?.createdBy === meId || isSuper;
   // Add-only allowlist (mirrors the backend): these users may add people to a group they belong to,
-  // without full management rights (rename/delete/promote/remove stay gated on canManage).
+  // without full management rights.
   const ADD_MEMBER_EMAILS = ['faiz@travkings.com', 'pravesh@travkings.com', 'farhan@travkings.com'];
   const canAddMembers = canManage || (ADD_MEMBER_EMAILS.includes(myEmail) && memberIds.has(meId));
+  // Edit allowlist (mirrors the backend GROUP_EDIT_EMAILS): may rename and remove members in a
+  // group they belong to — delete/promote stay gated on canManage.
+  const EDIT_GROUP_EMAILS = ['faiz@travkings.com'];
+  const canEdit = canManage || (EDIT_GROUP_EMAILS.includes(myEmail) && memberIds.has(meId));
+  // Rename-only allowlist (mirrors the backend GROUP_RENAME_EMAILS): name edit only.
+  const RENAME_GROUP_EMAILS = ['farhan@travkings.com'];
+  const canRename = canEdit || (RENAME_GROUP_EMAILS.includes(myEmail) && memberIds.has(meId));
   const sorted = [...members].sort((a, b) => (a.role === b.role ? 0 : a.role === 'admin' ? -1 : 1));
   // For a branch-department group, only offer people from that branch — plus company-wide
   // leadership (Super-Admins & Directors), who aren't tied to any branch but can be added to
@@ -118,9 +125,9 @@ export default function GroupInfo() {
                 <Pressable onPress={saveName}><Check size={22} color={colors.primary} /></Pressable>
               </View>
             ) : (
-              <Pressable disabled={!canManage} onPress={() => { setNameInput(conv.name); setEditingName(true); }} className="flex-row items-center gap-1.5" style={{ marginTop: 12 }}>
+              <Pressable disabled={!canRename} onPress={() => { setNameInput(conv.name); setEditingName(true); }} className="flex-row items-center gap-1.5" style={{ marginTop: 12 }}>
                 <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700' }}>{conv.name}</Text>
-                {canManage ? <Pencil size={15} color={colors.coolText3} /> : null}
+                {canRename ? <Pencil size={15} color={colors.coolText3} /> : null}
               </Pressable>
             )}
             <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 3 }}>{conv.memberCount} members</Text>
@@ -145,9 +152,9 @@ export default function GroupInfo() {
                   {positionOf(m.userId) ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{positionOf(m.userId)}</Text> : null}
                 </View>
                 {m.role === 'admin' ? <View style={{ backgroundColor: colors.purple + '1A', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999 }}><Text style={{ color: colors.purple, fontSize: 10.5, fontWeight: '700' }}>Admin</Text></View> : null}
-                {canManage && m.userId !== meId ? (
+                {canEdit && m.userId !== meId ? (
                   <View className="flex-row items-center gap-1">
-                    {m.role !== 'admin' ? <Pressable onPress={() => promote(m.userId)} hitSlop={6} style={{ padding: 6 }}><Shield size={17} color={colors.coolText3} /></Pressable> : null}
+                    {canManage && m.role !== 'admin' ? <Pressable onPress={() => promote(m.userId)} hitSlop={6} style={{ padding: 6 }}><Shield size={17} color={colors.coolText3} /></Pressable> : null}
                     <Pressable onPress={() => confirmRemove(m.userId)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable>
                   </View>
                 ) : null}

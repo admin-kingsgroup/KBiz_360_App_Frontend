@@ -84,6 +84,13 @@ export async function scheduleLocal(title: string, body: string, data: NotifData
   }
 }
 
+// Cancel a scheduled local notification. No-op in Expo Go or when it already fired.
+export async function cancelLocal(notificationId: string): Promise<void> {
+  const m = load();
+  if (!m) return;
+  try { await m.cancelScheduledNotificationAsync(notificationId); } catch { /* already gone */ }
+}
+
 // Ensure a high-importance Android channel for incoming calls (the backend push targets channelId
 // 'calls'). No-op on iOS / Expo Go.
 async function ensureCallChannel(): Promise<void> {
