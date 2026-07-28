@@ -35,13 +35,14 @@ export function autoPunch(
   return null;
 }
 
-// ── auto check-out: immediate the moment either required signal breaks ──
-// STRICT rule: presence needs office Wi-Fi AND the geofence together, so the day auto-closes
-// IMMEDIATELY when either leg provably breaks:
+// ── "provably away" definition (NOT wired to any auto check-out since 07-28) ──
+// The foreground auto check-out was removed by policy: even with the 5-minute grace it produced
+// false exits (Wi-Fi flaps, indoor GPS drift), so a check-out now comes ONLY from the verified
+// background geofence Exit (confirmGeofenceExit below + the server's drift guard) or an explicit
+// manual/face punch. confirmedAway stays as the documented, tested definition of "provably away":
 //   - the device is not on the office Wi-Fi (when the office has an SSID configured), OR
 //   - a real GPS fix places the device CLEARLY beyond the geofence (radius + buffer).
-// The buffer keeps indoor GPS drift (30–80 m wobbles are routine) from closing the day; a LOST
-// fix (distance null) is UNKNOWN, not an exit — only real evidence checks someone out.
+// A LOST fix (distance null) is UNKNOWN, not an exit — only real evidence counts as away.
 export const AUTO_OUT_BUFFER_M = 50;
 
 export function confirmedAway(p: OfficePresence, radius: number): boolean {
@@ -60,9 +61,14 @@ export function confirmedAway(p: OfficePresence, radius: number): boolean {
 //     indoors GPS often has no fix at all, and the OS fires a bogus Exit the moment the geofences
 //     (re)arm (fresh login / app reopen), so the old rule fired a false check-out on login.
 //     A REAL exit is confirmed minutes later anyway: outdoors a fix arrives and the next Exit
-//     event (or the hourly refresh) verifies it with evidence.
-export const EXIT_BUFFER_M = 50;
-export const EXIT_MAX_ACCURACY_M = 150;
+//     event (or the 15-min background reconcile) verifies it with evidence.
+// Buffer is ZERO (owner call, 07-28): check-out fires the moment an accurate fix is beyond the
+// fence itself — no spatial hysteresis. With no buffer, evidence QUALITY is the only remaining
+// false-exit guard, so the accuracy bar is tight: a ±150 m fix cannot prove "beyond 100 m".
+// Outdoor fixes are typically ±5–20 m, so 50 m never delays a real exit; a genuinely poor fix
+// defers to the next Exit event / the 15-min background reconcile instead of guessing.
+export const EXIT_BUFFER_M = 0;
+export const EXIT_MAX_ACCURACY_M = 50;
 export interface ArmedRegion { lat: number; lng: number; radius: number }
 export function confirmGeofenceExit(
   fix: { coords: Coords; accuracy: number | null } | null,
@@ -71,6 +77,23 @@ export function confirmGeofenceExit(
   if (!fix) return false; // no evidence → no punch (a lost fix is unknown, not an exit)
   if (fix.accuracy != null && fix.accuracy > EXIT_MAX_ACCURACY_M) return false;
   return !regions.some((r) => distanceMeters(fix.coords, r) <= r.radius + EXIT_BUFFER_M);
+}
+
+// ── background geofence entry verification ──
+// Mirror of confirmGeofenceExit for the periodic reconcile: a check-in may be attempted headlessly
+// only when a REAL, accurate fix places the device INSIDE an armed region (no buffer — the server
+// rejects anything beyond the office radius anyway, so a borderline fix just wastes a punch).
+// This is what turns a MISSED OS Enter event (Doze, OEM battery saver, reboot-cleared fences, or a
+// boundary punch the strict Wi-Fi rule rejected before the phone joined the office network) into a
+// check-in on the next background refresh instead of "nothing until the app is opened".
+export const ENTRY_MAX_ACCURACY_M = 150;
+export function confirmGeofenceEntry(
+  fix: { coords: Coords; accuracy: number | null } | null,
+  regions: ArmedRegion[],
+): boolean {
+  if (!fix) return false; // no evidence → no punch
+  if (fix.accuracy != null && fix.accuracy > ENTRY_MAX_ACCURACY_M) return false;
+  return regions.some((r) => distanceMeters(fix.coords, r) <= r.radius);
 }
 
 // FALLBACK face punch guard. Extracted from faceScan(): blocked off-site; no-op once both punched.

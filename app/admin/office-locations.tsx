@@ -46,9 +46,9 @@ export default function OfficeLocations() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startNew = (branchId: string): void => setForm({ officeId: null, branchId, label: '', lat: '', lng: '', radius: '150', address: '', wifiSsid: '' });
+  const startNew = (branchId: string): void => setForm({ officeId: null, branchId, label: '', lat: '', lng: '', radius: '100', address: '', wifiSsid: '' });
   const startEdit = (o: AdminOfficeEntry, branchId: string): void =>
-    setForm({ officeId: o.id, branchId, label: o.label ?? '', lat: String(o.lat), lng: String(o.lng), radius: String(o.radius ?? 150), address: o.address ?? '', wifiSsid: o.wifiSsid ?? '' });
+    setForm({ officeId: o.id, branchId, label: o.label ?? '', lat: String(o.lat), lng: String(o.lng), radius: String(o.radius ?? 100), address: o.address ?? '', wifiSsid: o.wifiSsid ?? '' });
 
   const geocode = async (): Promise<void> => {
     if (!form) return;
@@ -201,7 +201,7 @@ export default function OfficeLocations() {
                         <View className="flex-row gap-2">
                           <Field label="Latitude" value={form.lat} onChange={(t) => setForm((f) => (f ? { ...f, lat: t } : f))} placeholder="19.0760" />
                           <Field label="Longitude" value={form.lng} onChange={(t) => setForm((f) => (f ? { ...f, lng: t } : f))} placeholder="72.8777" />
-                          <Field label="Radius (m)" value={form.radius} onChange={(t) => setForm((f) => (f ? { ...f, radius: t } : f))} placeholder="150" />
+                          <Field label="Radius (m)" value={form.radius} onChange={(t) => setForm((f) => (f ? { ...f, radius: t } : f))} placeholder="100" />
                         </View>
                         <TextInput value={form.wifiSsid} onChangeText={(t) => setForm((f) => (f ? { ...f, wifiSsid: t } : f))} placeholder="Office Wi-Fi name (SSID) — exact, optional" placeholderTextColor={colors.coolText3}
                           autoCapitalize="none" autoCorrect={false}

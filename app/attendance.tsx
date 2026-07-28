@@ -12,7 +12,7 @@ import { useEventCallback } from '../src/hooks/useEventCallback';
 import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAccessStore } from '../src/store/accessStore';
 import { useUiStore } from '../src/store/uiStore';
-import { canFacePunch, confirmedAway } from '../src/logic/attendance';
+import { canFacePunch } from '../src/logic/attendance';
 import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { getCurrentSsid } from '../src/services/wifi';
@@ -70,8 +70,6 @@ export default function Attendance() {
   const [exempt, setExempt] = useState<boolean | null>(null);
   const exemptRef = useRef<boolean | null>(null);
   const [ssid, setSsid] = useState<string | null>(null); // Wi-Fi network the device is on (null when unreadable)
-  const ssidReadRef = useRef(false); // first SSID read completed? (unknown ≠ "not on office Wi-Fi")
-  const awaySinceRef = useRef<number | null>(null); // when confirmedAway evidence STARTED holding
   const autoBlockedUntilRef = useRef(0); // back-off after the server rejects an auto punch (no retry storm)
   const autoFailsRef = useRef(0); // consecutive silent-punch failures — escalates the back-off
 
@@ -106,7 +104,6 @@ export default function Attendance() {
     const read = (): void => {
       void getCurrentSsid().then((s) => {
         if (!alive) return;
-        ssidReadRef.current = true; // presence may now trust the ssid value (even a real null)
         if (s) { ssidMissRef.current = 0; setSsid(s); return; }
         ssidMissRef.current += 1;
         if (ssidMissRef.current >= 2) setSsid(null);
@@ -243,9 +240,11 @@ export default function Attendance() {
   // toast). Failures are NEVER silent: the server is the record of truth, so on rejection we
   // re-adopt its state (the optimistic local punch would otherwise show "checked in" all day
   // while the server has nothing — the person then reads as absent tomorrow) and tell the user.
-  const apiPunch = useEventCallback(async (kind: 'in' | 'out', method: 'auto' | 'face', silent = false): Promise<void> => {
+  const apiPunch = useEventCallback(async (kind: 'in' | 'out', method: 'auto' | 'face', silent = false, source?: 'geofence'): Promise<void> => {
     try {
-      const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid };
+      // source:'geofence' marks a distance-driven AUTO punch so the server applies its exit drift
+      // guard to it; manual/face punches never send it (user-initiated punches are never blocked).
+      const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid, ...(source ? { source } : {}) };
       const m = kind === 'in' ? await checkIn(body) : await checkOut(body);
       autoFailsRef.current = 0; // server reachable + accepting — clear the failure escalation
       if (autoBlockedUntilRef.current === Number.MAX_SAFE_INTEGER) autoBlockedUntilRef.current = 0; // mount fetch had failed; server is back
@@ -271,40 +270,28 @@ export default function Attendance() {
   });
 
   // Recompute presence (office Wi-Fi + geofence) whenever GPS, Wi-Fi or office changes, then
-  // auto-punch. The backend re-verifies both the location and the SSID on every punch. Auto check-IN
-  // is instant; auto check-OUT fires once the user is confirmedAway: off the office Wi-Fi (alone is
-  // enough when the office has an SSID configured — the strict rule requires Wi-Fi) OR a real GPS
-  // fix clearly beyond the geofence. A lost/borderline GPS fix is UNKNOWN, not "left".
-  const AWAY_GRACE_MS = 5 * 60_000; // confirmedAway must HOLD this long before an auto check-out
+  // auto-punch. The backend re-verifies both the location and the SSID on every punch.
+  // Check-IN: while PRESENT (both signals hold — positive evidence), instant.
+  // Check-OUT: IMMEDIATE the moment a real fix is beyond the office fence (owner call, 07-28:
+  // "out 100 m → checked out, no delay") — no grace period, no spatial buffer. It is DISTANCE-ONLY:
+  // a Wi-Fi drop alone never checks anyone out (removed earlier the same day), and a lost fix is
+  // UNKNOWN, not an exit. The server re-verifies the coords via its drift guard (source:'geofence').
   const evaluatePresence = useEventCallback((): void => {
     if (exempt !== false || !office) return; // only tracked accounts run presence + auto-punch
     const wifiOn = ssidMatches(ssid, office.wifiSsid);
     const wifiConfigured = !!cleanSsid(office.wifiSsid);
     const p = refreshPresence({ wifiOn, wifiConfigured, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
-    if (p.present) {
-      awaySinceRef.current = null; // back on both signals → any pending exit was noise
-    } else {
-      // Auto check-OUT needs COMPLETE evidence that HOLDS:
-      //  - the first SSID read must have finished — on a cold start the SSID is simply unknown
-      //    for the first seconds, and treating "unknown" as "off the office Wi-Fi" punched
-      //    people out the moment the app opened (sughra's false 3:09 pm check-out, caught on
-      //    the user's own screen recording while both cards showed ON), and
-      //  - confirmedAway must persist for the whole grace window: indoor SSID flaps and GPS
-      //    blips are transient — a REAL exit keeps looking like an exit for 5+ minutes.
-      // Auto check-IN stays instant (its evidence is positive: both signals present).
-      if (!ssidReadRef.current || !confirmedAway(p, office.radius)) { awaySinceRef.current = null; return; }
-      if (awaySinceRef.current == null) awaySinceRef.current = Date.now();
-      if (Date.now() - awaySinceRef.current < AWAY_GRACE_MS) return; // exit evidence not sustained yet
-    }
+    // Not present AND not provably outside the fence (no fix / fix still inside): unknown — do
+    // nothing. This is the Wi-Fi-drop / GPS-silence case that must never close the day.
+    if (!p.present && (p.distance == null || p.distance <= office.radius)) return;
     if (Date.now() < autoBlockedUntilRef.current) return; // throttled — one auto-punch per minute, see below
     const fired = runAutoPunch();
     if (fired) {
       // Throttle EVERY auto-punch (not just server rejections) to at most once a minute. A punch's
-      // own success can re-open/close the day and flip presence, so an unthrottled auto-punch could
-      // ping-pong (check-out ↔ re-open) when Wi-Fi/GPS presence is ambiguous — the "blinking".
+      // own success can flip presence-derived state, so an unthrottled evaluate could ping-pong.
       autoBlockedUntilRef.current = Date.now() + 60_000;
       const a = useAttendanceStore.getState().att;
-      if (a.outTime) { showToast('Auto check-out · ' + fmt(a.outTime)); void apiPunch('out', 'auto', true); }
+      if (a.outTime) { showToast('Auto check-out · ' + fmt(a.outTime)); void apiPunch('out', 'auto', true, 'geofence'); }
       else if (a.inTime) { showToast('Auto check-in · ' + fmt(a.inTime) + ' · ' + (p.viaNow || 'Auto')); void apiPunch('in', 'auto', true); }
     }
   });

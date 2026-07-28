@@ -4,17 +4,18 @@ import type * as LocationModuleT from 'expo-location';
 import type * as TaskManagerModuleT from 'expo-task-manager';
 import { loadSession, updateStoredTokens } from './storage/session';
 import { setTokens } from '../api/tokens';
-import { confirmGeofenceExit, type ArmedRegion } from '../logic/attendance';
+import { confirmGeofenceExit, confirmGeofenceEntry, type ArmedRegion } from '../logic/attendance';
 
 // Background auto check-in via OS geofencing. When the signed-in user enters/leaves an office region,
 // the OS wakes the app (even if killed) and we punch in/out. Lazy-required + Expo-Go-guarded exactly
 // like the notifications service: TaskManager/background location aren't available in Expo Go, and a
 // static import there crashes the app at boot. Needs a dev/standalone build + "Always" location.
 //
-// Reboot survival: Android CLEARS registered geofences on reboot and only re-arms them when the app
-// next opens — so a periodic background-fetch task (startOnBoot) re-registers the office regions
-// headlessly, keeping auto-punch alive even if the phone restarted overnight and the app was never
-// reopened. iOS re-launches apps for region events natively, so this mainly matters on Android.
+// Reboot survival + punch healing: Android CLEARS registered geofences on reboot and only re-arms
+// them when the app next opens — so a periodic background-fetch task (startOnBoot, ~15 min) re-arms
+// the office regions headlessly AND reconciles missed punches in BOTH directions (fix inside a
+// region + no check-in today → punch in; day open + accurate fix beyond every fence → punch out).
+// iOS re-launches apps for region events natively, so this mainly matters on Android.
 export const GEOFENCE_TASK = 'kb360-attendance-geofence';
 export const GEOFENCE_REFRESH_TASK = 'kb360-attendance-geofence-refresh';
 
@@ -154,7 +155,7 @@ async function armOfficeRegions(): Promise<void> {
       identifier: o.id, // unique per office (a branch can have several)
       latitude: o.lat,
       longitude: o.lng,
-      radius: Math.max(o.radius ?? 150, 100), // OS region monitoring is unreliable below ~100 m
+      radius: Math.max(o.radius ?? 100, 100), // OS region monitoring is unreliable below ~100 m
       notifyOnEnter: true,
       notifyOnExit: true,
     }));
@@ -162,11 +163,16 @@ async function armOfficeRegions(): Promise<void> {
   if (!regions.length) { if (started) await Location.stopGeofencingAsync(GEOFENCE_TASK); await writeCachedRegions([]); return; }
   await Location.startGeofencingAsync(GEOFENCE_TASK, regions); // replaces any existing region set
   // Cache the armed regions so the headless Exit handler can re-verify a fix against them.
-  await writeCachedRegions(regions.map((r) => ({ lat: r.latitude, lng: r.longitude, radius: r.radius ?? 150 })));
+  await writeCachedRegions(regions.map((r) => ({ lat: r.latitude, lng: r.longitude, radius: r.radius ?? 100 })));
 }
 
-// Periodic headless refresh (survives reboots on Android via startOnBoot). Only re-arms when the
+// Periodic headless refresh (survives reboots on Android via startOnBoot). Only runs when the
 // user is signed in and "Always" location is ALREADY granted — a background task must never prompt.
+// Beyond re-arming regions, it RECONCILES missed punches: the OS Enter/Exit events fire exactly
+// once at the fence boundary, so a punch that was lost (Doze/OEM battery saver swallowed the
+// event, reboot cleared the fences, network hiccup) or rejected (strict Wi-Fi rule on check-in;
+// accuracy bar on check-out) would otherwise stand until the app is opened. Here: no check-in
+// today + fix inside a region → punch in; day open + verified fix outside → punch out.
 let refreshRegistered = false;
 function ensureRefreshTaskRegistered(): void {
   if (refreshRegistered || isRunningInExpoGo()) return;
@@ -180,6 +186,25 @@ function ensureRefreshTaskRegistered(): void {
         const bg = await loc().getBackgroundPermissionsAsync();
         if (bg.status !== 'granted') return BackgroundFetch.BackgroundFetchResult.NoData;
         await armOfficeRegions();
+        // Punch reconcile — the OS Enter/Exit events fire exactly ONCE at the boundary, so a lost
+        // or rejected punch would otherwise stand until the app is opened. Both directions:
+        //   no check-in today + fix INSIDE a region → check in (never re-opens a closed day);
+        //   day still open + accurate fix beyond every fence → check out (confirmGeofenceExit;
+        //   the server re-verifies via its drift guard).
+        // An unreadable record means do nothing; a fix is taken only when a punch could result.
+        const today = await fetchTodayHeadless();
+        const needIn = !!today && !today.inTime;
+        const dayOpen = !!today && !!today.inTime && !today.outTime;
+        if (needIn || dayOpen) {
+          let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
+          try {
+            const pos = await loc().getCurrentPositionAsync({ accuracy: loc().Accuracy.High });
+            fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
+          } catch { /* no fix → no punch */ }
+          const regions = await readCachedRegions();
+          if (needIn && fix && confirmGeofenceEntry(fix, regions)) await postPunch('check-in', fix.coords);
+          else if (dayOpen && fix && confirmGeofenceExit(fix, regions)) await postPunch('check-out', fix.coords);
+        }
         return BackgroundFetch.BackgroundFetchResult.NewData;
       } catch {
         return BackgroundFetch.BackgroundFetchResult.Failed;
@@ -193,7 +218,7 @@ async function scheduleRefreshTask(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const BackgroundFetch = require('expo-background-fetch') as typeof import('expo-background-fetch');
   await BackgroundFetch.registerTaskAsync(GEOFENCE_REFRESH_TASK, {
-    minimumInterval: 60 * 60, // hourly is plenty — this only heals reboots/OS evictions
+    minimumInterval: 15 * 60, // Android WorkManager floor; this is the arrival-heal cadence, so a missed Enter still checks in within ~15 min
     stopOnTerminate: false, // keep running after the app is swiped away (Android)
     startOnBoot: true, // re-arm geofences after a phone restart without opening the app
   }).catch(() => undefined);

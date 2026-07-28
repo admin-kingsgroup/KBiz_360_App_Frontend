@@ -35,3 +35,8 @@ yarn-error.*
 
 # Local Claude Code agent settings
 .claude/
+
+# local build artifacts (EAS local builds output to repo root)
+/*.aab
+/*.apk
+/*.ipa
