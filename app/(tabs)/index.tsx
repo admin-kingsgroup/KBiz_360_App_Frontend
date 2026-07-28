@@ -16,6 +16,7 @@ import { useAuthStore } from '../../src/store/authStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { usePulseStore } from '../../src/store/pulseStore';
+import { isVisibleAlertChannel } from '../../src/data/pulse';
 import type { ChatConversation } from '../../src/api/chat';
 import { getMyAttendance } from '../../src/api/attendance';
 import { mediaUrl } from '../../src/api/media';
@@ -162,8 +163,10 @@ export default function Home() {
 
   // Unread badges on the segment tabs — number of unread items per segment (NOT the total count).
   // Chats/Groups = conversations with unread; Alerts = unread alert events. Departments has no
-  // cheap unread source here, so it stays badge-less.
-  const unreadEvents = usePulseStore((s) => s.events).filter((e) => !e.read).length;
+  // cheap unread source here, so it stays badge-less. The Alerts count must use the same
+  // visible-channel gate as the cards: the server still sends events for hidden channel families
+  // (CRM/Finance flags), and counting those left a badge the user could never clear.
+  const unreadEvents = usePulseStore((s) => s.events).filter((e) => !e.read && isVisibleAlertChannel(e.channelId)).length;
   const tabUnread: Record<Segment, number> = {
     chats: chats.filter((c) => c.unread > 0).length,
     groups: groupConvs.filter((g) => (g.unread || 0) > 0).length,

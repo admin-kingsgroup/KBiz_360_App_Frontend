@@ -130,6 +130,14 @@ export const pulseChannels: PulseChannel[] = [
   ...attendanceAlertChannels,
 ];
 
+// Can this channel's events reach the user through the alerts UI? The server keeps sending events
+// for hidden-family channels (their grants survive the flags), but the cards render only from the
+// VISIBLE registry — so any unread badge/count must use this same gate, or events in hidden
+// channels inflate a count the user has no way to clear (live case: 7 unread stuck on the Alerts
+// tab from tk_crm_bom while CRM_ALERTS_ENABLED is false).
+const visibleAlertChannelIds = new Set<string>([userAlertsChannel.id, ...pulseChannels.map((c) => c.id)]);
+export const isVisibleAlertChannel = (channelId: string): boolean => visibleAlertChannelIds.has(channelId);
+
 // FULL registry (visible or not) — id lookups must keep resolving hidden channels so a stray
 // Finance push notification or old deep link never crashes the alert detail screen.
 const allChannels: PulseChannel[] = [
