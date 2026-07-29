@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, StyleSheet, Vibration, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, ScrollView, StyleSheet, Vibration, Alert } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -16,7 +16,7 @@ import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
-import { getConversation, getPinned, type ChatConversation, type ChatAttachment, type ChatMessage } from '../../src/api/chat';
+import { getConversation, getPinned, getReceipts, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
 import { uploadFile, mediaUrl, toAttachment, humanSize } from '../../src/api/media';
 import { listUsers, toUser } from '../../src/api/directory';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
@@ -24,7 +24,7 @@ import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
 import { callManager } from '../../src/services/rtc/CallManager';
-import { daySeparator, isDifferentDay } from '../../src/utils/time';
+import { daySeparator, isDifferentDay, dateStamp } from '../../src/utils/time';
 
 // Chat-screen redesign palette (kbiz360_chat_screen_redesign mockup): teal accent, white message
 // cards with hairline borders on a cool grey canvas. Shadows the app theme LOCALLY so the rest of
@@ -89,6 +89,7 @@ export default function ChatDetail() {
   const [cursor, setCursor] = useState(0);
   const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [active, setActive] = useState<StoredMessage | null>(null);
+  const [infoFor, setInfoFor] = useState<StoredMessage | null>(null);
   const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [forwardMsgs, setForwardMsgs] = useState<StoredMessage[]>([]); // [] = sheet closed
@@ -690,6 +691,8 @@ export default function ChatDetail() {
               { label: 'Select', Icon: ListChecks, onPress: () => { setSelectedIds((cur) => (cur.includes(active.id) ? cur : [...cur, active.id])); closeMenu(); } },
               ...(active.type === 'text' ? [{ label: 'Copy', Icon: Copy, onPress: () => { void Clipboard.setStringAsync(active.text); finishAction(); showToast('Copied'); } }] : []),
               { label: active.starred ? 'Unstar' : 'Star', Icon: Star, onPress: () => { void useMessagingStore.getState().star(active.id, convId); finishAction(); } },
+              // "Message info" (who read/received) — sender-only, like WhatsApp.
+              ...(active.mine && !active.pending && !active.failed ? [{ label: 'Info', Icon: Info, onPress: () => { setInfoFor(active); finishAction(); } }] : []),
               // Pinned by anyone counts (the message flag can lag pins made from another device).
               { label: active.pinned || pinned.some((p) => p.id === active.id) ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(active.id, convId).then(refreshPinned); finishAction(); } },
               ...(active.mine && active.type === 'text' && Date.now() - new Date(active.sentAt).getTime() < EDIT_WINDOW_MS ? [{ label: 'Edit', Icon: Pencil, onPress: () => startEdit(active) }] : []),
@@ -709,7 +712,88 @@ export default function ChatDetail() {
       <ForwardSheet visible={forwardMsgs.length > 0} targets={forwardTargets} sending={forwarding}
         preview={forwardMsgs.length > 1 ? `${forwardMsgs.length} messages` : (forwardMsgs[0]?.text || (forwardMsgs[0] ? `[${forwardMsgs[0].type}]` : ''))}
         onClose={() => setForwardMsgs([])} onSend={(t) => void doForward(t)} />
+
+      {/* Message info: who read / received one of MY messages (sender-only endpoint) */}
+      <MessageInfoSheet message={infoFor} users={users} nameOf={nameOf} onClose={() => setInfoFor(null)} />
     </SafeAreaView>
+  );
+}
+
+// WhatsApp-style "Message info" bottom sheet: Read by (with time) → Delivered to → Pending.
+function MessageInfoSheet({ message, users, nameOf, onClose }: {
+  message: StoredMessage | null; users: User[]; nameOf: (id: string) => string; onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [data, setData] = useState<MessageReceipts | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setData(null); setFailed(false);
+    if (message) getReceipts(message.id).then(setData).catch(() => setFailed(true));
+  }, [message]);
+  if (!message) return null;
+
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const read = (data?.readBy ?? []).slice().sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+  const readSet = new Set(read.map((r) => r.userId));
+  const delivered = data?.deliveredTo ?? [];
+  const deliveredSet = new Set(delivered);
+  const pendingIds = (data?.participants ?? []).filter((u) => !readSet.has(u) && !deliveredSet.has(u));
+
+  const Row = ({ userId, at }: { userId: string; at?: number | null }) => {
+    const u = byId.get(userId);
+    return (
+      <View className="flex-row items-center gap-3" style={{ paddingHorizontal: 18, paddingVertical: 8 }}>
+        <Avatar initials={u?.initials ?? (nameOf(userId)[0] ?? '?').toUpperCase()} color={u?.color ?? colors.blue} size={36} uri={u?.avatar ?? null} />
+        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{nameOf(userId)}</Text>
+        {at != null ? <Text style={{ color: colors.coolText3, fontSize: 12 }}>{dateStamp(at)}</Text> : null}
+      </View>
+    );
+  };
+  const SectionHead = ({ icon, label }: { icon: React.ReactNode; label: string }) => (
+    <View className="flex-row items-center gap-2" style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 }}>
+      {icon}
+      <Text style={{ color: colors.coolText, fontSize: 12.5, fontWeight: '700', letterSpacing: 0.2 }}>{label}</Text>
+    </View>
+  );
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }} />
+      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '75%', paddingBottom: insets.bottom + 10 }}>
+        <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8 }}>
+          <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>Message info</Text>
+          <Pressable onPress={onClose} hitSlop={10}><X size={20} color={colors.coolText} /></Pressable>
+        </View>
+        <ScrollView>
+          <View style={{ marginHorizontal: 18, backgroundColor: colors.primarySoft, borderRadius: 12, padding: 10 }}>
+            <Text numberOfLines={3} style={{ color: colors.ink, fontSize: 13.5 }}>{message.text || `[${message.type}]`}</Text>
+          </View>
+          {failed ? (
+            <Text style={{ color: colors.coolText3, fontSize: 13, textAlign: 'center', paddingVertical: 24 }}>Could not load receipts.</Text>
+          ) : !data ? (
+            <ActivityIndicator style={{ paddingVertical: 24 }} color={colors.primary} />
+          ) : (
+            <>
+              <SectionHead icon={<CheckCheck size={16} color={colors.primary} />} label={`READ${read.length ? ` · ${read.length}` : ''}`} />
+              {read.length ? read.map((r) => <Row key={r.userId} userId={r.userId} at={r.at} />)
+                : <Text style={{ color: colors.coolText3, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 18, paddingVertical: 4 }}>No one yet</Text>}
+              {delivered.length ? (
+                <>
+                  <SectionHead icon={<CheckCheck size={16} color={TICK_MUTED} />} label={`DELIVERED · ${delivered.length}`} />
+                  {delivered.map((u) => <Row key={u} userId={u} />)}
+                </>
+              ) : null}
+              {pendingIds.length ? (
+                <>
+                  <SectionHead icon={<Clock size={14} color={TICK_MUTED} />} label={`PENDING · ${pendingIds.length}`} />
+                  {pendingIds.map((u) => <Row key={u} userId={u} />)}
+                </>
+              ) : null}
+            </>
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 

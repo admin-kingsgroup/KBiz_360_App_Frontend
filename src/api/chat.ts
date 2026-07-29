@@ -79,6 +79,9 @@ export const deleteMessage = (id: string, scope: 'me' | 'everyone'): Promise<{ o
 export const reactMessage = (id: string, emoji: string): Promise<{ ok: boolean }> => apiFetch(`/api/messages/${id}/reaction`, { method: 'POST', body: { emoji } });
 export const starMessage = (id: string): Promise<{ starred: boolean }> => apiFetch(`/api/messages/${id}/star`, { method: 'POST' });
 export const pinMessage = (id: string): Promise<{ pinned: boolean }> => apiFetch(`/api/messages/${id}/pin`, { method: 'POST' });
+// Per-user receipts for one message ("message info"). Sender-only — the backend 404s for anyone else.
+export interface MessageReceipts { readBy: { userId: string; at: number | null }[]; deliveredTo: string[]; participants: string[] }
+export const getReceipts = (messageId: string): Promise<MessageReceipts> => apiFetch(`/api/messages/${messageId}/receipts`);
 export const forwardMessage = (messageId: string, conversationIds: string[]): Promise<ChatMessage[]> => apiFetch('/api/messages/forward', { method: 'POST', body: { messageId, conversationIds } });
 export const searchMessages = (q: string): Promise<ChatMessage[]> => apiFetch(`/api/messages/search?q=${encodeURIComponent(q)}`);
 export const starredMessages = (): Promise<ChatMessage[]> => apiFetch('/api/messages/starred');
