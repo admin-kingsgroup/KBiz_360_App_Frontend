@@ -2,6 +2,8 @@ import '../global.css';
 import { useEffect, useState } from 'react';
 import { View, AppState } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import { isRunningInExpoGo } from 'expo';
+import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -73,10 +75,14 @@ function GateController() {
     void syncAttendanceGeofencing(); // start OS geofencing for the user's offices (background auto check-in)
     void autoCheckInOnForeground(); // opening the app at the office marks attendance (foreground, any screen)
     void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
-    // FCM chat pushes while the app is OPEN → heads-up banner (suppressed for the active chat).
-    const unsubChatPush = registerForegroundChatPush(() => useMessagingStore.getState().activeConversationId);
-    // App-icon badge ← total unread; reading a chat in-app clears its notification. Debounced so
-    // bursts of store updates (socket receive + refetch) collapse into one sync.
+    // FCM chat pushes while the app is OPEN → heads-up banner (suppressed for the active chat and
+    // for muted conversations).
+    const unsubChatPush = registerForegroundChatPush(
+      () => useMessagingStore.getState().activeConversationId,
+      (conversationId) => !!useMessagingStore.getState().conversations.find((c) => c.id === conversationId)?.muted,
+    );
+    // App-icon badge ← unmuted chats with unread; reading a chat in-app clears its notification.
+    // Debounced so bursts of store updates (socket receive + refetch) collapse into one sync.
     let badgeTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubBadge = useMessagingStore.subscribe((s) => {
       if (badgeTimer) clearTimeout(badgeTimer);
@@ -113,6 +119,15 @@ function GateController() {
     else if (gate === 'app' && inAuth) router.replace('/(tabs)');
   }, [gate, segments, router]);
 
+  // OS share sheet → "Send to…" picker. Fires once the user is through the gate, so content shared
+  // while signed out survives login (the intent stays pending in the provider until reset). Declared
+  // after the gate effect so the push lands on top of the (tabs) redirect. Guarded against re-push
+  // while the share screen is already open (payload is snapshotted there at mount).
+  const { hasShareIntent } = useShareIntentContext();
+  useEffect(() => {
+    if (hasShareIntent && gate === 'app' && segments[0] !== 'share') router.push('/share');
+  }, [hasShareIntent, gate, segments, router]);
+
   // Once the user is actually in the app (Android only), prompt ONCE to disable battery optimization
   // so background calls/messages stay reliable. Delayed so the home screen renders first.
   useEffect(() => {
@@ -126,6 +141,7 @@ function GateController() {
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
+      <Stack.Screen name="share" options={{ presentation: 'modal' }} />
       <Stack.Screen name="attendance" />
       <Stack.Screen name="admin" />
       <Stack.Screen name="view-as" options={{ presentation: 'modal' }} />
@@ -164,6 +180,10 @@ export default function RootLayout() {
   }, []);
 
   return (
+    // ShareIntentProvider must be the outermost provider (expo-share-intent requirement) — it holds
+    // photos/files shared from the OS share sheet until GateController routes them to /share.
+    // Disabled in Expo Go: the native module only exists in dev/EAS builds (same rule as notifications).
+    <ShareIntentProvider options={{ disabled: isRunningInExpoGo() }}>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <KeyboardProvider>
@@ -192,5 +212,6 @@ export default function RootLayout() {
         </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+    </ShareIntentProvider>
   );
 }
