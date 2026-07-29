@@ -212,7 +212,10 @@ export async function showForegroundChatBanner(data: ChatPushData, activeConvers
 // survived every id-based cancel). Clear everything once — displayed chat/reminder/alert
 // notifications all re-arrive on the next real push; scheduled (future) local reminders are
 // untouched (cancelAll only affects the shade).
-const SHADE_RESET_KEY = 'kb360-shade-reset-v1';
+// v2: notifee.cancelAllNotifications only clears notifications IT recorded — the orphan survived
+// it. expo-notifications' dismissAllNotificationsAsync is a true OS-level NotificationManager
+// cancelAll, which removes anything regardless of which library (or which old build) posted it.
+const SHADE_RESET_KEY = 'kb360-shade-reset-v2';
 let shadeResetChecked = false; // per-process fast path
 async function oneTimeShadeReset(mod: NonNullable<ReturnType<typeof loadNotifee>>): Promise<void> {
   if (shadeResetChecked) return;
@@ -221,6 +224,9 @@ async function oneTimeShadeReset(mod: NonNullable<ReturnType<typeof loadNotifee>
   if (!AS) return;
   try {
     if (await AS.getItem(SHADE_RESET_KEY)) return;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Notifications = require('expo-notifications') as typeof import('expo-notifications');
+    await Notifications.dismissAllNotificationsAsync();
     await mod.notifee.cancelAllNotifications();
     await AS.setItem(SHADE_RESET_KEY, '1');
   } catch { /* best-effort */ }
