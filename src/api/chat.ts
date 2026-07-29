@@ -40,6 +40,7 @@ export interface ChatMessage {
   attachments: ChatAttachment[];
   replyTo: ChatReplyTo | null;
   forwardedFrom: { messageId: string; conversationId: string } | null;
+  mentions?: string[]; // @-mentioned userIds (optional: pre-mentions servers/messages omit it)
   reactions: ChatReaction[];
   status: 'sent' | 'delivered' | 'read';
   sentAt: string;
@@ -71,7 +72,7 @@ export const markConversationRead = (conversationId: string): Promise<{ read: nu
 export const getPinned = (conversationId: string): Promise<ChatMessage[]> => apiFetch(`/api/conversations/${conversationId}/pinned`);
 
 // ── messages ──
-export const sendMessage = (input: { conversationId: string; text?: string; type?: ChatMessage['type']; attachments?: ChatAttachment[]; replyToId?: string; clientId?: string }): Promise<ChatMessage> =>
+export const sendMessage = (input: { conversationId: string; text?: string; type?: ChatMessage['type']; attachments?: ChatAttachment[]; replyToId?: string; clientId?: string; mentions?: string[] }): Promise<ChatMessage> =>
   apiFetch('/api/messages', { method: 'POST', body: input });
 export const editMessage = (id: string, text: string): Promise<ChatMessage> => apiFetch(`/api/messages/${id}`, { method: 'PUT', body: { text } });
 export const deleteMessage = (id: string, scope: 'me' | 'everyone'): Promise<{ ok: boolean }> => apiFetch(`/api/messages/${id}?scope=${scope}`, { method: 'DELETE' });

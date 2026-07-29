@@ -36,7 +36,8 @@ describe('applyChatPush (background push → persisted snapshot)', () => {
     expect(res.conversations[0].unread).toBe(3);
     expect(res.conversations[0].lastMessage?.text).toBe('hello there');
     expect(res.conversations[0].lastActivityAt).toBe('2026-07-21T09:00:00.000Z');
-    expect(res.totalUnread).toBe(3);
+    // WhatsApp-style badge: 3 unread messages but only 1 chat with unread.
+    expect(res.unreadChats).toBe(1);
   });
 
   it('is idempotent for a redelivered message (same messageId)', () => {
@@ -50,7 +51,7 @@ describe('applyChatPush (background push → persisted snapshot)', () => {
     const res = applyChatPush([], push({ conversationId: 'new1' }));
     expect(res.changed).toBe(true);
     expect(res.conversations[0]).toMatchObject({ id: 'new1', type: 'direct', name: 'Faiz Patel', unread: 1, otherUserId: 'u9' });
-    expect(res.totalUnread).toBe(1);
+    expect(res.unreadChats).toBe(1);
   });
 
   it('stubs a group conversation with the group name', () => {
@@ -61,6 +62,19 @@ describe('applyChatPush (background push → persisted snapshot)', () => {
   it('ignores a payload without a conversationId', () => {
     const res = applyChatPush([conv({ unread: 1 })], push({ conversationId: undefined }));
     expect(res.changed).toBe(false);
-    expect(res.totalUnread).toBe(1);
+    expect(res.unreadChats).toBe(1);
+  });
+
+  it('counts chats with unread, not unread messages (two chats, five messages → 2)', () => {
+    const state = [conv({ id: 'c1', unread: 4 }), conv({ id: 'c2' })];
+    const res = applyChatPush(state, push({ conversationId: 'c2', messageId: 'm9' }));
+    expect(res.unreadChats).toBe(2);
+  });
+
+  it('excludes muted chats from the badge count (WhatsApp mute semantics)', () => {
+    const state = [conv({ id: 'c1', unread: 4, muted: true }), conv({ id: 'c2' })];
+    const res = applyChatPush(state, push({ conversationId: 'c2', messageId: 'm9' }));
+    expect(res.conversations.find((c) => c.id === 'c2')?.unread).toBe(1);
+    expect(res.unreadChats).toBe(1); // muted c1 still holds its unread in the list, but never badges
   });
 });

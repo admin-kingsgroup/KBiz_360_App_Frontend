@@ -34,6 +34,51 @@ export function applyMention(text: string, m: ActiveMention, name: string): { te
   return { text: text.slice(0, m.start) + inserted + text.slice(m.end), cursor: m.start + inserted.length };
 }
 
+// ── chat-message mentions (matching "@Name" tokens against a member roster) ──
+
+export interface MentionSegment { text: string; mention: boolean }
+
+const boundaryBefore = (text: string, i: number): boolean => i === 0 || isSpace(text[i - 1]);
+// The token must END cleanly too, so a member named "Al" never lights up inside "@Albert".
+const boundaryAfter = (text: string, end: number): boolean => end >= text.length || !/[A-Za-z0-9]/.test(text[end]);
+
+// Split message text into plain / mention segments for rendering. `names` is the roster of
+// mentionable display names; matching is case-insensitive and longest-name-first, so
+// "@Harshit Jha" wins over a member named "Harshit". Concatenating segments reproduces the input.
+export function splitMentions(text: string, names: string[]): MentionSegment[] {
+  const ranked = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!text || !ranked.length || !text.includes('@')) return [{ text, mention: false }];
+  const lower = text.toLowerCase();
+  const out: MentionSegment[] = [];
+  let last = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '@' || !boundaryBefore(text, i)) continue;
+    const name = ranked.find((n) => lower.startsWith(n.toLowerCase(), i + 1) && boundaryAfter(text, i + 1 + n.length));
+    if (!name) continue;
+    if (i > last) out.push({ text: text.slice(last, i), mention: false });
+    out.push({ text: text.slice(i, i + 1 + name.length), mention: true });
+    last = i + 1 + name.length;
+    i = last - 1;
+  }
+  if (last < text.length) out.push({ text: text.slice(last), mention: false });
+  return out.length ? out : [{ text, mention: false }];
+}
+
+// The ids whose "@Name" token appears in the text — computed at SEND time so the server gets a
+// mentions array without the composer having to track picker state (manually typed exact names
+// count too). Duplicate display names resolve to the first roster entry.
+export function mentionIdsInText<T extends { id: string; name: string }>(text: string, people: T[]): string[] {
+  const byName = new Map<string, string>();
+  for (const p of people) { const k = p.name?.toLowerCase(); if (k && !byName.has(k)) byName.set(k, p.id); }
+  const ids: string[] = [];
+  for (const seg of splitMentions(text, people.map((p) => p.name))) {
+    if (!seg.mention) continue;
+    const id = byName.get(seg.text.slice(1).toLowerCase());
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 // People matching the query, name-start matches first (typing "ja" surfaces "Jaydeep" above
 // "Harshit Jha"). Empty query = the top of the list, so a bare "@" already shows the team.
 export function rankMentionMatches<T extends { name: string }>(people: T[], query: string, limit = 6): T[] {

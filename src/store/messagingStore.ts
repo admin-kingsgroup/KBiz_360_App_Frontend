@@ -15,6 +15,7 @@ export interface OutboxItem {
   text?: string;
   attachments?: ChatAttachment[];
   replyToId?: string;
+  mentions?: string[];
   createdAt: number;
 }
 
@@ -41,11 +42,13 @@ interface MessagingState {
 
   loadConversations: () => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
+  loadOlderMessages: (conversationId: string) => Promise<number>;
   openDirect: (otherUserId: string) => Promise<string>;
   setActive: (conversationId: string | null) => void;
   loadPresence: (userIds: string[]) => Promise<void>;
-  send: (conversationId: string, text: string, replyToId?: string) => Promise<void>;
+  send: (conversationId: string, text: string, replyToId?: string, mentions?: string[]) => Promise<void>;
   sendMedia: (conversationId: string, input: { type: ChatMessage['type']; attachments: ChatAttachment[]; text?: string }) => Promise<void>;
+  forward: (messageId: string, conversationIds: string[]) => Promise<number>;
   retry: (clientId: string) => Promise<void>;
   flushOutbox: () => Promise<void>;
   edit: (messageId: string, conversationId: string, text: string) => Promise<void>;
@@ -147,6 +150,18 @@ export const useMessagingStore = create<MessagingState>()(
         } catch { /* offline — keep cached */ }
       },
 
+      // Prepend the page of history before the oldest loaded message (id cursor). Returns how many
+      // arrived so callers (jump-to-pinned) know when the top of the thread has been reached.
+      loadOlderMessages: async (conversationId) => {
+        const oldest = (get().messages[conversationId] ?? []).find((m) => !m.pending && !m.failed);
+        if (!oldest) return 0;
+        try {
+          const older = (await chatApi.getMessages(conversationId, { before: oldest.id, limit: 40 })) as StoredMessage[];
+          if (older.length) set((s) => ({ messages: { ...s.messages, [conversationId]: [...older, ...(s.messages[conversationId] ?? [])] } }));
+          return older.length;
+        } catch { return 0; }
+      },
+
       openDirect: async (otherUserId) => {
         const conv = await chatApi.getOrCreateDirect(otherUserId);
         set((s) => ({ conversations: sortConvs([conv, ...s.conversations.filter((c) => c.id !== conv.id)]) }));
@@ -170,7 +185,7 @@ export const useMessagingStore = create<MessagingState>()(
 
       // Optimistic + queued: the message shows instantly and is persisted to the outbox; if the
       // send fails (offline), it stays queued and is retried on reconnect (flushOutbox).
-      send: async (conversationId, text, replyToId) => {
+      send: async (conversationId, text, replyToId, mentions) => {
         const body = text.trim();
         if (!body) return;
         const clientId = newClientId();
@@ -178,13 +193,13 @@ export const useMessagingStore = create<MessagingState>()(
         const nowIso = new Date().toISOString();
         const optimistic: StoredMessage = {
           id: clientId, clientId, conversationId, senderId: myUserId, type: 'text', text: body,
-          deletedForEveryone: false, attachments: [], replyTo: null, forwardedFrom: null, reactions: [],
+          deletedForEveryone: false, attachments: [], replyTo: null, forwardedFrom: null, mentions: mentions ?? [], reactions: [],
           status: 'sent', sentAt: nowIso, deliveredAt: null, readAt: null, pinned: false, edited: false, editedAt: null,
           createdAt: nowIso, mine: true, starred: false, pending: true, failed: false,
         };
         set((s) => ({
           messages: { ...s.messages, [conversationId]: [...(s.messages[conversationId] ?? []), optimistic] },
-          outbox: [...s.outbox, { clientId, conversationId, type: 'text', text: body, replyToId, createdAt: Date.now() }],
+          outbox: [...s.outbox, { clientId, conversationId, type: 'text', text: body, replyToId, mentions, createdAt: Date.now() }],
           // Optimistically surface the conversation (with a lastMessage) so it appears at the top of
           // the chat list immediately — even before the server confirms (real-app behaviour).
           conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId
@@ -199,6 +214,19 @@ export const useMessagingStore = create<MessagingState>()(
         const saved = await chatApi.sendMessage({ conversationId, type: input.type, text: input.text, attachments: input.attachments });
         get()._upsert(conversationId, { ...saved, pending: false });
         set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
+      },
+
+      // Forward an existing message to other conversations. The server copies text/attachments and
+      // stamps forwardedFrom; results are upserted here so they appear even if the socket echo is
+      // late/down (the socket's chat:receive then dedupes by id). Returns how many actually sent —
+      // the server silently skips destinations the user is no longer a member of.
+      forward: async (messageId, conversationIds) => {
+        const sent = await chatApi.forwardMessage(messageId, conversationIds);
+        for (const saved of sent) {
+          get()._upsert(saved.conversationId, { ...saved, pending: false, failed: false });
+          set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === saved.conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
+        }
+        return sent.length;
       },
 
       retry: async (clientId) => {
@@ -220,7 +248,10 @@ export const useMessagingStore = create<MessagingState>()(
         const { starred } = await chatApi.starMessage(messageId);
         set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).map((m) => (m.id === messageId ? { ...m, starred } : m)) } }));
       },
-      pin: async (messageId, conversationId) => { await chatApi.pinMessage(messageId); void conversationId; },
+      pin: async (messageId, conversationId) => {
+        const { pinned } = await chatApi.pinMessage(messageId);
+        set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).map((m) => (m.id === messageId ? { ...m, pinned } : m)) } }));
+      },
       markRead: async (conversationId) => {
         set((s) => ({ conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, unread: 0 } : c)) }));
         await chatApi.markConversationRead(conversationId).catch(() => undefined);
@@ -281,7 +312,7 @@ export const useMessagingStore = create<MessagingState>()(
         const item = get().outbox.find((o) => o.clientId === clientId);
         if (!item) return;
         try {
-          const saved = await chatApi.sendMessage({ conversationId: item.conversationId, text: item.text, type: item.type, attachments: item.attachments, replyToId: item.replyToId, clientId });
+          const saved = await chatApi.sendMessage({ conversationId: item.conversationId, text: item.text, type: item.type, attachments: item.attachments, replyToId: item.replyToId, mentions: item.mentions, clientId });
           set((s) => ({ outbox: s.outbox.filter((o) => o.clientId !== clientId) }));
           // Carry the clientId so _upsert REPLACES the optimistic row (the REST response omits it) —
           // otherwise the saved message is appended as a duplicate bubble with a clashing key.

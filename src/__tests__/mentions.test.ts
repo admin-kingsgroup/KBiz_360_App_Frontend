@@ -1,4 +1,4 @@
-import { activeMention, applyMention, rankMentionMatches } from '../logic/mentions';
+import { activeMention, applyMention, rankMentionMatches, splitMentions, mentionIdsInText } from '../logic/mentions';
 
 // Caret at the end of the given string, which is how the composer is used ~always.
 const at = (s: string) => activeMention(s, s.length);
@@ -71,5 +71,65 @@ describe('rankMentionMatches', () => {
   });
   it('no match → nothing (the popover stays hidden)', () => {
     expect(rankMentionMatches(people, 'zzz')).toEqual([]);
+  });
+});
+
+describe('splitMentions', () => {
+  const names = ['Harshit Jha', 'Harshit', 'Al'];
+
+  it('marks a matched @Name and keeps the surrounding text intact', () => {
+    expect(splitMentions('ping @Harshit Jha now', names)).toEqual([
+      { text: 'ping ', mention: false },
+      { text: '@Harshit Jha', mention: true },
+      { text: ' now', mention: false },
+    ]);
+  });
+  it('prefers the LONGEST matching name', () => {
+    const segs = splitMentions('@Harshit Jha', names);
+    expect(segs).toEqual([{ text: '@Harshit Jha', mention: true }]);
+  });
+  it('is case-insensitive but preserves the typed casing', () => {
+    expect(splitMentions('hey @harshit jha!', names)).toEqual([
+      { text: 'hey ', mention: false },
+      { text: '@harshit jha', mention: true },
+      { text: '!', mention: false },
+    ]);
+  });
+  it('needs a clean end — "Al" never lights up inside "@Albert"', () => {
+    expect(splitMentions('@Albert', names)).toEqual([{ text: '@Albert', mention: false }]);
+    expect(splitMentions('@Al!', names)).toEqual([{ text: '@Al', mention: true }, { text: '!', mention: false }]);
+  });
+  it('a mid-word @ (email address) is not a mention', () => {
+    expect(splitMentions('mail al@x.com', names)).toEqual([{ text: 'mail al@x.com', mention: false }]);
+  });
+  it('handles several mentions and reproduces the input when concatenated', () => {
+    const text = '@Al meet @Harshit Jha at 5';
+    const segs = splitMentions(text, names);
+    expect(segs.filter((s) => s.mention).map((s) => s.text)).toEqual(['@Al', '@Harshit Jha']);
+    expect(segs.map((s) => s.text).join('')).toBe(text);
+  });
+  it('no roster / no @ → one plain segment', () => {
+    expect(splitMentions('plain text', names)).toEqual([{ text: 'plain text', mention: false }]);
+    expect(splitMentions('@Harshit Jha', [])).toEqual([{ text: '@Harshit Jha', mention: false }]);
+  });
+});
+
+describe('mentionIdsInText', () => {
+  const people = [
+    { id: 'u1', name: 'Harshit Jha' },
+    { id: 'u2', name: 'Harshit' },
+    { id: 'u3', name: 'Sayli Ticketing' },
+  ];
+
+  it('collects the ids of mentioned members, deduped, in text order', () => {
+    expect(mentionIdsInText('@Sayli Ticketing and @Harshit Jha and @Sayli Ticketing', people)).toEqual(['u3', 'u1']);
+  });
+  it('longest-name-first: "@Harshit Jha" is u1, a bare "@Harshit " is u2', () => {
+    expect(mentionIdsInText('@Harshit Jha', people)).toEqual(['u1']);
+    expect(mentionIdsInText('@Harshit ok', people)).toEqual(['u2']);
+  });
+  it('no mentions → empty', () => {
+    expect(mentionIdsInText('nothing here', people)).toEqual([]);
+    expect(mentionIdsInText('a@b.com', people)).toEqual([]);
   });
 });

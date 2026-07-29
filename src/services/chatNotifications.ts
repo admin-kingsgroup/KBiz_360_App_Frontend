@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
-import { applyChatPush, type ChatPushData } from '../logic/chatPushApply';
+import { applyChatPush, chatPushLine, type ChatPushData } from '../logic/chatPushApply';
 import { loadSession } from './storage/session';
 import type { ChatConversation } from '../api/chat';
 
@@ -11,7 +11,9 @@ import type { ChatConversation } from '../api/chat';
 // calls handleChatMessagePush → (1) apply the message to the PERSISTED messaging snapshot in
 // AsyncStorage so the next cold open renders the chat list + unread instantly, (2) draw/refresh one
 // notifee notification per conversation (stacked message lines, like WhatsApp), (3) set the app-icon
-// badge to the total unread.
+// badge to the number of chats with unread messages (WhatsApp counts chats, not messages). Muted
+// conversations get NO notification and do NOT count in the badge — the message only lands silently
+// in the chat list (WhatsApp mute semantics); the backend pushes regardless, so mute is client-side.
 //
 // Foreground: the socket keeps the live store current; syncChatNotifications (store subscription in
 // the root layout) keeps the badge in step and clears a conversation's notification when it is read.
@@ -145,7 +147,8 @@ export async function handleChatMessagePush(data: ChatPushData): Promise<void> {
   void ackDeliveredViaRest(data.conversationId); // fire-and-forget — never delays the notification
 
   // 1) Fold the message into the persisted store snapshot → cold open shows it instantly.
-  let totalUnread: number | null = null;
+  let unreadChats: number | null = null;
+  let muted = false;
   const AS = await getAS();
   if (AS) {
     try {
@@ -153,7 +156,8 @@ export async function handleChatMessagePush(data: ChatPushData): Promise<void> {
       if (raw) {
         const parsed = JSON.parse(raw) as { state?: { conversations?: ChatConversation[] } };
         const res = applyChatPush(parsed.state?.conversations ?? [], data);
-        totalUnread = res.totalUnread;
+        unreadChats = res.unreadChats;
+        muted = !!res.conversations.find((c) => c.id === data.conversationId)?.muted;
         if (res.changed && parsed.state) {
           parsed.state.conversations = res.conversations;
           await AS.setItem(STORE_KEY, JSON.stringify(parsed));
@@ -166,41 +170,47 @@ export async function handleChatMessagePush(data: ChatPushData): Promise<void> {
     }
   }
 
+  // Muted conversation: land the message silently in the chat list — no notification, no badge
+  // change beyond the (mute-excluding) recount above.
+  if (muted) {
+    if (unreadChats != null) await setAppBadge(unreadChats);
+    return;
+  }
+
   // 2) Append this message to the conversation's pending lines and (re)draw its notification.
-  const isGroup = data.convType === 'group';
-  const line = isGroup && data.senderName ? `${data.senderName}: ${data.preview ?? ''}` : (data.preview ?? '');
+  const line = chatPushLine(data); // mention-aware ("X mentioned you: …")
   const map = await readLines();
   map[data.conversationId] = [...(map[data.conversationId] ?? []), line].slice(-MAX_LINES);
   await writeLines(map);
   await displayChatNotification(data, map[data.conversationId]);
 
-  // 3) App-icon badge = total unread across conversations (falls back to counting pending lines
-  //    when the snapshot was unavailable).
-  if (totalUnread == null) totalUnread = Object.values(map).reduce((s, l) => s + l.length, 0);
-  await setAppBadge(totalUnread);
+  // 3) App-icon badge = chats with unread messages (falls back to counting conversations with
+  //    pending notification lines when the snapshot was unavailable).
+  if (unreadChats == null) unreadChats = Object.keys(map).length;
+  await setAppBadge(unreadChats);
 }
 
 // FOREGROUND banner for an FCM chat data-push. The live store/socket already handles the data —
-// this only draws the heads-up, and skips it for the conversation the user is looking at.
-export async function showForegroundChatBanner(data: ChatPushData, activeConversationId: string | null): Promise<void> {
-  if (!data.conversationId || data.conversationId === activeConversationId) return;
-  const isGroup = data.convType === 'group';
-  const line = isGroup && data.senderName ? `${data.senderName}: ${data.preview ?? ''}` : (data.preview ?? '');
-  await displayChatNotification(data, [line]);
+// this only draws the heads-up, and skips it for the conversation the user is looking at and for
+// muted conversations.
+export async function showForegroundChatBanner(data: ChatPushData, activeConversationId: string | null, muted = false): Promise<void> {
+  if (!data.conversationId || data.conversationId === activeConversationId || muted) return;
+  await displayChatNotification(data, [chatPushLine(data)]);
 }
 
-// Store-driven sync (root layout subscribes): badge ← total unread; conversations read in-app get
-// their notification + pending lines cleared. Debounced by the caller.
+// Store-driven sync (root layout subscribes): badge ← unmuted chats with unread; conversations read
+// or muted in-app get their notification + pending lines cleared. Debounced by the caller.
 export async function syncChatNotifications(conversations: ChatConversation[]): Promise<void> {
   if (!native) return;
-  const total = conversations.reduce((s, c) => s + (c.unread || 0), 0);
+  const total = conversations.filter((c) => (c.unread || 0) > 0 && !c.muted).length;
   await setAppBadge(total);
   const map = await readLines();
-  // A conversation is stale when it has been read (unread 0) or no longer exists in the loaded
-  // list. An EMPTY list means the store hasn't hydrated/loaded yet — never clear on that.
+  // A conversation is stale when it has been read (unread 0), muted (mute silences its pending
+  // notification too), or no longer exists in the loaded list. An EMPTY list means the store
+  // hasn't hydrated/loaded yet — never clear on that.
   const stale = Object.keys(map).filter((id) => {
     const conv = conversations.find((c) => c.id === id);
-    return conv ? conv.unread === 0 : conversations.length > 0;
+    return conv ? conv.unread === 0 || conv.muted : conversations.length > 0;
   });
   if (!stale.length) return;
   const mod = loadNotifee();
@@ -213,14 +223,19 @@ export async function syncChatNotifications(conversations: ChatConversation[]): 
 
 // Foreground FCM listener — chat data-pushes arriving while the app is OPEN (the background handler
 // only runs when it is not). Returns an unsubscribe (no-op outside native builds).
-export function registerForegroundChatPush(getActiveConversationId: () => string | null): () => void {
+export function registerForegroundChatPush(
+  getActiveConversationId: () => string | null,
+  isConversationMuted: (conversationId: string) => boolean = () => false,
+): () => void {
   if (!native) return () => undefined;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getMessaging, onMessage } = require('@react-native-firebase/messaging');
     return onMessage(getMessaging(), async (msg: { data?: Record<string, string> }) => {
       const data = (msg.data ?? {}) as ChatPushData & { type?: string };
-      if (data.type === 'chat_message') await showForegroundChatBanner(data, getActiveConversationId());
+      if (data.type === 'chat_message') {
+        await showForegroundChatBanner(data, getActiveConversationId(), data.conversationId ? isConversationMuted(data.conversationId) : false);
+      }
     });
   } catch {
     return () => undefined;

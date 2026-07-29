@@ -5,13 +5,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Avatar } from '../../src/components/ui';
-import { VoiceMessage } from '../../src/components/chat';
+import { VoiceMessage, LinkedText } from '../../src/components/chat';
 import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -19,6 +19,8 @@ import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/stor
 import { getConversation, getPinned, type ChatConversation, type ChatAttachment, type ChatMessage } from '../../src/api/chat';
 import { uploadFile, mediaUrl, toAttachment, humanSize } from '../../src/api/media';
 import { listUsers, toUser } from '../../src/api/directory';
+import { activeMention, applyMention, rankMentionMatches, mentionIdsInText } from '../../src/logic/mentions';
+import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
 import { callManager } from '../../src/services/rtc/CallManager';
@@ -56,21 +58,35 @@ export default function ChatDetail() {
   const reversed = useMemo(() => messages.slice().reverse(), [messages]);
   const typingUsers = useMessagingStore((s) => s.typing[convId]) ?? [];
   const convFromStore = useMessagingStore((s) => s.conversations.find((c) => c.id === convId));
+  const conversations = useMessagingStore((s) => s.conversations);
+  const myUserId = useMessagingStore((s) => s.myUserId);
   const presence = useMessagingStore((s) => s.presence);
   const users = useAccessStore((s) => s.users);
 
   const [conv, setConv] = useState<ChatConversation | undefined>(convFromStore);
   const [text, setText] = useState('');
+  // Caret position + controlled-selection override, for @-mention insertion (same pattern as the
+  // reminder composer): `sel` is set once after a pick to park the caret, then released.
+  const [cursor, setCursor] = useState(0);
+  const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [active, setActive] = useState<StoredMessage | null>(null);
   const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<StoredMessage | null>(null);
+  const [forwarding, setForwarding] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const [viewer, setViewer] = useState<string | null>(null);
   const [pinned, setPinned] = useState<ChatMessage[]>([]);
   const [contactOpen, setContactOpen] = useState(false);
-  const [pinnedOpen, setPinnedOpen] = useState(false);
+  // Jump-to-pinned (WhatsApp-style): which pin the banner targets next, the message id waiting to be
+  // scrolled to (resolved by an effect once the row is in the list data), and the highlight flash.
+  const [pinIdx, setPinIdx] = useState(0);
+  const [pendingJump, setPendingJump] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { isRecording, elapsedSec, start, finish, cancel } = useVoiceRecorder();
   const listRef = useRef<FlatList<StoredMessage>>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,6 +130,7 @@ export default function ChatDetail() {
     joinConversation(convId);
     Promise.all([store.loadMessages(convId), convFromStore ? Promise.resolve() : getConversation(convId).then(setConv).catch(() => undefined)])
       .finally(() => { setLoading(false); void store.markRead(convId); emitRead(convId); });
+    setPinIdx(0); setPendingJump(null); setHighlightId(null);
     getPinned(convId).then(setPinned).catch(() => setPinned([]));
     if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
     return () => { leaveConversation(convId); useMessagingStore.getState().setActive(null); };
@@ -162,14 +179,68 @@ export default function ChatDetail() {
     typingTimer.current = setTimeout(() => emitStopTyping(convId), 1500);
   };
 
+  // ── @-mentions (groups only, WhatsApp-style) ──
+  // Typing "@" opens the member list above the composer; picking someone writes "@Full Name " into
+  // the text. At send time the text is re-scanned against the roster to build the mentions ids.
+  const mentionPeople = useMemo<User[]>(() => {
+    if (conv?.type !== 'group') return [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return (conv.members ?? []).map((m) => byId.get(m.userId)).filter((u): u is User => !!u && u.id !== myUserId);
+  }, [conv?.type, conv?.members, users, myUserId]);
+  const mention = isGroup && !editing ? activeMention(text, cursor) : null;
+  const mentionMatches = mention ? rankMentionMatches(mentionPeople, mention.query) : [];
+  const pickMention = (p: User): void => {
+    if (!mention) return;
+    const next = applyMention(text, mention, p.name);
+    setText(next.text);
+    setCursor(next.cursor);
+    setSel({ start: next.cursor, end: next.cursor });
+  };
+
   const submitText = async (): Promise<void> => {
     const t = text.trim();
     if (!t) return;
     if (editing) { await useMessagingStore.getState().edit(editing.id, convId, t); setEditing(null); setText(''); return; }
     setText('');
     emitStopTyping(convId);
-    await useMessagingStore.getState().send(convId, t, replyTo?.id);
+    const mentions = isGroup ? mentionIdsInText(t, mentionPeople) : undefined;
+    await useMessagingStore.getState().send(convId, t, replyTo?.id, mentions?.length ? mentions : undefined);
     setReplyTo(null);
+  };
+
+  // ── forward ──
+  // Target list: every existing chat (recent first, as the store keeps them), then teammates with
+  // no direct chat yet — picking one of those creates the DM on the fly (openDirect) before sending.
+  const forwardTargets = useMemo<ForwardTarget[]>(() => {
+    if (!forwardMsg) return [];
+    const convT: ForwardTarget[] = conversations.filter((c) => !c.archived).map((c) => ({
+      key: `c:${c.id}`, kind: 'conv', id: c.id, name: c.name,
+      sub: c.type === 'group' ? `Group · ${c.memberCount} members` : null,
+      initials: (c.name[0] ?? '?').toUpperCase(), color: c.type === 'group' ? colors.purple : colors.blue,
+      avatarUri: c.image ? mediaUrl(c.image) : null,
+    }));
+    const haveDirect = new Set(conversations.filter((c) => c.type === 'direct' && c.otherUserId).map((c) => c.otherUserId as string));
+    const userT: ForwardTarget[] = users
+      .filter((u) => u.id !== myUserId && !haveDirect.has(u.id))
+      .map((u) => ({ key: `u:${u.id}`, kind: 'user', id: u.id, name: u.name, sub: u.position ?? u.roleName ?? null, initials: u.initials, color: u.color, avatarUri: u.avatar ?? null }));
+    return [...convT, ...userT];
+  }, [forwardMsg, conversations, users, myUserId]);
+
+  const doForward = async (targets: ForwardTarget[]): Promise<void> => {
+    if (!forwardMsg || forwarding || !targets.length) return;
+    setForwarding(true);
+    try {
+      const store = useMessagingStore.getState();
+      const convIds: string[] = [];
+      for (const t of targets) convIds.push(t.kind === 'conv' ? t.id : await store.openDirect(t.id));
+      const n = await store.forward(forwardMsg.id, convIds);
+      showToast(n ? `Forwarded to ${n} chat${n === 1 ? '' : 's'}` : 'Could not forward');
+      setForwardMsg(null);
+    } catch {
+      showToast('Could not forward — check your connection');
+    } finally {
+      setForwarding(false);
+    }
   };
 
   // ── media ──
@@ -232,7 +303,43 @@ export default function ChatDetail() {
 
   const closeMenu = (): void => setActive(null);
   const startEdit = (m: StoredMessage): void => { setEditing(m); setText(m.text); setReplyTo(null); closeMenu(); };
-  const refreshPinned = (): void => { getPinned(convId).then(setPinned).catch(() => setPinned([])); };
+  const refreshPinned = (): void => { getPinned(convId).then((p) => { setPinned(p); setPinIdx(0); }).catch(() => setPinned([])); };
+
+  // Tap the banner → scroll to the pinned message (cycling through pins on repeated taps). The
+  // target may be far above the last-40 window the chat opened with, so page history in until it's
+  // loaded (bounded so a deleted/foreign id can't loop forever), then let the effect below scroll.
+  const jumpToMessage = async (messageId: string): Promise<void> => {
+    const store = useMessagingStore.getState;
+    const has = (): boolean => (store().messages[convId] ?? []).some((m) => m.id === messageId);
+    for (let hops = 0; !has() && hops < 25; hops++) {
+      if ((await store().loadOlderMessages(convId)) === 0) break;
+    }
+    if (!has()) { showToast('Message is no longer available'); return; }
+    setPendingJump(messageId);
+  };
+  const jumpToPinned = (): void => {
+    if (!pinned.length) return;
+    const i = pinIdx % pinned.length;
+    setPinIdx((i + 1) % pinned.length);
+    void jumpToMessage(pinned[i].id);
+  };
+
+  // Scroll fires from an effect (not inline in jumpToMessage) so rows paged in above are already in
+  // the FlatList's data — scrollToIndex on a not-yet-committed index throws.
+  useEffect(() => {
+    if (!pendingJump) return;
+    const idx = reversed.findIndex((m) => m.id === pendingJump);
+    if (idx < 0) return;
+    setPendingJump(null);
+    listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    setHighlightId(pendingJump);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 2000);
+  }, [pendingJump, reversed]);
+  useEffect(() => () => {
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    if (scrollRetry.current) clearTimeout(scrollRetry.current);
+  }, []);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top']}>
@@ -255,16 +362,21 @@ export default function ChatDetail() {
         <Pressable onPress={() => (isGroup ? router.push({ pathname: '/chat/group-info', params: { id: convId } }) : setContactOpen(true))} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={colors.ink} /></Pressable>
       </View>
 
-      {/* Pinned banner */}
-      {pinned.length > 0 ? (
-        <Pressable onPress={() => setPinnedOpen(true)} className="flex-row items-center gap-2 px-4 py-2" style={{ backgroundColor: colors.primarySoft, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-          <Pin size={14} color={colors.primary} />
-          <View className="flex-1">
-            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>{pinned.length} pinned message{pinned.length > 1 ? 's' : ''}</Text>
-            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{pinned[0].text || `[${pinned[0].type}]`}</Text>
-          </View>
-        </Pressable>
-      ) : null}
+      {/* Pinned banner — tap scrolls to the pinned message (repeated taps cycle through pins) */}
+      {pinned.length > 0 ? (() => {
+        const cur = pinned[pinIdx % pinned.length];
+        return (
+          <Pressable onPress={jumpToPinned} className="flex-row items-center gap-2 px-4 py-2" style={{ backgroundColor: colors.primarySoft, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+            <Pin size={14} color={colors.primary} />
+            <View className="flex-1">
+              <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>
+                {pinned.length > 1 ? `Pinned message ${(pinIdx % pinned.length) + 1} of ${pinned.length}` : 'Pinned message'}
+              </Text>
+              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{cur.text || `[${cur.type}]`}</Text>
+            </View>
+          </Pressable>
+        );
+      })() : null}
 
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         {loading ? (
@@ -280,6 +392,15 @@ export default function ChatDetail() {
             // Counter-flip must mirror the list's inversion exactly: Android inverts with
             // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
             ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View>}
+            // Jump-to-pinned can target a row far outside the rendered window (no getItemLayout —
+            // rows are variable height): land near it by estimate, then retry precisely once rendered.
+            onScrollToIndexFailed={(info) => {
+              listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+              if (scrollRetry.current) clearTimeout(scrollRetry.current);
+              scrollRetry.current = setTimeout(() => {
+                try { listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }); } catch { /* already near it */ }
+              }, 400);
+            }}
             renderItem={({ item: m, index }) => {
               // Inverted list: `index+1` is the chronologically OLDER message. WhatsApp-style day
               // separator: a centered date pill before the FIRST (oldest) message of each calendar
@@ -298,7 +419,9 @@ export default function ChatDetail() {
               // and the separators after — they then appear ABOVE the message on screen.
               return (
                 <>
-                  {row}
+                  {m.id === highlightId
+                    ? <View style={{ backgroundColor: colors.primary + '2E', borderRadius: 14, marginHorizontal: -6, paddingHorizontal: 6 }}>{row}</View>
+                    : row}
                   {showUnread ? <UnreadDivider count={unreadDivider!.count} /> : null}
                   {showDay ? <DateSeparator label={daySeparator(new Date(m.createdAt).getTime())} /> : null}
                 </>
@@ -327,6 +450,22 @@ export default function ChatDetail() {
           </View>
         ) : null}
 
+        {/* @-mention suggestions — member list above the composer (groups only) */}
+        {mention && mentionMatches.length > 0 ? (
+          <View style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
+            {mentionMatches.map((p, i) => (
+              <Pressable key={p.id} onPress={() => pickMention(p)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-2.5"
+                style={{ paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.coolDivider }}>
+                <Avatar initials={p.initials} color={p.color} size={32} uri={p.avatar} />
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
+                  {p.position || p.roleName ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{p.position ?? p.roleName}</Text> : null}
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
         {/* Attach menu */}
         {attachOpen ? (
           <View className="flex-row gap-3 px-4 py-3" style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
@@ -348,7 +487,9 @@ export default function ChatDetail() {
               <Text style={{ color: colors.coolText, fontSize: 13 }}>Recording…</Text>
             </View>
           ) : (
-            <TextInput value={text} onChangeText={onChangeText} onFocus={() => setAttachOpen(false)} onSubmitEditing={submitText} placeholder="Message" placeholderTextColor={colors.coolText3} multiline
+            <TextInput value={text} onChangeText={onChangeText} onFocus={() => setAttachOpen(false)} onSubmitEditing={submitText} placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
+              selection={sel}
+              onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
               style={{ flex: 1, paddingHorizontal: 18, paddingVertical: 11, borderRadius: 22, backgroundColor: colors.coolMuted, fontSize: 15.5, color: colors.ink, maxHeight: 110 }} />
           )}
           <Pressable onPress={() => { if (text.trim()) return void submitText(); return void onMic(); }}
@@ -395,32 +536,6 @@ export default function ChatDetail() {
         </Pressable>
       </Modal>
 
-      {/* Pinned messages list */}
-      <Modal visible={pinnedOpen} transparent animationType="slide" onRequestClose={() => setPinnedOpen(false)}>
-        <Pressable onPress={() => setPinnedOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: insets.bottom + 12, maxHeight: '70%' }}>
-            <View className="flex-row items-center gap-2 px-4 py-3" style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-              <Pin size={16} color={colors.primary} />
-              <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>Pinned messages</Text>
-            </View>
-            <FlatList
-              data={pinned}
-              keyExtractor={(pm) => pm.id}
-              contentContainerStyle={{ padding: 12, gap: 8 }}
-              renderItem={({ item: pm }) => (
-                <View className="flex-row items-center gap-2" style={{ backgroundColor: colors.coolBg, borderRadius: 12, padding: 10 }}>
-                  <View className="flex-1">
-                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{nameOf(pm.senderId)}</Text>
-                    <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 13.5 }}>{pm.text || `[${pm.type}]`}</Text>
-                  </View>
-                  <Pressable onPress={() => void useMessagingStore.getState().pin(pm.id, convId).then(refreshPinned)} hitSlop={8}><Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>Unpin</Text></Pressable>
-                </View>
-              )}
-            />
-          </View>
-        </Pressable>
-      </Modal>
-
       {/* Action menu */}
       {active ? (
         <Pressable onPress={closeMenu} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
@@ -430,9 +545,11 @@ export default function ChatDetail() {
             </View>
             {[
               { label: 'Reply', Icon: Reply, onPress: () => { setReplyTo(active); closeMenu(); } },
+              { label: 'Forward', Icon: ForwardIcon, onPress: () => { setForwardMsg(active); closeMenu(); } },
               ...(active.type === 'text' ? [{ label: 'Copy', Icon: Copy, onPress: () => { void Clipboard.setStringAsync(active.text); closeMenu(); showToast('Copied'); } }] : []),
               { label: active.starred ? 'Unstar' : 'Star', Icon: Star, onPress: () => { void useMessagingStore.getState().star(active.id, convId); closeMenu(); } },
-              { label: active.pinned ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(active.id, convId).then(refreshPinned); closeMenu(); } },
+              // Pinned by anyone counts (the message flag can lag pins made from another device).
+              { label: active.pinned || pinned.some((p) => p.id === active.id) ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(active.id, convId).then(refreshPinned); closeMenu(); } },
               ...(active.mine && active.type === 'text' && Date.now() - new Date(active.sentAt).getTime() < EDIT_WINDOW_MS ? [{ label: 'Edit', Icon: Pencil, onPress: () => startEdit(active) }] : []),
               { label: 'Delete for me', Icon: Trash2, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'me'); closeMenu(); } },
               ...(active.mine && Date.now() - new Date(active.sentAt).getTime() < DELETE_EVERYONE_MS ? [{ label: 'Delete for everyone', Icon: Trash2, danger: true, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'everyone'); closeMenu(); } }] : []),
@@ -445,7 +562,100 @@ export default function ChatDetail() {
           </View>
         </Pressable>
       ) : null}
+
+      {/* Forward picker (WhatsApp-style: multi-select up to 5 chats, then send) */}
+      <ForwardSheet visible={!!forwardMsg} targets={forwardTargets} sending={forwarding}
+        preview={forwardMsg ? (forwardMsg.text || `[${forwardMsg.type}]`) : ''}
+        onClose={() => setForwardMsg(null)} onSend={(t) => void doForward(t)} />
     </SafeAreaView>
+  );
+}
+
+// A row in the forward picker: an existing conversation, or a teammate with no DM yet (the send
+// path creates the DM on demand).
+interface ForwardTarget {
+  key: string;
+  kind: 'conv' | 'user';
+  id: string;
+  name: string;
+  sub: string | null;
+  initials: string;
+  color: string;
+  avatarUri: string | null;
+}
+
+const FORWARD_MAX = 5; // WhatsApp's forward cap — keeps one tap from spamming every chat
+
+function ForwardSheet({ visible, targets, preview, sending, onClose, onSend }: {
+  visible: boolean; targets: ForwardTarget[]; preview: string; sending: boolean;
+  onClose: () => void; onSend: (picked: ForwardTarget[]) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [q, setQ] = useState('');
+  const [selKeys, setSelKeys] = useState<string[]>([]);
+  useEffect(() => { if (visible) { setQ(''); setSelKeys([]); } }, [visible]);
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return needle ? targets.filter((t) => t.name.toLowerCase().includes(needle)) : targets;
+  }, [targets, q]);
+  const toggle = (key: string): void =>
+    setSelKeys((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : cur.length >= FORWARD_MAX ? cur : [...cur, key]));
+  const picked = targets.filter((t) => selKeys.includes(t.key));
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+        <Pressable style={{ flex: 1 }} onPress={onClose} />
+        <View style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%', paddingBottom: insets.bottom }}>
+          <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 10 }}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800' }}>Forward to…</Text>
+              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>{preview}</Text>
+            </View>
+            <Pressable onPress={onClose} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+              <X size={16} color={colors.coolText} />
+            </Pressable>
+          </View>
+          <View style={{ paddingHorizontal: 18, paddingBottom: 8 }}>
+            <TextInput value={q} onChangeText={setQ} placeholder="Search chats & people" placeholderTextColor={colors.coolText3}
+              style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14.5, color: colors.ink }} />
+          </View>
+          <FlatList
+            data={filtered}
+            keyExtractor={(t) => t.key}
+            keyboardShouldPersistTaps="handled"
+            style={{ flexGrow: 0 }}
+            ListEmptyComponent={<Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center', paddingVertical: 24 }}>No chats match</Text>}
+            renderItem={({ item: t }) => {
+              const on = selKeys.includes(t.key);
+              return (
+                <Pressable onPress={() => toggle(t.key)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-2.5"
+                  style={{ paddingHorizontal: 18, paddingVertical: 9 }}>
+                  <Avatar initials={t.initials} color={t.color} size={38} uri={t.avatarUri} />
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{t.name}</Text>
+                    {t.sub ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{t.sub}</Text> : null}
+                  </View>
+                  <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                    {on ? <Check size={13} color="#fff" strokeWidth={3} /> : null}
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+          <View className="flex-row items-center" style={{ paddingHorizontal: 18, paddingVertical: 10, borderTopColor: colors.coolDivider, borderTopWidth: 1, gap: 10 }}>
+            <Text style={{ flex: 1, color: colors.coolText, fontSize: 12.5 }}>
+              {picked.length ? `${picked.length} of ${FORWARD_MAX} selected` : `Select up to ${FORWARD_MAX} chats`}
+            </Text>
+            <Pressable disabled={!picked.length || sending} onPress={() => onSend(picked)}
+              className="flex-row items-center gap-1.5"
+              style={{ paddingHorizontal: 20, paddingVertical: 11, borderRadius: 999, backgroundColor: picked.length && !sending ? colors.primary : colors.coolMuted }}>
+              {sending ? <ActivityIndicator size="small" color="#fff" /> : <Send size={15} color={picked.length ? '#fff' : colors.coolText3} />}
+              <Text style={{ color: picked.length && !sending ? '#fff' : colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Send</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -588,10 +798,19 @@ function Bubble({ m, isGroup, nameOf, onPress, onOpenImage, onRetry }: { m: Stor
   const tickColor = m.status === 'read' ? '#53BDEB' : 'rgba(255,255,255,0.65)';
   const TickIcon = m.pending ? Clock : m.status === 'sent' ? Check : CheckCheck;
   const hasMedia = !deleted && m.type !== 'text' && m.attachments.length > 0;
+  // Names of the @-mentioned users, resolved for highlight matching. The 'Member' fallback of
+  // nameOf must not leak in — it would light up random "@Member" text.
+  const mentionNames = !deleted && m.mentions?.length ? m.mentions.map(nameOf).filter((n) => n !== 'Member') : [];
   return (
     <View className="mb-2.5" style={{ maxWidth: '80%', alignSelf: mine ? 'flex-end' : 'flex-start' }}>
       <Pressable onPress={onPress} style={{ paddingHorizontal: 9, paddingVertical: 7, borderRadius: 16, backgroundColor: mine ? colors.primary : colors.card, borderTopLeftRadius: mine ? 16 : 4, borderTopRightRadius: mine ? 4 : 16 }}>
         {isGroup && !mine && !deleted ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
+        {m.forwardedFrom && !deleted ? (
+          <View className="flex-row items-center gap-1" style={{ marginBottom: 2, paddingHorizontal: 4 }}>
+            <ForwardIcon size={12} color={mine ? 'rgba(255,255,255,0.6)' : colors.coolText3} />
+            <Text style={{ color: mine ? 'rgba(255,255,255,0.6)' : colors.coolText3, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
+          </View>
+        ) : null}
         {m.replyTo ? (
           <View style={{ borderLeftWidth: 3, borderLeftColor: mine ? 'rgba(255,255,255,0.7)' : colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
             <Text numberOfLines={1} style={{ color: mine ? 'rgba(255,255,255,0.8)' : colors.coolText, fontSize: 12.5 }}>{m.replyTo.preview}</Text>
@@ -601,7 +820,10 @@ function Bubble({ m, isGroup, nameOf, onPress, onOpenImage, onRetry }: { m: Stor
         {deleted ? (
           <Text style={{ color: mine ? 'rgba(255,255,255,0.7)' : colors.coolText, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
         ) : m.text ? (
-          <Text style={{ color: mine ? '#fff' : colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }}>{m.text}</Text>
+          // Light blue on the green outgoing bubble, theme blue on incoming — both stay legible.
+          <LinkedText text={m.text} linkColor={mine ? '#CDE8FF' : colors.blue}
+            mentionNames={mentionNames} mentionColor={mine ? '#CDE8FF' : colors.primary}
+            style={{ color: mine ? '#fff' : colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
         ) : null}
         <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 3, paddingHorizontal: 4 }}>
           {m.edited && !deleted ? <Text style={{ color: mine ? 'rgba(255,255,255,0.55)' : colors.coolText3, fontSize: 10 }}>edited</Text> : null}
