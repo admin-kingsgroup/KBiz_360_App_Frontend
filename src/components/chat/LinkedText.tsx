@@ -8,12 +8,15 @@ import { splitMentions } from '../../logic/mentions';
 // triggers the bubble's own onPress (the message action menu) — a tap anywhere else still does.
 // `mentionNames` (the display names @-mentioned in this message) render bold in the mention colour,
 // WhatsApp-style; links are split first, then mentions inside the plain stretches.
-export function LinkedText({ text, style, linkColor, mentionNames, mentionColor }: {
+// `onLongPress` forwards the container's long-press from link segments (they capture presses, so
+// without it a long-press on a URL would never reach the bubble — e.g. chat selection mode).
+export function LinkedText({ text, style, linkColor, mentionNames, mentionColor, onLongPress }: {
   text: string;
   style?: StyleProp<TextStyle>;
   linkColor: string;
   mentionNames?: string[];
   mentionColor?: string;
+  onLongPress?: () => void;
 }) {
   const parts = splitLinks(text);
   const names = mentionNames ?? [];
@@ -27,6 +30,7 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor 
           <Text
             key={i}
             onPress={() => void Linking.openURL(p.url as string).catch(() => undefined)}
+            onLongPress={onLongPress}
             style={{ color: linkColor, textDecorationLine: 'underline' }}
           >
             {p.text}

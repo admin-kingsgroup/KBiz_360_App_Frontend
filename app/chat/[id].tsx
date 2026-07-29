@@ -1,30 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, StyleSheet, Vibration } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, StyleSheet, Vibration, Alert } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Paperclip, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Avatar } from '../../src/components/ui';
 import { VoiceMessage, LinkedText } from '../../src/components/chat';
-import { colors } from '../../src/theme';
+import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
 import { getConversation, getPinned, type ChatConversation, type ChatAttachment, type ChatMessage } from '../../src/api/chat';
 import { uploadFile, mediaUrl, toAttachment, humanSize } from '../../src/api/media';
 import { listUsers, toUser } from '../../src/api/directory';
-import { activeMention, applyMention, rankMentionMatches, mentionIdsInText } from '../../src/logic/mentions';
+import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
 import { callManager } from '../../src/services/rtc/CallManager';
 import { daySeparator, isDifferentDay } from '../../src/utils/time';
+
+// Chat-screen redesign palette (kbiz360_chat_screen_redesign mockup): teal accent, white message
+// cards with hairline borders on a cool grey canvas. Shadows the app theme LOCALLY so the rest of
+// the app (chat list, tabs, reminders) keeps its green accent untouched.
+const colors = {
+  ...themeColors,
+  primary: '#12857A',
+  primaryDark: '#0F4B44',
+  primarySoft: '#F3FAF8',
+  coolBg: '#ECEFF3',
+  coolDivider: '#E4E8ED',
+  coolMuted: '#F2F5F7',
+  coolText: '#5F6871',
+  coolText3: '#98A0A8',
+  ink: '#0F1418',
+};
+const TICK_MUTED = '#B6BEC6'; // sent/delivered ticks + pending clock
+const TIME_FAINT = '#A2AAB2'; // in-bubble timestamps
+const ONLINE_DOT = '#2BC48A'; // avatar presence dot
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -72,8 +91,11 @@ export default function ChatDetail() {
   const [active, setActive] = useState<StoredMessage | null>(null);
   const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
-  const [forwardMsg, setForwardMsg] = useState<StoredMessage | null>(null);
+  const [forwardMsgs, setForwardMsgs] = useState<StoredMessage[]>([]); // [] = sheet closed
   const [forwarding, setForwarding] = useState(false);
+  // Multi-select (WhatsApp-style): long-press enters selection mode, taps toggle; the header
+  // becomes an action bar (copy/star/forward/delete). Empty = not selecting.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -167,9 +189,10 @@ export default function ChatDetail() {
   const presenceLabel = typingUsers.length ? 'typing…'
     : otherPresence
       ? otherPresence.status === 'in_call' ? 'in a call'
-        : otherPresence.status === 'online' ? 'online'
+        : otherPresence.status === 'online' ? 'Online'
           : offlineAt ? lastSeenLabel(offlineAt) : 'last seen recently'
-      : conv?.online ? 'online' : convLastSeen ? lastSeenLabel(convLastSeen) : 'last seen recently';
+      : conv?.online ? 'Online' : convLastSeen ? lastSeenLabel(convLastSeen) : 'last seen recently';
+  const otherOnline = !isGroup && (otherPresence ? otherPresence.status === 'online' : !!conv?.online);
   const subtitle = isGroup ? `${conv?.memberCount ?? 0} members` : presenceLabel;
 
   const onChangeText = (t: string): void => {
@@ -189,13 +212,21 @@ export default function ChatDetail() {
   }, [conv?.type, conv?.members, users, myUserId]);
   const mention = isGroup && !editing ? activeMention(text, cursor) : null;
   const mentionMatches = mention ? rankMentionMatches(mentionPeople, mention.query) : [];
-  const pickMention = (p: User): void => {
+  // "@everyone" notifies the whole group — admin-gated like WhatsApp (group admins, the creator,
+  // and super-admins) so one member can't spam-ping everybody. Pure UI gate: expanding it to all
+  // member ids at send time is the same as mentioning each person, which the API allows anyway.
+  const canMentionEveryone = isGroup && (conv?.myRole === 'admin' || conv?.createdBy === myUserId
+    || users.find((u) => u.id === myUserId)?.role === 'SUPER_ADMIN');
+  const showEveryone = !!mention && canMentionEveryone && MENTION_EVERYONE.startsWith(mention.query.trim().toLowerCase());
+  const applyPicked = (name: string): void => {
     if (!mention) return;
-    const next = applyMention(text, mention, p.name);
+    const next = applyMention(text, mention, name);
     setText(next.text);
     setCursor(next.cursor);
     setSel({ start: next.cursor, end: next.cursor });
   };
+  const pickMention = (p: User): void => applyPicked(p.name);
+  const pickEveryone = (): void => applyPicked(MENTION_EVERYONE);
 
   const submitText = async (): Promise<void> => {
     const t = text.trim();
@@ -203,7 +234,10 @@ export default function ChatDetail() {
     if (editing) { await useMessagingStore.getState().edit(editing.id, convId, t); setEditing(null); setText(''); return; }
     setText('');
     emitStopTyping(convId);
-    const mentions = isGroup ? mentionIdsInText(t, mentionPeople) : undefined;
+    let mentions = isGroup ? mentionIdsInText(t, mentionPeople) : undefined;
+    if (isGroup && canMentionEveryone && hasEveryoneMention(t)) {
+      mentions = mentionPeople.map((p) => p.id); // @everyone ⇒ the whole roster (supersedes named picks)
+    }
     await useMessagingStore.getState().send(convId, t, replyTo?.id, mentions?.length ? mentions : undefined);
     setReplyTo(null);
   };
@@ -212,7 +246,7 @@ export default function ChatDetail() {
   // Target list: every existing chat (recent first, as the store keeps them), then teammates with
   // no direct chat yet — picking one of those creates the DM on the fly (openDirect) before sending.
   const forwardTargets = useMemo<ForwardTarget[]>(() => {
-    if (!forwardMsg) return [];
+    if (!forwardMsgs.length) return [];
     const convT: ForwardTarget[] = conversations.filter((c) => !c.archived).map((c) => ({
       key: `c:${c.id}`, kind: 'conv', id: c.id, name: c.name,
       sub: c.type === 'group' ? `Group · ${c.memberCount} members` : null,
@@ -224,23 +258,70 @@ export default function ChatDetail() {
       .filter((u) => u.id !== myUserId && !haveDirect.has(u.id))
       .map((u) => ({ key: `u:${u.id}`, kind: 'user', id: u.id, name: u.name, sub: u.position ?? u.roleName ?? null, initials: u.initials, color: u.color, avatarUri: u.avatar ?? null }));
     return [...convT, ...userT];
-  }, [forwardMsg, conversations, users, myUserId]);
+  }, [forwardMsgs.length, conversations, users, myUserId]);
 
   const doForward = async (targets: ForwardTarget[]): Promise<void> => {
-    if (!forwardMsg || forwarding || !targets.length) return;
+    if (!forwardMsgs.length || forwarding || !targets.length) return;
     setForwarding(true);
     try {
       const store = useMessagingStore.getState();
       const convIds: string[] = [];
       for (const t of targets) convIds.push(t.kind === 'conv' ? t.id : await store.openDirect(t.id));
-      const n = await store.forward(forwardMsg.id, convIds);
+      // Multi-select: forward in chronological order so the copies read like the original thread.
+      let n = 0;
+      for (const msg of forwardMsgs) n = await store.forward(msg.id, convIds);
       showToast(n ? `Forwarded to ${n} chat${n === 1 ? '' : 's'}` : 'Could not forward');
-      setForwardMsg(null);
+      setForwardMsgs([]);
+      setSelectedIds([]);
     } catch {
       showToast('Could not forward — check your connection');
     } finally {
       setForwarding(false);
     }
+  };
+
+  // ── multi-select ──
+  const selecting = selectedIds.length > 0;
+  const selectedMsgs = useMemo(() => messages.filter((m) => selectedIds.includes(m.id)), [messages, selectedIds]); // chronological
+  // Deleted/system rows aren't selectable; pending/failed have no server id yet (nothing to act on).
+  const toggleSelect = (m: StoredMessage): void => {
+    if (m.deletedForEveryone || m.type === 'system' || m.pending || m.failed) return;
+    setSelectedIds((cur) => (cur.includes(m.id) ? cur.filter((x) => x !== m.id) : [...cur, m.id]));
+  };
+  const exitSelect = (): void => setSelectedIds([]);
+  // WhatsApp long-press: select the message AND open the reactions/action menu in one gesture.
+  // Dismissing the menu keeps the selection, so tapping more messages extends it; picking an
+  // action applies to this message and leaves selection mode (finishAction). Once already
+  // selecting, long-press just toggles like a tap.
+  const onMsgLongPress = (m: StoredMessage): void => {
+    if (m.deletedForEveryone || m.type === 'system') return;
+    if (selecting) { toggleSelect(m); return; }
+    toggleSelect(m);
+    setActive(m);
+  };
+  const copySelected = (): void => {
+    const texts = selectedMsgs.filter((m) => m.text);
+    const out = texts.length === 1 ? texts[0].text : texts.map((m) => `${nameOf(m.senderId)}: ${m.text}`).join('\n');
+    void Clipboard.setStringAsync(out);
+    showToast('Copied');
+    exitSelect();
+  };
+  const starSelected = (): void => {
+    const store = useMessagingStore.getState();
+    for (const m of selectedMsgs) if (!m.starred) void store.star(m.id, convId);
+    showToast('Starred');
+    exitSelect();
+  };
+  const deleteSelected = (): void => {
+    const n = selectedMsgs.length;
+    // "Delete for everyone" only when EVERY selected message is deletable that way (mine + in window).
+    const allMine = selectedMsgs.every((m) => m.mine && Date.now() - new Date(m.sentAt).getTime() < DELETE_EVERYONE_MS);
+    const store = useMessagingStore.getState();
+    Alert.alert(`Delete ${n} message${n === 1 ? '' : 's'}?`, undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete for me', onPress: () => { for (const m of selectedMsgs) void store.remove(m.id, convId, 'me'); exitSelect(); } },
+      ...(allMine ? [{ text: 'Delete for everyone', style: 'destructive' as const, onPress: () => { for (const m of selectedMsgs) void store.remove(m.id, convId, 'everyone'); exitSelect(); } }] : []),
+    ]);
   };
 
   // ── media ──
@@ -302,7 +383,9 @@ export default function ChatDetail() {
   };
 
   const closeMenu = (): void => setActive(null);
-  const startEdit = (m: StoredMessage): void => { setEditing(m); setText(m.text); setReplyTo(null); closeMenu(); };
+  // A menu action acted on the single message — close the menu AND leave selection mode.
+  const finishAction = (): void => { setActive(null); setSelectedIds([]); };
+  const startEdit = (m: StoredMessage): void => { setEditing(m); setText(m.text); setReplyTo(null); finishAction(); };
   const refreshPinned = (): void => { getPinned(convId).then((p) => { setPinned(p); setPinIdx(0); }).catch(() => setPinned([])); };
 
   // Tap the banner → scroll to the pinned message (cycling through pins on repeated taps). The
@@ -343,15 +426,34 @@ export default function ChatDetail() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top']}>
-      {/* Header — white, sans, 40px avatar, green typing indicator (matches the Chats screen) */}
+      {/* Selection action bar — replaces the header while messages are selected (WhatsApp-style) */}
+      {selecting ? (
+        <View className="flex-row items-center gap-1 px-2" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+          <Pressable onPress={exitSelect} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><X size={22} color={colors.ink} /></Pressable>
+          <Text style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: '700' }}>{selectedIds.length}</Text>
+          {selectedMsgs.some((m) => m.text) ? (
+            <Pressable onPress={copySelected} accessibilityLabel="Copy" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Copy size={20} color={colors.ink} /></Pressable>
+          ) : null}
+          <Pressable onPress={starSelected} accessibilityLabel="Star" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Star size={20} color={colors.ink} /></Pressable>
+          <Pressable onPress={deleteSelected} accessibilityLabel="Delete" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Trash2 size={20} color={colors.ink} /></Pressable>
+          <Pressable onPress={() => setForwardMsgs(selectedMsgs)} accessibilityLabel="Forward" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ForwardIcon size={20} color={colors.ink} /></Pressable>
+        </View>
+      ) : (
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
-          <Avatar initials={(title[0] ?? '?').toUpperCase()} color={isGroup ? colors.purple : colors.blue} size={40} uri={conv?.image ? mediaUrl(conv.image) : null} />
+          <View style={{ position: 'relative' }}>
+            <Avatar initials={(title[0] ?? '?').toUpperCase()} color={isGroup ? colors.purple : colors.primary} size={40} uri={conv?.image ? mediaUrl(conv.image) : null} />
+            {otherOnline ? <View style={{ position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, backgroundColor: ONLINE_DOT, borderWidth: 2.5, borderColor: '#fff' }} /> : null}
+          </View>
           <View className="flex-1">
-            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>{title}</Text>
-            {otherPosition ? <Text numberOfLines={1} style={{ color: colors.coolText3, fontSize: 11, fontWeight: '600' }}>{otherPosition}</Text> : null}
-            <Text numberOfLines={1} style={{ color: typingUsers.length ? colors.primary : colors.coolText, fontSize: 12.5, fontWeight: '500', fontStyle: typingUsers.length ? 'italic' : 'normal' }}>{subtitle}</Text>
+            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>{title}</Text>
+            {/* One subtitle line, mockup-style: "Finance Manager · Online" — the presence part goes
+                teal when live (online/typing), the position stays grey. */}
+            <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: colors.coolText3 }}>
+              {!isGroup && otherPosition ? `${otherPosition} · ` : ''}
+              <Text style={{ color: typingUsers.length || otherOnline ? colors.primary : colors.coolText3, fontStyle: typingUsers.length ? 'italic' : 'normal' }}>{subtitle}</Text>
+            </Text>
           </View>
         </Pressable>
         {!isGroup && conv?.otherUserId ? (
@@ -361,18 +463,23 @@ export default function ChatDetail() {
         ) : null}
         <Pressable onPress={() => (isGroup ? router.push({ pathname: '/chat/group-info', params: { id: convId } }) : setContactOpen(true))} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={colors.ink} /></Pressable>
       </View>
+      )}
 
-      {/* Pinned banner — tap scrolls to the pinned message (repeated taps cycle through pins) */}
+      {/* Pinned bar — compact mockup style: teal rail + uppercase label; tap scrolls to the pinned
+          message (repeated taps cycle through pins via the chevron too) */}
       {pinned.length > 0 ? (() => {
         const cur = pinned[pinIdx % pinned.length];
         return (
-          <Pressable onPress={jumpToPinned} className="flex-row items-center gap-2 px-4 py-2" style={{ backgroundColor: colors.primarySoft, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-            <Pin size={14} color={colors.primary} />
+          <Pressable onPress={jumpToPinned} className="flex-row items-center" style={{ gap: 12, paddingVertical: 8, paddingLeft: 16, paddingRight: 12, backgroundColor: '#fff', borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+            <View style={{ width: 3, height: 26, borderRadius: 2, backgroundColor: colors.primary }} />
             <View className="flex-1">
-              <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>
-                {pinned.length > 1 ? `Pinned message ${(pinIdx % pinned.length) + 1} of ${pinned.length}` : 'Pinned message'}
+              <Text numberOfLines={1} style={{ color: colors.primary, fontSize: 11, fontWeight: '600', letterSpacing: 0.8, lineHeight: 14 }}>
+                {pinned.length > 1 ? `PINNED MESSAGE ${(pinIdx % pinned.length) + 1} OF ${pinned.length}` : 'PINNED MESSAGE'}
               </Text>
-              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{cur.text || `[${cur.type}]`}</Text>
+              <Text numberOfLines={1} style={{ color: '#3A424B', fontSize: 13, lineHeight: 18 }}>{cur.text || `[${cur.type}]`}</Text>
+            </View>
+            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronDown size={16} color={colors.coolText} />
             </View>
           </Pressable>
         );
@@ -408,20 +515,35 @@ export default function ChatDetail() {
               const older = index < reversed.length - 1 ? reversed[index + 1] : null;
               const showDay = !older || isDifferentDay(new Date(older.createdAt).getTime(), new Date(m.createdAt).getTime());
               const showUnread = unreadDivider?.anchorId === m.id;
-              const bubble = <Bubble m={m} isGroup={isGroup} nameOf={nameOf} onPress={() => !m.deletedForEveryone && setActive(m)} onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} />;
+              const isSel = selectedIds.includes(m.id);
+              const bubble = (
+                <Bubble m={m} isGroup={isGroup} nameOf={nameOf}
+                  onPress={() => (selecting ? toggleSelect(m) : !m.deletedForEveryone && setActive(m))}
+                  onLongPress={() => onMsgLongPress(m)}
+                  selecting={selecting}
+                  onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])} />
+              );
               const row = m.type === 'system'
                 ? <SystemNotice text={m.text} />
-                // Swipe a message right to reply (WhatsApp-style). Deleted messages aren't replyable.
-                : m.deletedForEveryone
+                // Swipe a message right to reply (WhatsApp-style). Deleted messages aren't replyable,
+                // and the gesture is parked while selecting so drags don't fight the toggles.
+                : m.deletedForEveryone || selecting
                   ? bubble
                   : <SwipeToReply onReply={() => setReplyTo(m)}>{bubble}</SwipeToReply>;
               // Inverted list reverses the vertical order WITHIN a cell, so render the bubble first
               // and the separators after — they then appear ABOVE the message on screen.
+              // The FULL row (empty space beside the bubble included) long-presses into selection
+              // (WhatsApp-style); the bubble's own handlers win for touches on the bubble itself.
               return (
                 <>
-                  {m.id === highlightId
-                    ? <View style={{ backgroundColor: colors.primary + '2E', borderRadius: 14, marginHorizontal: -6, paddingHorizontal: 6 }}>{row}</View>
-                    : row}
+                  {m.type === 'system'
+                    ? row
+                    : (
+                      <Pressable onLongPress={() => onMsgLongPress(m)} onPress={selecting ? () => toggleSelect(m) : undefined}
+                        style={isSel || m.id === highlightId ? { backgroundColor: colors.primary + '2E', borderRadius: 14, marginHorizontal: -6, paddingHorizontal: 6 } : undefined}>
+                        {row}
+                      </Pressable>
+                    )}
                   {showUnread ? <UnreadDivider count={unreadDivider!.count} /> : null}
                   {showDay ? <DateSeparator label={daySeparator(new Date(m.createdAt).getTime())} /> : null}
                 </>
@@ -450,12 +572,25 @@ export default function ChatDetail() {
           </View>
         ) : null}
 
-        {/* @-mention suggestions — member list above the composer (groups only) */}
-        {mention && mentionMatches.length > 0 ? (
+        {/* @-mention suggestions — member list above the composer (groups only). Admins also get
+            a pinned "Everyone" row that pings the whole group. */}
+        {mention && (mentionMatches.length > 0 || showEveryone) ? (
           <View style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
+            {showEveryone ? (
+              <Pressable onPress={pickEveryone} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-2.5"
+                style={{ paddingHorizontal: 14, paddingVertical: 9 }}>
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                  <Megaphone size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '700' }}>Everyone</Text>
+                  <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>Notify all {mentionPeople.length} members</Text>
+                </View>
+              </Pressable>
+            ) : null}
             {mentionMatches.map((p, i) => (
               <Pressable key={p.id} onPress={() => pickMention(p)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-2.5"
-                style={{ paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.coolDivider }}>
+                style={{ paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 && !showEveryone ? 0 : 1, borderTopColor: colors.coolDivider }}>
                 <Avatar initials={p.initials} color={p.color} size={32} uri={p.avatar} />
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
@@ -475,26 +610,31 @@ export default function ChatDetail() {
           </View>
         ) : null}
 
-        {/* Composer — grey pill input + green circular send/mic (WhatsApp style) */}
-        <View className="flex-row items-end gap-2" style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1, paddingHorizontal: 12, paddingTop: 10, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
-          <Pressable onPress={isRecording ? () => void cancel() : () => setAttachOpen((v) => !v)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-            {isRecording ? <Trash2 size={22} color={colors.danger} /> : <Paperclip size={22} color={colors.coolText} />}
+        {/* Composer — mockup style: plus button, grey pill with camera inside, teal circular send/mic */}
+        <View className="flex-row items-end gap-2" style={{ backgroundColor: '#fff', borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
+          <Pressable onPress={isRecording ? () => void cancel() : () => setAttachOpen((v) => !v)} style={{ width: 44, height: 46, alignItems: 'center', justifyContent: 'center' }}>
+            {isRecording ? <Trash2 size={22} color={colors.danger} /> : <Plus size={24} color={colors.coolText} />}
           </Pressable>
           {isRecording ? (
-            <View className="flex-row items-center gap-2" style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 22, backgroundColor: '#FDECEC' }}>
+            <View className="flex-row items-center gap-2" style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 23, backgroundColor: '#FDECEC' }}>
               <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
               <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{mmss(elapsedSec)}</Text>
               <Text style={{ color: colors.coolText, fontSize: 13 }}>Recording…</Text>
             </View>
           ) : (
-            <TextInput value={text} onChangeText={onChangeText} onFocus={() => setAttachOpen(false)} onSubmitEditing={submitText} placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
-              selection={sel}
-              onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
-              style={{ flex: 1, paddingHorizontal: 18, paddingVertical: 11, borderRadius: 22, backgroundColor: colors.coolMuted, fontSize: 15.5, color: colors.ink, maxHeight: 110 }} />
+            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: colors.coolMuted, paddingLeft: 14, paddingRight: 10 }}>
+              <TextInput value={text} onChangeText={onChangeText} onFocus={() => setAttachOpen(false)} onSubmitEditing={submitText} placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
+                selection={sel}
+                onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
+                style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: colors.ink, maxHeight: 110 }} />
+              <Pressable onPress={() => void takePhoto()} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
+                <Camera size={21} color={colors.coolText} />
+              </Pressable>
+            </View>
           )}
           <Pressable onPress={() => { if (text.trim()) return void submitText(); return void onMic(); }}
-            style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: isRecording ? colors.danger : colors.primary }}>
-            {text.trim() || isRecording ? <Send size={19} color="#fff" /> : <Mic size={19} color="#fff" />}
+            style={{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: isRecording ? colors.danger : colors.primary }}>
+            {text.trim() || isRecording ? <Send size={20} color="#fff" /> : <Mic size={22} color="#fff" />}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -541,18 +681,20 @@ export default function ChatDetail() {
         <Pressable onPress={closeMenu} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 8, minWidth: 250 }}>
             <View className="flex-row justify-around" style={{ paddingVertical: 6, marginBottom: 4, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-              {REACTIONS.map((e) => (<Pressable key={e} onPress={() => { void useMessagingStore.getState().react(active.id, e); closeMenu(); }}><Text style={{ fontSize: 24 }}>{e}</Text></Pressable>))}
+              {REACTIONS.map((e) => (<Pressable key={e} onPress={() => { void useMessagingStore.getState().react(active.id, e); finishAction(); }}><Text style={{ fontSize: 24 }}>{e}</Text></Pressable>))}
             </View>
             {[
-              { label: 'Reply', Icon: Reply, onPress: () => { setReplyTo(active); closeMenu(); } },
-              { label: 'Forward', Icon: ForwardIcon, onPress: () => { setForwardMsg(active); closeMenu(); } },
-              ...(active.type === 'text' ? [{ label: 'Copy', Icon: Copy, onPress: () => { void Clipboard.setStringAsync(active.text); closeMenu(); showToast('Copied'); } }] : []),
-              { label: active.starred ? 'Unstar' : 'Star', Icon: Star, onPress: () => { void useMessagingStore.getState().star(active.id, convId); closeMenu(); } },
+              { label: 'Reply', Icon: Reply, onPress: () => { setReplyTo(active); finishAction(); } },
+              { label: 'Forward', Icon: ForwardIcon, onPress: () => { setForwardMsgs([active]); finishAction(); } },
+              // Keep (don't toggle) the long-pressed message selected and stay in selection mode.
+              { label: 'Select', Icon: ListChecks, onPress: () => { setSelectedIds((cur) => (cur.includes(active.id) ? cur : [...cur, active.id])); closeMenu(); } },
+              ...(active.type === 'text' ? [{ label: 'Copy', Icon: Copy, onPress: () => { void Clipboard.setStringAsync(active.text); finishAction(); showToast('Copied'); } }] : []),
+              { label: active.starred ? 'Unstar' : 'Star', Icon: Star, onPress: () => { void useMessagingStore.getState().star(active.id, convId); finishAction(); } },
               // Pinned by anyone counts (the message flag can lag pins made from another device).
-              { label: active.pinned || pinned.some((p) => p.id === active.id) ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(active.id, convId).then(refreshPinned); closeMenu(); } },
+              { label: active.pinned || pinned.some((p) => p.id === active.id) ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(active.id, convId).then(refreshPinned); finishAction(); } },
               ...(active.mine && active.type === 'text' && Date.now() - new Date(active.sentAt).getTime() < EDIT_WINDOW_MS ? [{ label: 'Edit', Icon: Pencil, onPress: () => startEdit(active) }] : []),
-              { label: 'Delete for me', Icon: Trash2, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'me'); closeMenu(); } },
-              ...(active.mine && Date.now() - new Date(active.sentAt).getTime() < DELETE_EVERYONE_MS ? [{ label: 'Delete for everyone', Icon: Trash2, danger: true, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'everyone'); closeMenu(); } }] : []),
+              { label: 'Delete for me', Icon: Trash2, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'me'); finishAction(); } },
+              ...(active.mine && Date.now() - new Date(active.sentAt).getTime() < DELETE_EVERYONE_MS ? [{ label: 'Delete for everyone', Icon: Trash2, danger: true, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'everyone'); finishAction(); } }] : []),
             ].map((a) => (
               <Pressable key={a.label} onPress={a.onPress} className="flex-row items-center gap-3" style={{ paddingHorizontal: 14, paddingVertical: 12 }}>
                 <a.Icon size={18} color={(a as { danger?: boolean }).danger ? colors.danger : colors.ink} />
@@ -564,9 +706,9 @@ export default function ChatDetail() {
       ) : null}
 
       {/* Forward picker (WhatsApp-style: multi-select up to 5 chats, then send) */}
-      <ForwardSheet visible={!!forwardMsg} targets={forwardTargets} sending={forwarding}
-        preview={forwardMsg ? (forwardMsg.text || `[${forwardMsg.type}]`) : ''}
-        onClose={() => setForwardMsg(null)} onSend={(t) => void doForward(t)} />
+      <ForwardSheet visible={forwardMsgs.length > 0} targets={forwardTargets} sending={forwarding}
+        preview={forwardMsgs.length > 1 ? `${forwardMsgs.length} messages` : (forwardMsgs[0]?.text || (forwardMsgs[0] ? `[${forwardMsgs[0].type}]` : ''))}
+        onClose={() => setForwardMsgs([])} onSend={(t) => void doForward(t)} />
     </SafeAreaView>
   );
 }
@@ -668,7 +810,9 @@ function AttachOption({ Icon, label, color, onPress }: { Icon: typeof FileText; 
   );
 }
 
-function Attachments({ m, mine, onOpenImage }: { m: StoredMessage; mine: boolean; onOpenImage: (uri: string) => void }) {
+// `onLongPress` forwards the bubble's long-press so selection mode starts from a press on the
+// media too — the nested pressables would otherwise swallow it.
+function Attachments({ m, mine, onOpenImage, onLongPress }: { m: StoredMessage; mine: boolean; onOpenImage: (uri: string) => void; onLongPress?: () => void }) {
   return (
     <>
       {m.attachments.map((att: ChatAttachment, i: number) => {
@@ -676,29 +820,30 @@ function Attachments({ m, mine, onOpenImage }: { m: StoredMessage; mine: boolean
         if (m.type === 'image') {
           const ratio = att.width && att.height ? att.height / att.width : 0.75;
           return (
-            <Pressable key={i} onPress={() => onOpenImage(url)} style={{ marginBottom: 4 }}>
+            <Pressable key={i} onPress={() => onOpenImage(url)} onLongPress={onLongPress} style={{ marginBottom: 4 }}>
               <Image source={{ uri: url }} style={{ width: 210, height: Math.min(280, 210 * ratio), borderRadius: 12, backgroundColor: colors.coolMuted }} resizeMode="cover" />
             </Pressable>
           );
         }
         if (m.type === 'video') {
           return (
-            <Pressable key={i} onPress={() => void Linking.openURL(url)} style={{ width: 210, height: 140, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
+            <Pressable key={i} onPress={() => void Linking.openURL(url)} onLongPress={onLongPress} style={{ width: 210, height: 140, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
               {att.thumbnailUrl ? <Image source={{ uri: mediaUrl(att.thumbnailUrl) }} style={{ position: 'absolute', width: 210, height: 140, borderRadius: 12 }} /> : null}
               <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.85)', alignItems: 'center', justifyContent: 'center' }}><Play size={20} color={colors.ink} /></View>
             </Pressable>
           );
         }
         if (m.type === 'voice') {
-          return <VoiceMessage key={i} uri={url} durationSec={(att.durationMs ?? 0) / 1000} outgoing={mine} />;
+          // Both sides are light cards now — always use the dark-on-light voice styling.
+          return <VoiceMessage key={i} uri={url} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
         }
         // document
         return (
-          <Pressable key={i} onPress={() => void Linking.openURL(url)} className="flex-row items-center gap-2" style={{ paddingVertical: 6, marginBottom: 2 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: mine ? 'rgba(255,255,255,0.18)' : colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}><FileText size={19} color={mine ? '#fff' : colors.primary} /></View>
+          <Pressable key={i} onPress={() => void Linking.openURL(url)} onLongPress={onLongPress} className="flex-row items-center gap-2" style={{ paddingVertical: 6, marginBottom: 2 }}>
+            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: mine ? '#fff' : colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}><FileText size={19} color={colors.primary} /></View>
             <View style={{ maxWidth: 180 }}>
-              <Text numberOfLines={1} style={{ color: mine ? '#fff' : colors.ink, fontSize: 13.5, fontWeight: '600' }}>{att.name}</Text>
-              <Text style={{ color: mine ? 'rgba(255,255,255,0.65)' : colors.coolText, fontSize: 11 }}>{humanSize(att.size)}</Text>
+              <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{att.name}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 11 }}>{humanSize(att.size)}</Text>
             </View>
           </Pressable>
         );
@@ -723,8 +868,8 @@ function SystemNotice({ text }: { text: string }) {
 function DateSeparator({ label }: { label: string }) {
   return (
     <View className="items-center" style={{ marginVertical: 8 }}>
-      <View style={{ backgroundColor: colors.card, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5 }}>
-        <Text style={{ color: colors.coolText, fontSize: 11.5, fontWeight: '700', letterSpacing: 0.3 }}>{label}</Text>
+      <View style={{ backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 5 }}>
+        <Text style={{ color: '#7C858F', fontSize: 11, fontWeight: '500', letterSpacing: 0.4 }}>{label}</Text>
       </View>
     </View>
   );
@@ -790,52 +935,67 @@ function SwipeToReply({ onReply, children }: { onReply: () => void; children: Re
   );
 }
 
-function Bubble({ m, isGroup, nameOf, onPress, onOpenImage, onRetry }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onOpenImage: (uri: string) => void; onRetry: (clientId: string) => void }) {
+function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onRetry, onForward }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onRetry: (clientId: string) => void; onForward?: () => void }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
-  // WhatsApp tick glyphs: pending → clock, sent → ✓, delivered → ✓✓ muted, read → ✓✓ light blue
-  // (#53BDEB is WhatsApp's read-tick blue — it stays legible on the green outgoing bubble).
-  const tickColor = m.status === 'read' ? '#53BDEB' : 'rgba(255,255,255,0.65)';
+  // Tick glyphs on the light cards: pending → clock, sent → ✓, delivered → ✓✓ (muted grey),
+  // read → ✓✓ teal (mockup style).
+  const tickColor = m.status === 'read' ? colors.primary : TICK_MUTED;
   const TickIcon = m.pending ? Clock : m.status === 'sent' ? Check : CheckCheck;
   const hasMedia = !deleted && m.type !== 'text' && m.attachments.length > 0;
+  // WhatsApp-style one-tap forward arrow beside media (photo/video/document). Pending messages have
+  // no server id yet, so the arrow appears only once the send is confirmed. Hidden while selecting.
+  const quickForward = !!onForward && hasMedia && ['image', 'video', 'document'].includes(m.type) && !m.pending && !m.failed && !selecting;
   // Names of the @-mentioned users, resolved for highlight matching. The 'Member' fallback of
-  // nameOf must not leak in — it would light up random "@Member" text.
-  const mentionNames = !deleted && m.mentions?.length ? m.mentions.map(nameOf).filter((n) => n !== 'Member') : [];
+  // nameOf must not leak in — it would light up random "@Member" text. Any mentioning message may
+  // carry the "@everyone" token (admins), so that name always joins the highlight roster.
+  const mentionNames = !deleted && m.mentions?.length ? [...m.mentions.map(nameOf).filter((n) => n !== 'Member'), 'everyone'] : [];
   return (
     <View className="mb-2.5" style={{ maxWidth: '80%', alignSelf: mine ? 'flex-end' : 'flex-start' }}>
-      <Pressable onPress={onPress} style={{ paddingHorizontal: 9, paddingVertical: 7, borderRadius: 16, backgroundColor: mine ? colors.primary : colors.card, borderTopLeftRadius: mine ? 16 : 4, borderTopRightRadius: mine ? 4 : 16 }}>
+      {/* Row places the forward arrow on the OUTER side of the bubble (left of outgoing, right of incoming). */}
+      <View className="items-center" style={{ flexDirection: mine ? 'row-reverse' : 'row', gap: 6 }}>
+      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? colors.primarySoft : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: mine ? '#DCEDE9' : colors.coolDivider }}>
         {isGroup && !mine && !deleted ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
         {m.forwardedFrom && !deleted ? (
           <View className="flex-row items-center gap-1" style={{ marginBottom: 2, paddingHorizontal: 4 }}>
-            <ForwardIcon size={12} color={mine ? 'rgba(255,255,255,0.6)' : colors.coolText3} />
-            <Text style={{ color: mine ? 'rgba(255,255,255,0.6)' : colors.coolText3, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
+            <ForwardIcon size={12} color={colors.coolText3} />
+            <Text style={{ color: colors.coolText3, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
           </View>
         ) : null}
         {m.replyTo ? (
-          <View style={{ borderLeftWidth: 3, borderLeftColor: mine ? 'rgba(255,255,255,0.7)' : colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
-            <Text numberOfLines={1} style={{ color: mine ? 'rgba(255,255,255,0.8)' : colors.coolText, fontSize: 12.5 }}>{m.replyTo.preview}</Text>
+          <View style={{ borderLeftWidth: 3, borderLeftColor: colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
+            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{m.replyTo.preview}</Text>
           </View>
         ) : null}
-        {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} /> : null}
+        {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onLongPress={onLongPress} /> : null}
         {deleted ? (
-          <Text style={{ color: mine ? 'rgba(255,255,255,0.7)' : colors.coolText, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
+          <Text style={{ color: colors.coolText, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
         ) : m.text ? (
-          // Light blue on the green outgoing bubble, theme blue on incoming — both stay legible.
-          <LinkedText text={m.text} linkColor={mine ? '#CDE8FF' : colors.blue}
-            mentionNames={mentionNames} mentionColor={mine ? '#CDE8FF' : colors.primary}
-            style={{ color: mine ? '#fff' : colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
+          <LinkedText text={m.text} linkColor={colors.blue}
+            mentionNames={mentionNames} mentionColor={colors.primary} onLongPress={onLongPress}
+            style={{ color: colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
         ) : null}
         <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 3, paddingHorizontal: 4 }}>
-          {m.edited && !deleted ? <Text style={{ color: mine ? 'rgba(255,255,255,0.55)' : colors.coolText3, fontSize: 10 }}>edited</Text> : null}
-          <Text style={{ color: mine ? 'rgba(255,255,255,0.65)' : colors.coolText3, fontSize: 11, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
-          {mine && !deleted && !m.failed ? <TickIcon size={14} color={tickColor} /> : null}
+          {m.edited && !deleted ? <Text style={{ color: TIME_FAINT, fontSize: 10 }}>edited</Text> : null}
+          <Text style={{ color: TIME_FAINT, fontSize: 11, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
+          {mine && !deleted && !m.failed ? <TickIcon size={15} color={tickColor} /> : null}
         </View>
         {mine && m.failed ? (
           <Pressable onPress={() => m.clientId && onRetry(m.clientId)} style={{ alignSelf: 'flex-end', paddingHorizontal: 4 }}>
-            <Text style={{ color: '#FFD1CC', fontSize: 10.5, fontWeight: '800' }}>⚠ Failed · tap to retry</Text>
+            <Text style={{ color: colors.danger, fontSize: 10.5, fontWeight: '800' }}>⚠ Failed · tap to retry</Text>
           </Pressable>
         ) : null}
+        {/* Selection mode: a transparent catcher on top so taps toggle selection instead of hitting
+            nested pressables (image viewer, video/doc links, tappable URLs). */}
+        {selecting ? <Pressable onPress={onPress} onLongPress={onLongPress} style={StyleSheet.absoluteFill} /> : null}
       </Pressable>
+      {quickForward ? (
+        <Pressable onPress={onForward} hitSlop={8} accessibilityLabel="Forward"
+          style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(11,20,26,0.24)', alignItems: 'center', justifyContent: 'center' }}>
+          <ForwardIcon size={16} color="#fff" />
+        </Pressable>
+      ) : null}
+      </View>
       {m.reactions.length ? (
         <View className="flex-row" style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: -6, marginRight: 4 }}>
           <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>

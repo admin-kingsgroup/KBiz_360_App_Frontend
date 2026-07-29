@@ -1,4 +1,4 @@
-import { activeMention, applyMention, rankMentionMatches, splitMentions, mentionIdsInText } from '../logic/mentions';
+import { activeMention, applyMention, rankMentionMatches, splitMentions, mentionIdsInText, hasEveryoneMention } from '../logic/mentions';
 
 // Caret at the end of the given string, which is how the composer is used ~always.
 const at = (s: string) => activeMention(s, s.length);
@@ -131,5 +131,18 @@ describe('mentionIdsInText', () => {
   it('no mentions → empty', () => {
     expect(mentionIdsInText('nothing here', people)).toEqual([]);
     expect(mentionIdsInText('a@b.com', people)).toEqual([]);
+  });
+});
+
+describe('hasEveryoneMention', () => {
+  it('detects a clean @everyone token, case-insensitive, anywhere in the text', () => {
+    expect(hasEveryoneMention('@everyone standup in 5')).toBe(true);
+    expect(hasEveryoneMention('reminder @Everyone!')).toBe(true);
+    expect(hasEveryoneMention('@everyone')).toBe(true);
+  });
+  it('word boundaries apply — emails and longer words never count', () => {
+    expect(hasEveryoneMention('mail me@everyone.com')).toBe(false);
+    expect(hasEveryoneMention('@everyoneelse come')).toBe(false);
+    expect(hasEveryoneMention('everyone come')).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, ScrollView, ActivityIndicator, Image, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { X, Search as SearchIcon, Send, FileText, Play, Check } from 'lucide-react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -18,6 +18,7 @@ export default function ShareTarget() {
   const router = useRouter();
   const { shareIntent, resetShareIntent } = useShareIntentContext();
   const showToast = useUiStore((s) => s.showToast);
+  const insets = useSafeAreaInsets();
   const conversations = useMessagingStore((s) => s.conversations);
 
   const [q, setQ] = useState('');
@@ -100,7 +101,8 @@ export default function ShareTarget() {
   const empty = uploads.length === 0 && !payload.text;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
+    // Bottom inset is handled explicitly (list padding + send bar) — same pattern as the chat screen.
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
       {/* header */}
       <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
         <Pressable onPress={close} disabled={!!sending} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -152,7 +154,7 @@ export default function ShareTarget() {
             data={list}
             keyExtractor={(c) => c.id}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingBottom: 96 }}
+            contentContainerStyle={{ paddingBottom: 96 + insets.bottom }}
             ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.coolDivider, marginLeft: 78 }} />}
             ListEmptyComponent={
               <View className="items-center" style={{ paddingVertical: 48 }}>
@@ -176,9 +178,10 @@ export default function ShareTarget() {
             }}
           />
 
-          {/* bottom send bar */}
+          {/* bottom send bar — absolute children ignore SafeAreaView padding, so pad the Android
+              nav-bar inset in explicitly (the bar's background extends behind the transparent nav bar). */}
           {selected.length > 0 ? (
-            <View className="flex-row items-center" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, gap: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.coolDivider }}>
+            <View className="flex-row items-center" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10 + insets.bottom, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.coolDivider }}>
               <Text numberOfLines={1} style={{ flex: 1, color: colors.coolText, fontSize: 13 }}>{selectedNames}</Text>
               <Pressable onPress={() => void doSend()} disabled={!!sending} style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', opacity: sending ? 0.6 : 1 }}>
                 {sending ? <ActivityIndicator color="#fff" /> : <Send size={22} color="#fff" />}
@@ -188,7 +191,7 @@ export default function ShareTarget() {
 
           {/* sending overlay label */}
           {sending ? (
-            <View style={{ position: 'absolute', bottom: 84, alignSelf: 'center', backgroundColor: colors.ink, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8 }}>
+            <View style={{ position: 'absolute', bottom: 84 + insets.bottom, alignSelf: 'center', backgroundColor: colors.ink, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8 }}>
               <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{sending}</Text>
             </View>
           ) : null}

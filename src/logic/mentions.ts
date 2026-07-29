@@ -36,6 +36,16 @@ export function applyMention(text: string, m: ActiveMention, name: string): { te
 
 // ── chat-message mentions (matching "@Name" tokens against a member roster) ──
 
+// The group-wide mention token ("@everyone", WhatsApp-style). Pure client-side sugar: the composer
+// expands it to EVERY member's id at send time (admin-gated in the UI); the backend just sees a
+// full mentions array. Bubbles highlight the token via splitMentions like any other name.
+export const MENTION_EVERYONE = 'everyone';
+
+// True when the text carries a clean "@everyone" token (same word-boundary rules as name mentions,
+// case-insensitive — "me@everyone.com" or "@everyoneelse" never count).
+export const hasEveryoneMention = (text: string): boolean =>
+  splitMentions(text, [MENTION_EVERYONE]).some((s) => s.mention);
+
 export interface MentionSegment { text: string; mention: boolean }
 
 const boundaryBefore = (text: string, i: number): boolean => i === 0 || isSpace(text[i - 1]);
