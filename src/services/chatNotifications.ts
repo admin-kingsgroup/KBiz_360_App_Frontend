@@ -195,30 +195,88 @@ export async function handleChatMessagePush(data: ChatPushData): Promise<void> {
 // muted conversations.
 export async function showForegroundChatBanner(data: ChatPushData, activeConversationId: string | null, muted = false): Promise<void> {
   if (!data.conversationId || data.conversationId === activeConversationId || muted) return;
-  await displayChatNotification(data, [chatPushLine(data)]);
+  // Record the line like the background path does — the sync sweep can then find and cancel this
+  // notification once the chat is read (unrecorded banners used to linger and keep the launcher's
+  // notification-count badge alive with zero unread).
+  const map = await readLines();
+  map[data.conversationId] = [...(map[data.conversationId] ?? []), chatPushLine(data)].slice(-MAX_LINES);
+  await writeLines(map);
+  await displayChatNotification(data, map[data.conversationId]);
 }
 
 // Store-driven sync (root layout subscribes): badge ← unmuted chats with unread; conversations read
 // or muted in-app get their notification + pending lines cleared. Debounced by the caller.
+// One-time shade reset (per install). Old builds posted notifications that the CURRENT notifee
+// cannot cancel by id (its internal record of them is gone), and such an orphan pins the
+// launcher's notification-count badge forever (verified on-device: a stale group notification
+// survived every id-based cancel). Clear everything once — displayed chat/reminder/alert
+// notifications all re-arrive on the next real push; scheduled (future) local reminders are
+// untouched (cancelAll only affects the shade).
+const SHADE_RESET_KEY = 'kb360-shade-reset-v1';
+let shadeResetChecked = false; // per-process fast path
+async function oneTimeShadeReset(mod: NonNullable<ReturnType<typeof loadNotifee>>): Promise<void> {
+  if (shadeResetChecked) return;
+  shadeResetChecked = true;
+  const AS = await getAS();
+  if (!AS) return;
+  try {
+    if (await AS.getItem(SHADE_RESET_KEY)) return;
+    await mod.notifee.cancelAllNotifications();
+    await AS.setItem(SHADE_RESET_KEY, '1');
+  } catch { /* best-effort */ }
+}
+
 export async function syncChatNotifications(conversations: ChatConversation[]): Promise<void> {
   if (!native) return;
   const total = conversations.filter((c) => (c.unread || 0) > 0 && !c.muted).length;
   await setAppBadge(total);
-  const map = await readLines();
+  const modForReset = loadNotifee();
+  if (modForReset) await oneTimeShadeReset(modForReset);
   // A conversation is stale when it has been read (unread 0), muted (mute silences its pending
   // notification too), or no longer exists in the loaded list. An EMPTY list means the store
   // hasn't hydrated/loaded yet — never clear on that.
-  const stale = Object.keys(map).filter((id) => {
+  const isStale = (id: string): boolean => {
     const conv = conversations.find((c) => c.id === id);
     return conv ? conv.unread === 0 || conv.muted : conversations.length > 0;
-  });
-  if (!stale.length) return;
+  };
   const mod = loadNotifee();
-  for (const id of stale) {
-    delete map[id];
-    if (mod) await mod.notifee.cancelNotification(`chat-${id}`).catch(() => undefined);
+  const map = await readLines();
+  const stale = Object.keys(map).filter(isStale);
+  if (stale.length) {
+    for (const id of stale) {
+      delete map[id];
+      if (mod) await mod.notifee.cancelNotification(`chat-${id}`).catch(() => undefined);
+    }
+    await writeLines(map);
   }
-  await writeLines(map);
+  // Belt-and-braces: cancel by DERIVED id for every read/muted conversation. Notifee cancels via
+  // the same hashed native id even when getDisplayedNotifications does NOT report an old build's
+  // post (proven on-device: a pre-redesign 'chat-<convId>' notification survived every
+  // reported-id sweep and kept the launcher badge at 1 with zero unread).
+  if (mod) {
+    for (const c of conversations) {
+      if ((c.unread || 0) === 0 || c.muted) await mod.notifee.cancelNotification(`chat-${c.id}`).catch(() => undefined);
+    }
+  }
+  // Sweep the shade too: cancel any chat-* notification whose conversation is read/muted/unknown.
+  // Notifications can be up that the lines map never saw (foreground banners, OS re-posts) — and a
+  // leftover one keeps feeding the launcher's notification-count badge after everything is read.
+  // Anything ELSE sitting on the 'messages' channel (not our chat-<convId> scheme) is a stray from
+  // an older build — cancel it outright, it can only misreport the badge.
+  if (mod) {
+    try {
+      const displayed = (await mod.notifee.getDisplayedNotifications()) as { id?: string; notification?: { id?: string; android?: { channelId?: string } } }[];
+      for (const d of displayed) {
+        const nid = d.notification?.id ?? d.id;
+        if (typeof nid !== 'string') continue;
+        const isChat = nid.startsWith('chat-');
+        const onMessagesChannel = d.notification?.android?.channelId === 'messages';
+        if ((isChat && isStale(nid.slice('chat-'.length))) || (!isChat && onMessagesChannel)) {
+          await mod.notifee.cancelNotification(nid).catch(() => undefined);
+        }
+      }
+    } catch { /* sweep is best-effort */ }
+  }
 }
 
 // Foreground FCM listener — chat data-pushes arriving while the app is OPEN (the background handler

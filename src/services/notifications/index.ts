@@ -50,23 +50,39 @@ load()?.setNotificationHandler({
 // buttons appear on the call push even when the app was killed. (ensureCallCategory is hoisted.)
 void ensureCallCategory();
 
+// WhatsApp-style app-icon badge: only unread CHATS count. Chat notifications live on notifee's
+// 'messages' channel (badge ON — see chatNotifications.ts); everything else (reminders, alerts)
+// posts to 'general' with the badge OFF, so OEM launchers' notification-count badge ignores them.
+// The legacy 'default' channel DID badge, and channel settings are immutable once created — so we
+// migrate: create 'general', then DELETE 'default', which also cancels any stale notification
+// still sitting on it (those kept a phantom icon badge alive with zero unread chats). Runs on every
+// app start (root layout) and before the permission prompt; both are idempotent.
+export async function ensureNotificationChannels(): Promise<void> {
+  const m = load();
+  if (!m || Platform.OS !== 'android') return;
+  try {
+    await m.setNotificationChannelAsync('general', {
+      name: 'KBiz 360',
+      importance: m.AndroidImportance.HIGH, // heads-up popup for reminders & alerts
+      vibrationPattern: [0, 200, 100, 200],
+      showBadge: false,
+    });
+    await m.deleteNotificationChannelAsync('default');
+  } catch { /* channels are best-effort */ }
+}
+
 export async function requestNotificationPermission(): Promise<boolean> {
   const m = load();
   if (!m) return false;
-  if (Platform.OS === 'android') {
-    await m.setNotificationChannelAsync('default', {
-      name: 'KBiz 360',
-      importance: m.AndroidImportance.HIGH, // heads-up popup for messages & reminders
-      vibrationPattern: [0, 200, 100, 200],
-    });
-  }
+  await ensureNotificationChannels();
   const current = await m.getPermissionsAsync();
   if (current.granted) return true;
   const req = await m.requestPermissionsAsync();
   return req.granted;
 }
 
-// Schedule a LOCAL notification. delaySeconds <= 0 fires immediately. Returns null in Expo Go.
+// Schedule a LOCAL notification (min 1s out). Returns null in Expo Go. Posts on the non-badging
+// 'general' channel — the app-icon badge is reserved for unread chats (WhatsApp-style).
 export async function scheduleLocal(title: string, body: string, data: NotifData = {}, delaySeconds = 1): Promise<string | null> {
   const m = load();
   if (!m) return null;
@@ -75,9 +91,7 @@ export async function scheduleLocal(title: string, body: string, data: NotifData
     if (!granted) return null;
     return await m.scheduleNotificationAsync({
       content: { title, body, data: data as Record<string, unknown> },
-      trigger: delaySeconds > 0
-        ? { type: m.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: delaySeconds }
-        : null,
+      trigger: { type: m.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: Math.max(1, delaySeconds), channelId: 'general' },
     });
   } catch {
     return null;

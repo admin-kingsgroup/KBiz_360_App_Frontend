@@ -22,7 +22,7 @@ import { installGlobalCrashHandler, flushStoredCrash } from '../src/services/cra
 import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
 import { registerForegroundChatPush, syncChatNotifications } from '../src/services/chatNotifications';
 import { setupIosCallKeep } from '../src/services/iosCallKeep';
-import { registerPushToken } from '../src/services/notifications';
+import { registerPushToken, ensureNotificationChannels } from '../src/services/notifications';
 import { maybePromptBatteryOptimization } from '../src/services/batteryOptimization';
 import { useEmailStore } from '../src/store/emailStore';
 import { useMessagingStore } from '../src/store/messagingStore';
@@ -72,6 +72,7 @@ function GateController() {
     void registerPushToken(); // Expo push token → background message/reminder notifications (every launch, so returning users stay registered)
     void registerFcmToken(); // raw FCM token → native full-screen call UI (Android)
     setupIosCallKeep(); // iOS: CallKit + VoIP/PushKit incoming-call screen
+    void ensureNotificationChannels(); // migrate legacy badging 'default' channel → non-badging 'general' (badge = chats only)
     void syncAttendanceGeofencing(); // start OS geofencing for the user's offices (background auto check-in)
     void autoCheckInOnForeground(); // opening the app at the office marks attendance (foreground, any screen)
     void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
