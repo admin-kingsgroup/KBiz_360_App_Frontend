@@ -4,6 +4,7 @@
 // never runs in Expo Go.
 import { isRunningInExpoGo } from 'expo';
 import { handleChatMessagePush } from './chatNotifications';
+import { setPendingChatTap } from './notifications/pendingTap';
 
 // Wrapped in try/catch so a build WITHOUT the native modules (e.g. before the EAS rebuild that adds
 // @react-native-firebase/@notifee) degrades gracefully instead of crashing the app at startup.
@@ -55,9 +56,16 @@ if (!isRunningInExpoGo()) {
   });
 
   // Decline tapped from the background full-screen notification (cancel it; the call rings out → missed).
-  notifee.onBackgroundEvent(async ({ type, detail }: { type: number; detail: { pressAction?: { id: string }; notification?: { id?: string } } }) => {
+  notifee.onBackgroundEvent(async ({ type, detail }: { type: number; detail: { pressAction?: { id: string }; notification?: { id?: string; data?: Record<string, string> } } }) => {
     if (type === EventType.ACTION_PRESS && detail.pressAction?.id === 'decline' && detail.notification?.id) {
       await notifee.cancelNotification(detail.notification.id);
+    }
+    // Chat notification body press while the app is backgrounded/killed: launchActivity brings the
+    // app up, but no router exists in this headless handler — latch the conversation; the layout
+    // opens it once the gate settles (useCallNotifications).
+    const data = detail.notification?.data;
+    if (type === EventType.PRESS && data?.type === 'chat' && (data.id || data.conversationId)) {
+      setPendingChatTap(String(data.id ?? data.conversationId));
     }
     // 'answer' / body press use launchActivity → the app opens and answers (see useCallNotifications).
   });

@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
-import { useRouter } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import { registerFcmDevice } from '../api/calls';
 import { callManager } from './rtc/CallManager';
+import { consumePendingChatTap, setPendingChatTap, subscribePendingChatTap } from './notifications/pendingTap';
+import { useGate } from '../navigation/guards';
 
 // Native-only helpers for the full-screen incoming-call UI. No-op in Expo Go.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -38,19 +40,34 @@ export async function registerFcmToken(): Promise<void> {
 
 interface NotifLike { notification?: { id?: string; data?: Record<string, string> }; pressAction?: { id?: string } }
 
+// getInitialNotification returns the SAME launch tap on every consumer mount for the lifetime of
+// the process — module-level guard so a gate/root remount doesn't replay it (same pattern as
+// useNotificationRouting's handledResponseId).
+let initialTapHandled = false;
+
 // Taps on NOTIFEE notifications — cold-start launch + foreground taps. Calls: 'answer' accepts
 // (the reconnect re-emit + pendingAccept connect the call); 'decline' rejects; a body/full-screen
-// tap just opens the app and the in-app overlay shows Accept/Decline. Chat: a body tap deep-links
-// to the conversation (the background chat push draws notifee notifications with {type:'chat', id}).
+// tap just opens the app and the in-app overlay shows Accept/Decline. Chat: a body tap LATCHES the
+// conversation (pendingTap) and the effect below opens it once the auth gate has settled — routing
+// immediately raced the gate's login → (tabs) replace() on cold start, which stomped the chat
+// screen and left the user on Home. Background presses land in callBackground's onBackgroundEvent,
+// which latches the same way.
 export function useCallNotifications(): void {
   const router = useRouter();
+  const gate = useGate();
+  const segments = useSegments() as string[];
+
   useEffect(() => {
     const m = load();
     if (!m) return;
     const { notifee, EventType } = m;
-    const act = (info: NotifLike | null | undefined): void => {
+    const act = (info: NotifLike | null | undefined, initial = false): void => {
       const data = info?.notification?.data;
       if (!data) return;
+      if (initial) {
+        if (initialTapHandled) return;
+        initialTapHandled = true;
+      }
       if (data.type === 'call') {
         const actionId = info?.pressAction?.id;
         if (actionId === 'answer') callManager.acceptFromNotification(data.callId);
@@ -59,14 +76,48 @@ export function useCallNotifications(): void {
           if (info?.notification?.id) void notifee.cancelNotification(info.notification.id);
         }
       } else if (data.type === 'chat' && (data.id || data.conversationId)) {
-        router.push({ pathname: '/chat/[id]', params: { id: (data.id ?? data.conversationId) as string } });
+        setPendingChatTap(String(data.id ?? data.conversationId));
       }
     };
-    void (notifee.getInitialNotification() as Promise<NotifLike | null>).then(act);
+    void (notifee.getInitialNotification() as Promise<NotifLike | null>).then((n) => act(n, true));
     const unsub = notifee.onForegroundEvent((e: unknown) => {
       const ev = e as { type: number; detail: NotifLike };
       if (ev.type === EventType.ACTION_PRESS || ev.type === EventType.PRESS) act(ev.detail);
     });
-    return () => unsub();
+
+    // iOS displays chat pushes natively from the APNs alert (no notifee involved), so taps arrive
+    // via RNFirebase instead. Android chat pushes are data-only → these never fire there.
+    let unsubFcmOpen: (() => void) | null = null;
+    try {
+      const { getMessaging, onNotificationOpenedApp, getInitialNotification: getInitialFcm } = m.fb;
+      const fcmAct = (msg: { data?: Record<string, string> } | null | undefined): void => {
+        const d = msg?.data;
+        if (d?.type === 'chat_message' && d.conversationId) setPendingChatTap(d.conversationId);
+      };
+      const messaging = getMessaging();
+      void getInitialFcm(messaging).then(fcmAct);
+      unsubFcmOpen = onNotificationOpenedApp(messaging, fcmAct);
+    } catch {
+      /* older RNFirebase without these — notifee path still covers Android */
+    }
+
+    return () => {
+      unsub();
+      unsubFcmOpen?.();
+    };
   }, [router]);
+
+  // Consume the latched tap once routing is safe: signed in, past the (auth) redirects. Re-runs on
+  // segment changes (so it fires right after the gate's replace('/(tabs)') settles) and subscribes
+  // for taps latched while the app is already running (background press → immediate open).
+  useEffect(() => {
+    if (gate !== 'app' || segments[0] === '(auth)') return;
+    const open = (): void => {
+      const id = consumePendingChatTap();
+      // navigate, not push: focuses an already-mounted instance of this chat instead of stacking one.
+      if (id) router.navigate({ pathname: '/chat/[id]', params: { id } });
+    };
+    open();
+    return subscribePendingChatTap(open);
+  }, [gate, segments, router]);
 }
