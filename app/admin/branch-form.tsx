@@ -6,6 +6,7 @@ import { X, Check, Search } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { FormField, SheetSave } from '../../src/components/forms';
 import { useUiStore } from '../../src/store/uiStore';
+import { useDirectoryStore } from '../../src/store/directoryStore';
 import { listCompanies, listBranches, listUsers, createBranch, type DirectoryCompany, type DirectoryBranch, type DirectoryUser } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
 
@@ -70,6 +71,8 @@ export default function BranchForm() {
       });
       const n = created.membersAdded ?? 0;
       showToast(`Branch ${code.trim().toUpperCase()} created${n ? ` · ${n} member${n === 1 ? '' : 's'} added` : ''}`);
+      // Refresh the shared directory before leaving so the screen we return to shows the new branch.
+      void useDirectoryStore.getState().load();
       router.back();
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : 'Could not create branch');

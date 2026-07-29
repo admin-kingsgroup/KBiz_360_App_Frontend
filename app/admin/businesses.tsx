@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, X, Building2 } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
+import { useDirectoryStore } from '../../src/store/directoryStore';
 import { ApiError } from '../../src/api/client';
 import { listCompanies, listBranches, createCompany, type DirectoryCompany, type DirectoryBranch } from '../../src/api/directory';
 import { codeFromName } from '../../src/logic/directory';
@@ -29,12 +30,14 @@ export default function Businesses() {
       .catch(() => { /* offline / unreachable */ })
       .finally(() => { if (active.current) setLoading(false); });
 
-  useEffect(() => {
+  // Reload on focus so branch counts stay current after creating a branch from Business detail
+  // (which stacks on top of this screen — no remount on back).
+  useFocusEffect(useCallback(() => {
     const active = { current: true };
     void load(active);
     return () => { active.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []));
 
   // Arriving from the "+" create hub (Home) auto-opens the New-business form.
   const params = useLocalSearchParams<{ create?: string }>();
@@ -48,7 +51,12 @@ export default function Businesses() {
     if (!name) { showToast('Business name required'); return; }
     setSaving(true);
     createCompany(name)
-      .then(() => { showToast('Business created'); setCreating(false); setNameInput(''); return load(); })
+      .then(() => {
+        showToast('Business created'); setCreating(false); setNameInput('');
+        // Refresh the shared directory too, so Home's business pills pick it up without a restart.
+        void useDirectoryStore.getState().load();
+        return load();
+      })
       .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not create business'))
       .finally(() => setSaving(false));
   };

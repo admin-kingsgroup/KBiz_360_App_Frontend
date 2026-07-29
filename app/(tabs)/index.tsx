@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-native';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, useAnimatedRef, interpolate, Extrapolation, runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -124,7 +124,9 @@ export default function Home() {
   // Real CRM org directory (companies/branches/departments), access-scoped by the backend. We show the
   // real org ONLY — no mock fallback — so dummy pills/tabs never flash before the real data loads.
   const dir = useDirectoryStore();
-  useEffect(() => { void useDirectoryStore.getState().load(); }, []);
+  // Refetch on focus (not just mount): the tab stays mounted all session, so a mount-only load
+  // meant businesses/branches/departments created elsewhere only appeared after an app restart.
+  useFocusEffect(useCallback(() => { void useDirectoryStore.getState().load(); }, []));
   const usingReal = dir.businesses.length > 0;
   const bizSource = dir.businesses;
 

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { ChevronLeft, MapPin, Building2, User as UserIcon } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
@@ -27,7 +27,9 @@ export default function BusinessDetail() {
   const [depts, setDepts] = useState<DirectoryDepartment[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
-  useEffect(() => {
+  // Reload on focus (not just mount): returning from "New branch" / department create must show the
+  // fresh lists — a mount-only load kept this screen stale until it was closed and reopened.
+  useFocusEffect(useCallback(() => {
     let active = true;
     Promise.all([listCompanies(), listBranches(), listDepartments(), listUsers()])
       .then(([companies, allBranches, allDepts, allUsers]) => {
@@ -53,7 +55,7 @@ export default function BusinessDetail() {
       .catch(() => { /* offline */ })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [id]);
+  }, [id]));
 
   if (loading) {
     return (

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, FolderKanban } from 'lucide-react-native';
@@ -86,7 +86,9 @@ export default function Profile() {
       .finally(() => setSavingProfile(false));
   };
 
-  useEffect(() => {
+  // Refetch on focus (the tab stays mounted all session) so counts reflect businesses/branches/users
+  // created elsewhere in the app without a restart.
+  useFocusEffect(useCallback(() => {
     let active = true;
     Promise.all([listCompanies(), listUsers(), listBranches(), listRoles()])
       .then(([c, u, b, r]) => {
@@ -103,7 +105,7 @@ export default function Profile() {
       .catch(() => { /* offline — leave counts at 0 */ });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []));
 
   if (!user) return null;
   const rd = ROLE_DEFS[user.role];

@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, Trash2, X, Check } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
+import { useDirectoryStore } from '../../src/store/directoryStore';
 import {
   listAppDepartments, listCompanies, listBranches, createDepartment, updateDepartment, deleteDepartment,
   type AppDepartment, type DirectoryCompany, type DirectoryBranch,
@@ -27,7 +28,12 @@ export default function ManageDepartments() {
   const [form, setForm] = useState<Form | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const load = (): void => { listAppDepartments().then(setRows).catch(() => undefined).finally(() => setLoading(false)); };
+  // Reload this screen's list AND the shared directory store, so the Departments tab on Home (and
+  // every other directory consumer) reflects the change without an app restart.
+  const load = (): void => {
+    listAppDepartments().then(setRows).catch(() => undefined).finally(() => setLoading(false));
+  };
+  const loadAndBroadcast = (): void => { load(); void useDirectoryStore.getState().load(); };
   useEffect(() => {
     load();
     listCompanies().then(setCompanies).catch(() => undefined);
@@ -61,13 +67,13 @@ export default function ManageDepartments() {
       else await createDepartment(body);
       showToast('Department saved');
       setForm(null);
-      load();
+      loadAndBroadcast();
     } catch (e) { showToast(e instanceof ApiError ? e.message : 'Could not save'); } finally { setSaving(false); }
   };
 
   const remove = (d: AppDepartment): void => Alert.alert('Delete department', `Delete "${d.name}"? Its branch groups will no longer be listed.`, [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => { void deleteDepartment(d.id).then(() => { showToast('Department deleted'); load(); }).catch(() => showToast('Could not delete')); } },
+    { text: 'Delete', style: 'destructive', onPress: () => { void deleteDepartment(d.id).then(() => { showToast('Department deleted'); loadAndBroadcast(); }).catch(() => showToast('Could not delete')); } },
   ]);
 
   return (
