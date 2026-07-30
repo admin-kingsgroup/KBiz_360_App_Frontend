@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { User as UserIcon, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X } from 'lucide-react-native';
+import { User as UserIcon, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X, Trash2 } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { pulseChannels } from '../../src/data/pulse';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { listUsers, toUser } from '../../src/api/directory';
+import { listUsers, toUser, deleteUser } from '../../src/api/directory';
+import { ApiError } from '../../src/api/client';
 import { authApi, adminApi } from '../../src/api';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import type { User } from '../../src/types/user';
@@ -86,6 +87,20 @@ export default function Users() {
       .then(() => showToast(enabled ? 'App access enabled' : 'App access disabled — user signed out'))
       .catch(() => { setAppAccess((s) => ({ ...s, [id]: !enabled })); showToast('Could not update access'); });
   };
+
+  // Super-admin: permanently delete a user's account (distinct from the access switch, which only
+  // disables login). The server refuses self-deletion.
+  const removeUser = (u: User) => Alert.alert('Delete user', `Permanently delete "${u.name}"? They lose access to the app, CRM and ERP. To just block sign-in, use the access switch instead.`, [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Delete', style: 'destructive',
+      onPress: () => {
+        deleteUser(u.id)
+          .then(() => { setUsers((prev) => prev.filter((x) => x.id !== u.id)); showToast('User deleted'); })
+          .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete user'));
+      },
+    },
+  ]);
 
   // Super-admin: open the position editor for a user, and save it.
   const openPosition = (u: User) => { setEditing(u); setPosInput(u.position ?? ''); };
@@ -167,6 +182,11 @@ export default function Users() {
                     <Pressable onPress={() => setAlertsUser(u)} hitSlop={8} style={{ padding: 6 }}>
                       <Bell size={17} color={(alertGrants[u.id] || []).length ? colors.orange : colors.coolText3} />
                     </Pressable>
+                    {u.id !== me?.id ? (
+                      <Pressable onPress={() => removeUser(u)} hitSlop={8} style={{ padding: 6 }}>
+                        <Trash2 size={17} color={colors.danger} />
+                      </Pressable>
+                    ) : null}
                   </View>
                 ) : null}
                 {/* Super-admin app-access toggle (can't disable yourself). onStartShouldSetResponder

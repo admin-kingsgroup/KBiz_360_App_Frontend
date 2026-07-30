@@ -1,13 +1,17 @@
 import { useCallback, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { ChevronLeft, MapPin, Building2, User as UserIcon } from 'lucide-react-native';
+import { ChevronLeft, MapPin, Building2, User as UserIcon, Trash2 } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { ROLE_DEFS } from '../../src/constants/roles';
+import { useAccessStore } from '../../src/store/accessStore';
+import { useDirectoryStore } from '../../src/store/directoryStore';
+import { useUiStore } from '../../src/store/uiStore';
+import { ApiError } from '../../src/api/client';
 import {
-  listCompanies, listBranches, listDepartments, listUsers, toUser,
+  listCompanies, listBranches, listDepartments, listUsers, toUser, deleteBranch, deleteDepartment,
   type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment,
 } from '../../src/api/directory';
 import { codeFromName } from '../../src/logic/directory';
@@ -16,16 +20,20 @@ import type { User } from '../../src/types';
 const PALETTE = ['#9A6CF0', '#4F8BFF', '#37B6A4', '#E8A13A', '#E3674E', '#2FB36B', '#DB2777'];
 type SubTab = 'branches' | 'depts' | 'users';
 
-// Company detail (real CRM, read-only): branches / departments / users for the company.
+// Company detail (real CRM): branches / departments / users for the company. Super-admins can
+// delete branches and departments from here (users are deleted from Team & Users).
 export default function BusinessDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const showToast = useUiStore((s) => s.showToast);
+  const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
   const [subTab, setSubTab] = useState<SubTab>('branches');
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<DirectoryCompany | null>(null);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
   const [depts, setDepts] = useState<DirectoryDepartment[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [refresh, setRefresh] = useState(0); // bump to re-run the focus load after a delete
 
   // Reload on focus (not just mount): returning from "New branch" / department create must show the
   // fresh lists — a mount-only load kept this screen stale until it was closed and reopened.
@@ -55,7 +63,20 @@ export default function BusinessDetail() {
       .catch(() => { /* offline */ })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [id]));
+    // `refresh` is a counter whose only job is re-running this load after a delete.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, refresh]));
+
+  // Delete then re-run the focus load AND refresh the shared directory so Home picks it up too.
+  const reload = (): void => { setRefresh((r) => r + 1); void useDirectoryStore.getState().load(); };
+  const removeBranch = (b: DirectoryBranch): void => Alert.alert('Delete branch', `Delete "${b.city ?? b.name ?? b.code}"? Team members are un-assigned from it.`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: () => { deleteBranch(b.id).then(() => { showToast('Branch deleted'); reload(); }).catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete branch')); } },
+  ]);
+  const removeDept = (d: DirectoryDepartment): void => Alert.alert('Delete department', `Delete "${d.name ?? d.code}" from every branch of this company?`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: () => { deleteDepartment(d.id).then(() => { showToast('Department deleted'); reload(); }).catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete department')); } },
+  ]);
 
   if (loading) {
     return (
@@ -114,6 +135,7 @@ export default function BusinessDetail() {
               <View key={b.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
                 <View style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>{b.code ?? '—'}</Text></View>
                 <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{b.city ?? b.name ?? b.code}{b.isHO ? '  · HO' : ''}</Text><Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{b.country ?? ''}</Text></View>
+                {isSuper ? <Pressable onPress={() => removeBranch(b)} hitSlop={8} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable> : null}
               </View>
             ))
         ) : subTab === 'depts' ? (
@@ -122,6 +144,7 @@ export default function BusinessDetail() {
               <View key={d.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
                 <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>{(d.name ?? d.code ?? '?').slice(0, 1).toUpperCase()}</Text></View>
                 <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{d.name ?? d.code}</Text>{d.code ? <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{d.code}</Text> : null}</View>
+                {isSuper ? <Pressable onPress={() => removeDept(d)} hitSlop={8} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable> : null}
               </View>
             ))
         ) : (

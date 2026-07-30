@@ -67,6 +67,15 @@ export const createCompany = (name: string): Promise<DirectoryCompany> =>
 export const createBranch = (body: { companyId: string; name: string; code: string; city?: string; country?: string; isHO?: boolean; userIds?: string[] }): Promise<DirectoryBranch & { membersAdded?: number }> =>
   apiFetch('/api/branches', { method: 'POST', body });
 
+// Super-admin deletes (tenant-scoped hard deletes, matching the CRM's own behavior). The server
+// refuses to delete a business that still has branches, and refuses self-deletion.
+export const deleteCompany = (id: string): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/companies/${id}`, { method: 'DELETE' });
+export const deleteBranch = (id: string): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/branches/${id}`, { method: 'DELETE' });
+export const deleteUser = (id: string): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/users/${id}`, { method: 'DELETE' });
+
 // Super-admin: create / edit / delete app departments (companyId required; branchId null = all branches).
 export interface AppDepartment { id: string; name: string; companyId: string | null; branchId: string | null; icon: string | null; color: string | null }
 export const listAppDepartments = (): Promise<AppDepartment[]> => apiFetch('/api/departments/app');

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { ChevronLeft, ChevronRight, X, Building2 } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, X, Building2, Trash2 } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
+import { useAccessStore } from '../../src/store/accessStore';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { ApiError } from '../../src/api/client';
-import { listCompanies, listBranches, createCompany, type DirectoryCompany, type DirectoryBranch } from '../../src/api/directory';
+import { listCompanies, listBranches, createCompany, deleteCompany, type DirectoryCompany, type DirectoryBranch } from '../../src/api/directory';
 import { codeFromName } from '../../src/logic/directory';
 
 const PALETTE = ['#9A6CF0', '#4F8BFF', '#37B6A4', '#E8A13A', '#E3674E', '#2FB36B', '#DB2777'];
@@ -17,6 +18,7 @@ const PALETTE = ['#9A6CF0', '#4F8BFF', '#37B6A4', '#E8A13A', '#E3674E', '#2FB36B
 export default function Businesses() {
   const router = useRouter();
   const showToast = useUiStore((s) => s.showToast);
+  const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
   const [companies, setCompanies] = useState<DirectoryCompany[]>([]);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +65,20 @@ export default function Businesses() {
 
   const branchCount = (companyId: string) => branches.filter((b) => b.companyId === companyId).length;
 
+  // Super-admin: delete a business. The server refuses while it still has branches — that error
+  // (e.g. "still has 3 branches — delete them first") is surfaced as the toast.
+  const removeCompany = (c: DirectoryCompany) => Alert.alert('Delete business', `Delete "${c.name}"? This removes it from the company directory and the ERP.`, [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Delete', style: 'destructive',
+      onPress: () => {
+        deleteCompany(c.id)
+          .then(() => { showToast('Business deleted'); void useDirectoryStore.getState().load(); return load(); })
+          .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete business'));
+      },
+    },
+  ]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       {/* Standard white header */}
@@ -89,6 +105,11 @@ export default function Businesses() {
               <Pressable key={c.id} onPress={() => router.push({ pathname: '/business/[id]', params: { id: c.id } })} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider }}>
                 <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{codeFromName(c.name)}</Text></View>
                 <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{c.name}</Text><Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{n} branch{n === 1 ? '' : 'es'}{c.status ? ` · ${c.status}` : ''}</Text></View>
+                {isSuper ? (
+                  <View onStartShouldSetResponder={() => true}>
+                    <Pressable onPress={() => removeCompany(c)} hitSlop={8} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable>
+                  </View>
+                ) : null}
                 <ChevronRight size={18} color={colors.coolText3} />
               </Pressable>
             );

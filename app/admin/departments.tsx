@@ -7,8 +7,8 @@ import { colors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import {
-  listAppDepartments, listCompanies, listBranches, createDepartment, updateDepartment, deleteDepartment,
-  type AppDepartment, type DirectoryCompany, type DirectoryBranch,
+  listAppDepartments, listCompanies, listBranches, listDepartments, createDepartment, updateDepartment, deleteDepartment,
+  type AppDepartment, type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment,
 } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
 
@@ -22,6 +22,7 @@ export default function ManageDepartments() {
   const router = useRouter();
   const showToast = useUiStore((s) => s.showToast);
   const [rows, setRows] = useState<AppDepartment[]>([]);
+  const [crmRows, setCrmRows] = useState<DirectoryDepartment[]>([]);
   const [companies, setCompanies] = useState<DirectoryCompany[]>([]);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +33,18 @@ export default function ManageDepartments() {
   // every other directory consumer) reflects the change without an app restart.
   const load = (): void => {
     listAppDepartments().then(setRows).catch(() => undefined).finally(() => setLoading(false));
+    // CRM-synced departments are expanded once per branch — dedupe by (company, name) so each shows
+    // as ONE deletable row here (the server delete removes every branch row of that name anyway).
+    listDepartments().then((all) => {
+      const seen = new Set<string>();
+      setCrmRows(all.filter((d) => {
+        if (d.appOwned) return false;
+        const key = `${d.companyId ?? ''}:${(d.name ?? d.code ?? d.id).trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }));
+    }).catch(() => undefined);
   };
   const loadAndBroadcast = (): void => { load(); void useDirectoryStore.getState().load(); };
   useEffect(() => {
@@ -75,6 +88,10 @@ export default function ManageDepartments() {
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: () => { void deleteDepartment(d.id).then(() => { showToast('Department deleted'); loadAndBroadcast(); }).catch(() => showToast('Could not delete')); } },
   ]);
+  const removeCrm = (d: DirectoryDepartment): void => Alert.alert('Delete department', `Delete "${d.name ?? d.code}" from every branch? It is removed from the CRM too.`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: () => { void deleteDepartment(d.id).then(() => { showToast('Department deleted'); loadAndBroadcast(); }).catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete')); } },
+  ]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -89,7 +106,7 @@ export default function ManageDepartments() {
       ) : (
         <ScrollView contentContainerStyle={{ padding: 14, gap: 10 }}>
           <Text style={{ color: colors.coolText, fontSize: 12.5, lineHeight: 18, paddingHorizontal: 2 }}>
-            Departments you create here appear in the Departments tab and give every branch in the company a group. (Departments synced from the CRM are read-only.)
+            Departments you create here appear in the Departments tab and give every branch in the company a group. CRM-synced departments are listed below — deleting one removes it from every branch and from the CRM.
           </Text>
           {rows.map((d) => (
             <View key={d.id} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
@@ -104,6 +121,25 @@ export default function ManageDepartments() {
             </View>
           ))}
           {rows.length === 0 ? <Text style={{ color: colors.coolText, fontSize: 13.5, textAlign: 'center', paddingVertical: 24 }}>No custom departments yet. Use the “+” on Home to create one.</Text> : null}
+
+          {/* CRM-synced departments (deduped: one row per company+name; delete removes all branch rows). */}
+          {crmRows.length ? (
+            <>
+              <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 12, paddingHorizontal: 2 }}>SYNCED FROM CRM · {crmRows.length}</Text>
+              {crmRows.map((d) => (
+                <View key={d.id} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
+                  <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: colors.coolText, fontWeight: '700', fontSize: 17 }}>{((d.name ?? d.code ?? '•').trim()[0] ?? '•').toUpperCase()}</Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{d.name ?? d.code}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{companyName(d.companyId ?? null)} · synced from CRM</Text>
+                  </View>
+                  <Pressable onPress={() => removeCrm(d)} hitSlop={6} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable>
+                </View>
+              ))}
+            </>
+          ) : null}
         </ScrollView>
       )}
 
