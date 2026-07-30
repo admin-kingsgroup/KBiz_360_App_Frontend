@@ -62,11 +62,18 @@ export function confirmedAway(p: OfficePresence, radius: number): boolean {
 //     (re)arm (fresh login / app reopen), so the old rule fired a false check-out on login.
 //     A REAL exit is confirmed minutes later anyway: outdoors a fix arrives and the next Exit
 //     event (or the 15-min background reconcile) verifies it with evidence.
-// Buffer is ZERO (owner call, 07-28): check-out fires the moment an accurate fix is beyond the
-// fence itself — no spatial hysteresis. With no buffer, evidence QUALITY is the only remaining
-// false-exit guard, so the accuracy bar is tight: a ±150 m fix cannot prove "beyond 100 m".
-// Outdoor fixes are typically ±5–20 m, so 50 m never delays a real exit; a genuinely poor fix
-// defers to the next Exit event / the 15-min background reconcile instead of guessing.
+// Buffer is ZERO (owner call, 07-28): check-out fires the moment a fix provably beyond the fence
+// arrives — no spatial hysteresis. Evidence quality is judged in two tiers (07-30, the "checkout
+// stamped hours late" fix):
+//   - a TIGHT fix (accuracy ≤ EXIT_MAX_ACCURACY_M) confirms the exit as soon as it lands beyond
+//     the fence itself — prompt near-boundary behaviour, unchanged;
+//   - a COARSE fix also confirms the exit when it clears every fence by its own error radius
+//     (distance − accuracy > radius): worst-case-still-outside is proof no matter how blurry the
+//     fix is. Cell/Wi-Fi fixes in a car or at home are ±100–1000 m; the old flat 50 m bar threw
+//     them away even 5 km from the office, deferring the punch — and the recorded checkout time —
+//     to a Doze-delayed reconcile hours later.
+// A coarse fix NEAR the boundary (can't clear the fence by its error) stays rejected: it defers
+// to the next Exit event / the 15-min background reconcile instead of guessing.
 export const EXIT_BUFFER_M = 0;
 export const EXIT_MAX_ACCURACY_M = 50;
 export interface ArmedRegion { lat: number; lng: number; radius: number }
@@ -75,8 +82,9 @@ export function confirmGeofenceExit(
   regions: ArmedRegion[],
 ): boolean {
   if (!fix) return false; // no evidence → no punch (a lost fix is unknown, not an exit)
-  if (fix.accuracy != null && fix.accuracy > EXIT_MAX_ACCURACY_M) return false;
-  return !regions.some((r) => distanceMeters(fix.coords, r) <= r.radius + EXIT_BUFFER_M);
+  const acc = fix.accuracy ?? 0; // a fix with no reported accuracy is treated as trusted (as before)
+  const margin = acc <= EXIT_MAX_ACCURACY_M ? 0 : acc; // coarse fixes must clear each fence by their own error
+  return regions.every((r) => distanceMeters(fix.coords, r) - margin > r.radius + EXIT_BUFFER_M);
 }
 
 // ── background geofence entry verification ──

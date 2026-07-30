@@ -6,6 +6,12 @@ export interface PunchBody {
   wifiSsid?: string | null; // the Wi-Fi network the device is connected to (backend verifies it)
   coords?: Coords | null;
   method?: 'auto' | 'face';
+  // 'geofence' = distance-driven auto punch; the server applies its exit drift guard to these.
+  source?: 'geofence';
+  // ISO instant the OS FIRST detected this departure (pending-exit marker). Geofence-sourced
+  // check-outs only — the server back-dates checkOutAt to it within hard bounds (same business
+  // day, after check-in, not in the future).
+  exitAt?: string;
 }
 
 export interface MyAttendance {

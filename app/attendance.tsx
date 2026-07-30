@@ -18,6 +18,7 @@ import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHis
 import { getCurrentSsid } from '../src/services/wifi';
 import { ssidMatches, cleanSsid } from '../src/logic/wifi';
 import { syncAttendanceGeofencing, disarmAttendanceGeofencing, getBackgroundLocationState, type BackgroundLocationState } from '../src/services/backgroundAttendance';
+import { notePendingExit, peekPendingExit, clearPendingExit } from '../src/services/pendingExit';
 import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
 
@@ -244,8 +245,15 @@ export default function Attendance() {
     try {
       // source:'geofence' marks a distance-driven AUTO punch so the server applies its exit drift
       // guard to it; manual/face punches never send it (user-initiated punches are never blocked).
-      const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid, ...(source ? { source } : {}) };
+      // A geofence check-out also carries the pending-exit marker (exitAt): if the departure was
+      // first detected while the app was backgrounded (refused/undelivered punch), the server
+      // back-dates checkOutAt to that instant instead of stamping "now".
+      const pendingExitAt = kind === 'out' && source === 'geofence' ? await peekPendingExit() : null;
+      const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid, ...(source ? { source } : {}), ...(pendingExitAt ? { exitAt: pendingExitAt } : {}) };
       const m = kind === 'in' ? await checkIn(body) : await checkOut(body);
+      // Punch accepted → the pending exit is resolved either way: 'out' closed the day at the
+      // back-dated time; 'in' proves presence at the office (the marker was drift).
+      void clearPendingExit();
       autoFailsRef.current = 0; // server reachable + accepting — clear the failure escalation
       if (autoBlockedUntilRef.current === Number.MAX_SAFE_INTEGER) autoBlockedUntilRef.current = 0; // mount fetch had failed; server is back
       useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
@@ -260,6 +268,12 @@ export default function Attendance() {
       if (silent) {
         autoFailsRef.current += 1;
         autoBlockedUntilRef.current = Date.now() + (e instanceof ApiError || autoFailsRef.current >= 2 ? 15 * 60_000 : 60_000);
+      }
+      // Marker hygiene mirrors the headless task: a server REJECTION refutes the pending exit
+      // (drift guard / already out); a network failure keeps its instant for the retry punch.
+      if (kind === 'out' && source === 'geofence') {
+        if (e instanceof ApiError) void clearPendingExit();
+        else void notePendingExit();
       }
       try {
         const m = await getMyAttendance(); // revert the optimistic local state to the server's truth
@@ -281,6 +295,9 @@ export default function Attendance() {
     const wifiOn = ssidMatches(ssid, office.wifiSsid);
     const wifiConfigured = !!cleanSsid(office.wifiSsid);
     const p = refreshPresence({ wifiOn, wifiConfigured, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
+    // Provably at the office → any pending-exit marker was drift that never resolved; refute it
+    // so a later real check-out can't back-date to a bogus mid-day instant.
+    if (p.present) void clearPendingExit();
     // Not present AND not provably outside the fence (no fix / fix still inside): unknown — do
     // nothing. This is the Wi-Fi-drop / GPS-silence case that must never close the day.
     if (!p.present && (p.distance == null || p.distance <= office.radius)) return;

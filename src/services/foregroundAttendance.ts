@@ -2,6 +2,7 @@ import { isRunningInExpoGo } from 'expo';
 import type * as LocationModuleT from 'expo-location';
 import { getOffices, checkIn, getMyAttendance, type MyAttendance } from '../api/attendance';
 import { getCurrentSsid } from './wifi';
+import { clearPendingExit } from './pendingExit';
 import { computePresence } from '../logic/attendance';
 import { ssidMatches, cleanSsid } from '../logic/wifi';
 import { useAttendanceStore } from '../store/attendanceStore';
@@ -72,6 +73,8 @@ export async function autoCheckInOnForeground(): Promise<void> {
 
     const m = await checkIn({ coords, method: 'auto', wifiSsid: ssid });
     adoptRecord(m);
+    // Checked in = provably at the office — any pending-exit marker was drift; refute it.
+    void clearPendingExit();
     useUiStore.getState().showToast(`Checked in · ${m.inTime ? hhmm(new Date(m.inTime)) : 'now'}`);
   } catch { /* offline / server rejected on re-verify — silent; the user can still punch manually */ }
   finally { inFlight = false; }

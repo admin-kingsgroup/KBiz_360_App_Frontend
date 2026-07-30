@@ -5,6 +5,8 @@ import type * as TaskManagerModuleT from 'expo-task-manager';
 import { loadSession, updateStoredTokens } from './storage/session';
 import { setTokens } from '../api/tokens';
 import { confirmGeofenceExit, confirmGeofenceEntry, type ArmedRegion } from '../logic/attendance';
+import { distanceMeters } from '../logic/geo';
+import { notePendingExit, peekPendingExit, clearPendingExit } from './pendingExit';
 
 // Background auto check-in via OS geofencing. When the signed-in user enters/leaves an office region,
 // the OS wakes the app (even if killed) and we punch in/out. Lazy-required + Expo-Go-guarded exactly
@@ -52,25 +54,37 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
     wifiSsid = await getCurrentSsid();
   } catch { /* SSID unreadable headlessly — server treats it as not on office Wi-Fi */ }
   // source:'geofence' lets the server apply its still-inside drift rejection to these check-outs.
-  const body = JSON.stringify({ method: 'auto', coords, source: 'geofence', wifiSsid });
+  // A check-out also carries the pending-exit marker (exitAt) so the server can back-date
+  // checkOutAt to when the departure was FIRST detected, not when this punch finally landed.
+  const exitAt = kind === 'check-out' ? await peekPendingExit() : null;
+  const body = JSON.stringify({ method: 'auto', coords, source: 'geofence', wifiSsid, ...(exitAt ? { exitAt } : {}) });
   const send = (token: string): Promise<Response> =>
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body });
-  let res = await send(session.access);
-  if (res.status === 401) {
-    const r = await fetch(`${apiBase()}/api/auth/refresh`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: session.refresh }),
-    });
-    if (r.ok) {
-      const t = (await r.json()) as { accessToken: string; refreshToken: string };
-      await updateStoredTokens(t.accessToken, t.refreshToken);
-      // Keep the LIVE in-memory holder in step too. The backend revokes the old refresh token on
-      // rotation, so if the app process is still alive (backgrounded), leaving the in-memory tokens
-      // stale means its next foreground request refreshes with a now-revoked token → forced logout.
-      setTokens(t.accessToken, t.refreshToken);
-      res = await send(t.accessToken);
+  try {
+    let res = await send(session.access);
+    if (res.status === 401) {
+      const r = await fetch(`${apiBase()}/api/auth/refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: session.refresh }),
+      });
+      if (r.ok) {
+        const t = (await r.json()) as { accessToken: string; refreshToken: string };
+        await updateStoredTokens(t.accessToken, t.refreshToken);
+        // Keep the LIVE in-memory holder in step too. The backend revokes the old refresh token on
+        // rotation, so if the app process is still alive (backgrounded), leaving the in-memory tokens
+        // stale means its next foreground request refreshes with a now-revoked token → forced logout.
+        setTokens(t.accessToken, t.refreshToken);
+        res = await send(t.accessToken);
+      }
     }
+    // Marker hygiene. An ACCEPTED punch resolves the pending exit: check-out closed the day at the
+    // back-dated instant; check-in proves presence at the office (the marker was drift). A 400 on
+    // check-out (drift-rejected / already out / not checked in) refutes it just the same.
+    if (res.ok || (kind === 'check-out' && res.status === 400)) await clearPendingExit();
+  } catch {
+    // Network failure — the punch never reached the server. For a check-out the exit was already
+    // verified, so keep its instant for the retry (next Exit event / reconcile) to back-date to.
+    if (kind === 'check-out') await notePendingExit();
   }
-  void res;
 }
 
 // Today's record, fetched headlessly (same cold-start-safe auth as postPunch). null = couldn't
@@ -123,6 +137,8 @@ function ensureTaskRegistered(): void {
     } catch { /* keep region centre */ }
     try {
       if (eventType === Location.GeofencingEventType.Enter) {
+        // Entering a fence refutes any pending-exit marker (a drift Exit that never resolved).
+        await clearPendingExit();
         // Background Enter may only OPEN a fresh day — never re-open a closed one. A returning
         // GPS fix after a (possibly false) exit used to re-check-in silently, which let the next
         // noise blip stamp a new, later check-out: rolling bogus punch times while the person sat
@@ -132,10 +148,20 @@ function ensureTaskRegistered(): void {
         if (!today || today.inTime) return;
         await postPunch('check-in', coords);
       } else if (eventType === Location.GeofencingEventType.Exit) {
-        // The OS fires Exit on indoor GPS drift. Re-verify with the fresh fix against the armed
-        // regions — only a confirmed, accurate, outside-the-buffer fix may close the day. The
-        // server re-checks too (source:'geofence'), so a false negative here is still caught.
-        if (confirmGeofenceExit(fix, await readCachedRegions())) await postPunch('check-out', coords);
+        // The OS fires Exit on indoor GPS drift. A fresh fix INSIDE a fence refutes the event
+        // outright (clear any pending marker). Anything else records THIS instant as the pending
+        // exit (earliest wins) — even when the punch itself must wait for better evidence — so the
+        // eventual check-out is back-dated to when the departure was first seen, not hours later.
+        const regions = await readCachedRegions();
+        if (fix && regions.some((r) => distanceMeters(fix.coords, r) <= r.radius)) {
+          await clearPendingExit();
+        } else {
+          await notePendingExit();
+          // Only a fix provably beyond every fence may close the day NOW (confirmGeofenceExit;
+          // the server re-checks too via source:'geofence'). Otherwise the marker waits for the
+          // next Exit event / the 15-min reconcile to deliver the punch.
+          if (confirmGeofenceExit(fix, regions)) await postPunch('check-out', coords);
+        }
       }
     } catch { /* best-effort */ }
   });
@@ -202,6 +228,9 @@ function ensureRefreshTaskRegistered(): void {
             fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
           } catch { /* no fix → no punch */ }
           const regions = await readCachedRegions();
+          // A fix INSIDE a fence refutes any pending-exit marker: the person is (still) at the
+          // office, so whatever Exit event set it was drift that never resolved.
+          if (fix && regions.length && regions.some((r) => distanceMeters(fix.coords, r) <= r.radius)) await clearPendingExit();
           if (needIn && fix && confirmGeofenceEntry(fix, regions)) await postPunch('check-in', fix.coords);
           else if (dayOpen && fix && confirmGeofenceExit(fix, regions)) await postPunch('check-out', fix.coords);
         }
