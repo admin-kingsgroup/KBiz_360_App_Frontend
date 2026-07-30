@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Text, Linking } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { WebView } from 'react-native-webview';
 import { colors } from '../../theme';
 import { sanitizeEmailHtml } from '../../logic/email';
@@ -42,10 +43,15 @@ export function EmailBody({ body, bodyType }: { body: string; bodyType?: 'html' 
       allowUniversalAccessFromFileURLs={false}
       javaScriptCanOpenWindowsAutomatically={false}
       setSupportMultipleWindows={false}
-      // Keep the inline document; open any tapped link outside instead of navigating this preview.
+      // Keep the inline document; tapped web links open in the IN-APP browser sheet (not the
+      // external browser app); non-web schemes go through Linking.
       onShouldStartLoadWithRequest={(req) => {
         if (req.url.startsWith('about:') || req.url.startsWith('data:')) return true;
-        Linking.openURL(req.url).catch(() => undefined);
+        if (req.url.startsWith('http://') || req.url.startsWith('https://')) {
+          void WebBrowser.openBrowserAsync(req.url).catch(() => Linking.openURL(req.url).catch(() => undefined));
+        } else {
+          Linking.openURL(req.url).catch(() => undefined);
+        }
         return false;
       }}
       onMessage={(e) => { const h = Number(e.nativeEvent.data); if (h && Math.abs(h - height) > 2) setHeight(h); }}

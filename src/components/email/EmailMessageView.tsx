@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
 import { Linking } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { WebView } from 'react-native-webview';
 import { escapeHtml, initialsOf, sanitizeEmailHtml } from '../../logic/email';
 import { getApiBaseUrl } from '../../api/client';
@@ -124,13 +125,23 @@ export const EmailMessageView = memo(function EmailMessageView({ email, attachme
       const addr = url.slice(7).split('?')[0];
       if (onMailto && addr) { onMailto(addr); return; }
     }
+    // Web links open in the IN-APP browser sheet (SFSafariViewController / Custom Tabs), not the
+    // external browser app; only non-web schemes (tel:, whatsapp:, …) leave the app via Linking.
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      void WebBrowser.openBrowserAsync(url).catch(() => Linking.openURL(url).catch(() => undefined));
+      return;
+    }
     Linking.openURL(url).catch(() => undefined);
   };
 
   return (
     <WebView
-      // Only the message document's own origin loads in-frame; everything else is gated below.
-      originWhitelist={[BASE_URL]}
+      // '*' so RNW's own whitelist gate never fires — it runs BEFORE onShouldStartLoadWithRequest
+      // and hands any non-matching URL straight to the system browser via Linking. (With
+      // [BASE_URL] here, its origin regex demanded a trailing slash the extracted origin never
+      // has, so even the message document itself was ejected to the browser — the "opening a mail
+      // launches Chrome/Safari" bug.) The handler below is the real, stricter gate.
+      originWhitelist={['*']}
       source={{ html, baseUrl: BASE_URL }}
       style={{ flex: 1, backgroundColor: '#fff' }}
       // Untrusted sender HTML → no scripting. Attachment/link taps are handled natively here instead.
