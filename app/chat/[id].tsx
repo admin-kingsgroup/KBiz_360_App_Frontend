@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -90,6 +90,7 @@ export default function ChatDetail() {
   const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [active, setActive] = useState<StoredMessage | null>(null);
   const [infoFor, setInfoFor] = useState<StoredMessage | null>(null);
+  const [savingImage, setSavingImage] = useState(false);
   const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [forwardMsgs, setForwardMsgs] = useState<StoredMessage[]>([]); // [] = sheet closed
@@ -326,6 +327,31 @@ export default function ChatDetail() {
   };
 
   // ── media ──
+  // Download the viewer's image to cache, then hand it to the OS share sheet
+  // ("Save Image" / "Save to Photos" live there). OTA-safe: expo-file-system +
+  // expo-sharing are already compiled into the shipped builds — expo-media-library
+  // (direct gallery save) is NOT, and adding it would need a new native build.
+  const downloadViewerImage = async (): Promise<void> => {
+    if (!viewer || savingImage) return;
+    setSavingImage(true);
+    try {
+      const FS = await import('expo-file-system/legacy');
+      const Sharing = await import('expo-sharing');
+      const raw = viewer.split('/').pop()?.split('?')[0] || `kb360-image-${Date.now()}.jpg`;
+      const name = raw.includes('.') ? raw : `${raw}.jpg`;
+      const res = await FS.downloadAsync(viewer, `${FS.cacheDirectory}${name}`);
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(res.uri, { mimeType: res.mimeType ?? 'image/jpeg', dialogTitle: 'Save image' });
+      } else {
+        showToast('Sharing is unavailable on this device');
+      }
+    } catch {
+      showToast('Could not download image');
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
   const doUpload = async (file: { uri: string; name: string; mime: string }, type: ChatMessage['type'], extra: Partial<ChatAttachment> = {}): Promise<void> => {
     setUploading(0);
     try {
@@ -645,6 +671,9 @@ export default function ChatDetail() {
         <Pressable onPress={() => setViewer(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' }}>
           {viewer ? <Image source={{ uri: viewer }} style={{ width: '100%', height: '80%' }} resizeMode="contain" /> : null}
           <Pressable onPress={() => setViewer(null)} style={{ position: 'absolute', top: insets.top + 12, right: 18 }}><X size={26} color="#fff" /></Pressable>
+          <Pressable onPress={() => void downloadViewerImage()} hitSlop={10} style={{ position: 'absolute', top: insets.top + 12, left: 18 }}>
+            {savingImage ? <ActivityIndicator color="#fff" /> : <Download size={24} color="#fff" />}
+          </Pressable>
         </Pressable>
       </Modal>
 
