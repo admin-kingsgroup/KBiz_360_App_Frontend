@@ -232,6 +232,33 @@ async function oneTimeShadeReset(mod: NonNullable<ReturnType<typeof loadNotifee>
   } catch { /* best-effort */ }
 }
 
+// Sign-out reset: the badge and any displayed chat notifications belong to the account that just
+// logged out — clear them so the icon doesn't keep advertising unread the next session can't see.
+// Nothing else zeroes the badge here: the store subscription that normally syncs it is torn down
+// on the auth flip (its debounce timer is cleared in the same cleanup), and iOS keeps the last
+// aps.badge value until something overwrites it.
+export async function clearChatNotificationsForLogout(): Promise<void> {
+  if (!native) return;
+  await setAppBadge(0);
+  const mod = loadNotifee();
+  const map = await readLines();
+  if (mod) {
+    for (const id of Object.keys(map)) await mod.notifee.cancelNotification(`chat-${id}`).catch(() => undefined);
+    // Shade sweep for banners the lines map never saw (foreground banners, OS re-posts).
+    try {
+      const displayed = (await mod.notifee.getDisplayedNotifications()) as { id?: string; notification?: { id?: string; android?: { channelId?: string } } }[];
+      for (const d of displayed) {
+        const nid = d.notification?.id ?? d.id;
+        if (typeof nid !== 'string') continue;
+        if (nid.startsWith('chat-') || d.notification?.android?.channelId === 'messages') {
+          await mod.notifee.cancelNotification(nid).catch(() => undefined);
+        }
+      }
+    } catch { /* sweep is best-effort */ }
+  }
+  await writeLines({});
+}
+
 export async function syncChatNotifications(conversations: ChatConversation[]): Promise<void> {
   if (!native) return;
   const total = conversations.filter((c) => (c.unread || 0) > 0 && !c.muted).length;

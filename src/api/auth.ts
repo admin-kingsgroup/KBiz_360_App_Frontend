@@ -199,6 +199,10 @@ export async function logout(): Promise<void> {
   useAccessStore.getState().setUsers([]);
   useMessagingStore.getState().reset();
   useMessagingStore.getState().setMyUserId(null);
+  // App-icon badge + displayed chat notifications belong to the signed-out account. Lazy-required
+  // (same reason as above): chatNotifications pulls expo/expo-constants into the import graph.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  void (require('../services/chatNotifications') as typeof import('../services/chatNotifications')).clearChatNotificationsForLogout();
   // Per-user stores that persist to disk (mailbox, alert feed) or hold personal state MUST be wiped
   // too — otherwise the next user to sign in on this device sees the previous user's cached data.
   // Lazy-required to keep this core module's test graph free of their (native) dependency chains.
