@@ -81,10 +81,10 @@ export default function GroupInfo() {
     setSelected(new Set()); setQuery(''); setAddOpen(false);
   };
   const leave = async (): Promise<void> => {
-    try { await removeGroupMember(convId, meId); await useMessagingStore.getState().loadConversations(); router.replace('/(tabs)'); } catch { showToast('Could not leave group'); }
+    try { await removeGroupMember(convId, meId); await useMessagingStore.getState().loadConversations(); router.replace('/(tabs)/groups'); } catch { showToast('Could not leave group'); }
   };
   const del = async (): Promise<void> => {
-    try { await deleteGroup(convId); await useMessagingStore.getState().loadConversations(); showToast('Group deleted'); router.replace('/(tabs)'); } catch { showToast('Could not delete group'); }
+    try { await deleteGroup(convId); await useMessagingStore.getState().loadConversations(); showToast('Group deleted'); router.replace('/(tabs)/groups'); } catch { showToast('Could not delete group'); }
   };
   const toggle = (uid: string): void => setSelected((s) => { const n = new Set(s); if (n.has(uid)) n.delete(uid); else n.add(uid); return n; });
 

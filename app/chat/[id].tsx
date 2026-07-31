@@ -1,24 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { WebView } from 'react-native-webview';
 import { Avatar } from '../../src/components/ui';
-import { VoiceMessage, LinkedText } from '../../src/components/chat';
+import { VoiceMessage, LinkedText, AttachmentTile } from '../../src/components/chat';
 import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
 import { getConversation, getPinned, getReceipts, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
-import { uploadFile, mediaUrl, toAttachment, humanSize } from '../../src/api/media';
+import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
+import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice } from '../../src/services/attachments';
 import { listUsers, toUser } from '../../src/api/directory';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
@@ -105,6 +107,9 @@ export default function ChatDetail() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false); // WhatsApp-style emoji panel below the composer
   const [viewer, setViewer] = useState<string | null>(null);
+  // Downloaded video/document being viewed. Android opens the system viewer app instead (WhatsApp
+  // behavior — a PDF goes to the PDF app, not the browser); this modal is the iOS in-app preview.
+  const [fileViewer, setFileViewer] = useState<{ uri: string; name: string; mime: string } | null>(null);
   const [pinned, setPinned] = useState<ChatMessage[]>([]);
   const [contactOpen, setContactOpen] = useState(false);
   // Jump-to-pinned (WhatsApp-style): which pin the banner targets next, the message id waiting to be
@@ -354,29 +359,35 @@ export default function ChatDetail() {
   };
 
   // ── media ──
-  // Download the viewer's image to cache, then hand it to the OS share sheet
-  // ("Save Image" / "Save to Photos" live there). OTA-safe: expo-file-system +
-  // expo-sharing are already compiled into the shipped builds — expo-media-library
-  // (direct gallery save) is NOT, and adding it would need a new native build.
+  // Save the viewer's image to the device (WhatsApp-style): gallery via expo-media-library where
+  // the build has it, else a copy into the user's shared folder (media-scanned → still lands in
+  // the Gallery app). The share sheet is the last resort ("Save to Photos" lives there).
   const downloadViewerImage = async (): Promise<void> => {
     if (!viewer || savingImage) return;
     setSavingImage(true);
     try {
-      const FS = await import('expo-file-system/legacy');
-      const Sharing = await import('expo-sharing');
-      const raw = viewer.split('/').pop()?.split('?')[0] || `kb360-image-${Date.now()}.jpg`;
-      const name = raw.includes('.') ? raw : `${raw}.jpg`;
-      const res = await FS.downloadAsync(viewer, `${FS.cacheDirectory}${name}`);
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(res.uri, { mimeType: res.mimeType ?? 'image/jpeg', dialogTitle: 'Save image' });
-      } else {
-        showToast('Sharing is unavailable on this device');
-      }
+      const res = await saveUrlToDevice(viewer);
+      if (res === 'saved') showToast('Saved to gallery');
+      else if (res === 'denied') showToast('Allow photo access to save images to your gallery');
+      else if (!(await shareFile(viewer, 'image/jpeg'))) showToast('Could not save image');
     } catch {
       showToast('Could not download image');
     } finally {
       setSavingImage(false);
     }
+  };
+
+  // Open a DOWNLOADED video/document. Android: hand it to the system viewer app (share sheet as
+  // the fallback when nothing can open it). iOS: in-app WebView preview (QuickLook-grade for
+  // pdf/images/video/office docs), matching how WhatsApp shows documents inside the app.
+  const openLocalFile = async (f: { uri: string; name: string; mime: string }): Promise<void> => {
+    if (Platform.OS === 'android') {
+      if (await openWithViewer(f.uri, f.mime)) return;
+      if (await shareFile(f.uri, f.mime)) return;
+      showToast('No app on this phone can open this file');
+      return;
+    }
+    setFileViewer(f);
   };
 
   const doUpload = async (file: { uri: string; name: string; mime: string }, type: ChatMessage['type'], extra: Partial<ChatAttachment> = {}): Promise<void> => {
@@ -570,7 +581,7 @@ export default function ChatDetail() {
                   onPress={() => (selecting ? toggleSelect(m) : !m.deletedForEveryone && setActive(m))}
                   onLongPress={() => onMsgLongPress(m)}
                   selecting={selecting}
-                  onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])}
+                  onOpenImage={setViewer} onOpenFile={(f) => void openLocalFile(f)} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])}
                   onReactions={() => setReactionsFor(m.id)} />
               );
               const row = m.type === 'system'
@@ -704,6 +715,29 @@ export default function ChatDetail() {
             {savingImage ? <ActivityIndicator color="#fff" /> : <Download size={24} color="#fff" />}
           </Pressable>
         </Pressable>
+      </Modal>
+
+      {/* In-app file viewer (iOS) — the downloaded PDF/video/doc renders inside the app like
+          WhatsApp, instead of bouncing out to Safari. Android never reaches this modal (files go
+          to the system viewer app via intent). */}
+      <Modal visible={!!fileViewer} animationType="slide" onRequestClose={() => setFileViewer(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top', 'bottom']}>
+          <View className="flex-row items-center gap-2 px-2" style={{ height: 54, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+            <Pressable onPress={() => setFileViewer(null)} hitSlop={8} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronLeft size={24} color={colors.ink} />
+            </Pressable>
+            <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 15.5, fontWeight: '700' }}>{fileViewer?.name}</Text>
+            <Pressable onPress={() => { if (fileViewer) void shareFile(fileViewer.uri, fileViewer.mime); }} hitSlop={8} accessibilityLabel="Share"
+              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+              <ForwardIcon size={20} color={colors.ink} />
+            </Pressable>
+          </View>
+          {fileViewer ? (
+            <WebView source={{ uri: fileViewer.uri }} originWhitelist={['*']} allowingReadAccessToURL={MEDIA_DIR}
+              allowsInlineMediaPlayback style={{ flex: 1, backgroundColor: colors.coolBg }}
+              startInLoadingState renderLoading={() => <ActivityIndicator style={StyleSheet.absoluteFill} color={colors.primary} />} />
+          ) : null}
+        </SafeAreaView>
       </Modal>
 
       {/* Contact info (direct chats) */}
@@ -1003,41 +1037,16 @@ function AttachOption({ Icon, label, color, onPress }: { Icon: typeof FileText; 
 
 // `onLongPress` forwards the bubble's long-press so selection mode starts from a press on the
 // media too — the nested pressables would otherwise swallow it.
-function Attachments({ m, mine, onOpenImage, onLongPress }: { m: StoredMessage; mine: boolean; onOpenImage: (uri: string) => void; onLongPress?: () => void }) {
+function Attachments({ m, mine, onOpenImage, onOpenFile, onLongPress }: { m: StoredMessage; mine: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onLongPress?: () => void }) {
   return (
     <>
       {m.attachments.map((att: ChatAttachment, i: number) => {
-        const url = mediaUrl(att.url);
-        if (m.type === 'image') {
-          const ratio = att.width && att.height ? att.height / att.width : 0.75;
-          return (
-            <Pressable key={i} onPress={() => onOpenImage(url)} onLongPress={onLongPress} style={{ marginBottom: 4 }}>
-              <Image source={{ uri: url }} style={{ width: 210, height: Math.min(280, 210 * ratio), borderRadius: 12, backgroundColor: colors.coolMuted }} resizeMode="cover" />
-            </Pressable>
-          );
-        }
-        if (m.type === 'video') {
-          return (
-            <Pressable key={i} onPress={() => void Linking.openURL(url)} onLongPress={onLongPress} style={{ width: 210, height: 140, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
-              {att.thumbnailUrl ? <Image source={{ uri: mediaUrl(att.thumbnailUrl) }} style={{ position: 'absolute', width: 210, height: 140, borderRadius: 12 }} /> : null}
-              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.85)', alignItems: 'center', justifyContent: 'center' }}><Play size={20} color={colors.ink} /></View>
-            </Pressable>
-          );
-        }
         if (m.type === 'voice') {
           // Both sides are light cards now — always use the dark-on-light voice styling.
-          return <VoiceMessage key={i} uri={url} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
+          return <VoiceMessage key={i} uri={mediaUrl(att.url)} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
         }
-        // document
-        return (
-          <Pressable key={i} onPress={() => void Linking.openURL(url)} onLongPress={onLongPress} className="flex-row items-center gap-2" style={{ paddingVertical: 6, marginBottom: 2 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: mine ? '#fff' : colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}><FileText size={19} color={colors.primary} /></View>
-            <View style={{ maxWidth: 180 }}>
-              <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{att.name}</Text>
-              <Text style={{ color: colors.coolText, fontSize: 11 }}>{humanSize(att.size)}</Text>
-            </View>
-          </Pressable>
-        );
+        // image / video / document — WhatsApp-style download-gated tile (see AttachmentTile).
+        return <AttachmentTile key={i} att={att} type={m.type} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} />;
       })}
     </>
   );
@@ -1126,7 +1135,7 @@ function SwipeToReply({ onReply, children }: { onReply: () => void; children: Re
   );
 }
 
-function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onRetry, onForward, onReactions }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void }) {
+function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
   // Tick glyphs on the light cards: pending → clock, sent → ✓, delivered → ✓✓ (muted grey),
@@ -1158,7 +1167,7 @@ function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenIma
             <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{m.replyTo.preview}</Text>
           </View>
         ) : null}
-        {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onLongPress={onLongPress} /> : null}
+        {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} /> : null}
         {deleted ? (
           <Text style={{ color: colors.coolText, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
         ) : m.text ? (

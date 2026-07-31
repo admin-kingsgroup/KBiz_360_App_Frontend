@@ -74,6 +74,13 @@
       ],
       "expo-web-browser",
       "expo-sharing",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "KBiz 360 saves photos and videos you download from chat into your photo library.",
+          "savePhotosPermission": "KBiz 360 saves photos and videos you download from chat into your photo library."
+        }
+      ],
       "./plugins/withVoipPush",
       "./plugins/withNotifeeRepo"
     ],
@@ -82,6 +89,8 @@
       "bundleIdentifier": "com.kingsgroup.kbiz360",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
         "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to auto check-in / check-out at the office.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "KBiz 360 uses your location in the background to auto check-in when you arrive at the office and check out when you leave.",
         "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance.",
