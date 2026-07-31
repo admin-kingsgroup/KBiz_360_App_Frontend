@@ -40,4 +40,6 @@ export interface TeamAttendanceEntry {
   in: string | null;
   out: string | null;
   via?: PunchMethod;
+  inPhoto?: string | null;  // face photo captured at check-in (admin verification)
+  outPhoto?: string | null; // face photo captured at check-out
 }

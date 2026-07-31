@@ -50,6 +50,8 @@ export interface AttendanceHistoryEntry {
   via: PunchMethod | null;
   present: boolean;
   distanceMeters: number | null;
+  inPhoto?: string | null;  // face photos captured at punch time (admin verification)
+  outPhoto?: string | null;
 }
 
 // Admin: one office geofence within a branch.

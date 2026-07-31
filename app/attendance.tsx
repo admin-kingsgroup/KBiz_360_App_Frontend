@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -59,6 +59,7 @@ export default function Attendance() {
   const [userHistory, setUserHistory] = useState<AttendanceHistoryEntry[] | null>(null); // selected teammate's recent days (admin modal)
   const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
   const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
+  const [photoView, setPhotoView] = useState<string | null>(null); // full-screen face-photo viewer
   // Exempt is TRI-STATE: null = not known yet — don't flash the punch UI before the server says
   // whether this account is tracked (super admins are always untracked server-side).
   const [exempt, setExempt] = useState<boolean | null>(null);
@@ -294,6 +295,7 @@ export default function Attendance() {
             onGoToday={goTodayTeam}
             onSelectBranch={setBranchFilter}
             onSelectMember={setReassign}
+            onViewPhoto={setPhotoView}
           />
         ) : exempt === null ? (
           // Don't flash the punch UI before the server says whether this account is tracked —
@@ -331,7 +333,16 @@ export default function Attendance() {
         onPickBranch={reassignBranchTo}
         onPickOffice={reassignTo}
         onSetDay={setMemberDay}
+        onViewPhoto={setPhotoView}
       />
+
+      {/* Full-screen punch-photo viewer */}
+      <Modal visible={!!photoView} transparent animationType="fade" onRequestClose={() => setPhotoView(null)}>
+        <Pressable onPress={() => setPhotoView(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' }}>
+          {photoView ? <Image source={{ uri: photoView }} style={{ width: '94%', height: '75%' }} resizeMode="contain" /> : null}
+          <Pressable onPress={() => setPhotoView(null)} hitSlop={10} style={{ position: 'absolute', top: 54, right: 22 }}><X size={26} color="#fff" /></Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -509,7 +520,7 @@ const ExemptView = memo(function ExemptView() {
 
 // Admin team dashboard. Mounted only on the Team tab; derived groupings are memoized against
 // the team list + filter, so presence/GPS ticks on the parent never re-run them.
-const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper, footerNote, onShiftDay, onGoToday, onSelectBranch, onSelectMember }: {
+const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper, footerNote, onShiftDay, onGoToday, onSelectBranch, onSelectMember, onViewPhoto }: {
   team: TeamAttendanceEntry[];
   teamDate: string;
   branchFilter: string;
@@ -519,6 +530,7 @@ const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper,
   onGoToday: () => void;
   onSelectBranch: (id: string) => void;
   onSelectMember: (t: TeamAttendanceEntry) => void;
+  onViewPhoto: (url: string) => void;
 }) {
   // Branch-wise team view: chips come from the rows themselves, so they always match what the
   // viewer is allowed to see (the server already scopes the list to their branches).
@@ -596,6 +608,13 @@ const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper,
                       </Text>
                     </View>
                   </View>
+                  {/* Face photos captured at punch time — tap to view full-screen. */}
+                  {t.inPhoto || t.outPhoto ? (
+                    <View className="flex-row gap-1.5" style={{ marginRight: 4 }}>
+                      {t.inPhoto ? <PunchThumb uri={t.inPhoto} label="IN" onPress={onViewPhoto} /> : null}
+                      {t.outPhoto ? <PunchThumb uri={t.outPhoto} label="OUT" onPress={onViewPhoto} /> : null}
+                    </View>
+                  ) : null}
                   <Badge on={!absent} />
                 </Pressable>
               );
@@ -615,7 +634,7 @@ const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper,
 
 // Super-admin: set a teammate's working branch + office. Always mounted (Modal visibility flag);
 // memo keeps it inert while closed — parent presence/GPS ticks don't re-diff it.
-const ReassignModal = memo(function ReassignModal({ reassign, userHistory, adminOffices, onClose, onPickBranch, onPickOffice, onSetDay }: {
+const ReassignModal = memo(function ReassignModal({ reassign, userHistory, adminOffices, onClose, onPickBranch, onPickOffice, onSetDay, onViewPhoto }: {
   reassign: TeamAttendanceEntry | null;
   userHistory: AttendanceHistoryEntry[] | null;
   adminOffices: AdminBranchOffices[];
@@ -623,6 +642,7 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
   onPickBranch: (userId: string, branchId: string | null) => void;
   onPickOffice: (userId: string, officeId: string | null) => void;
   onSetDay: (date: string, present: boolean) => void;
+  onViewPhoto: (url: string) => void;
 }) {
   const reassignBranchOffices = useMemo(
     () => (reassign ? (adminOffices.find((b) => b.branchId === reassign.branchId)?.offices ?? []) : []),
@@ -640,6 +660,26 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
             {reassign?.name} · {reassign?.branch}
           </Text>
           <ScrollView style={{ flexGrow: 0 }}>
+          {/* Today's face photos — proof of who actually punched. Tap to view full-screen. */}
+          {reassign?.inPhoto || reassign?.outPhoto ? (
+            <>
+              <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>TODAY · FACE PHOTOS</Text>
+              <View className="flex-row gap-3" style={{ marginBottom: 14 }}>
+                {reassign?.inPhoto ? (
+                  <Pressable onPress={() => onViewPhoto(reassign.inPhoto as string)} style={{ alignItems: 'center' }}>
+                    <Image source={{ uri: reassign.inPhoto }} style={{ width: 92, height: 92, borderRadius: 14, backgroundColor: colors.coolMuted }} />
+                    <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '600', marginTop: 3 }}>In · {reassign.in ?? '—'}</Text>
+                  </Pressable>
+                ) : null}
+                {reassign?.outPhoto ? (
+                  <Pressable onPress={() => onViewPhoto(reassign.outPhoto as string)} style={{ alignItems: 'center' }}>
+                    <Image source={{ uri: reassign.outPhoto }} style={{ width: 92, height: 92, borderRadius: 14, backgroundColor: colors.coolMuted }} />
+                    <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '600', marginTop: 3 }}>Out · {reassign.out ?? '—'}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </>
+          ) : null}
           {/* This person's recent days — present/absent at a glance for the admin. */}
           <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>RECENT ATTENDANCE · 14 DAYS</Text>
           <View style={{ gap: 4, marginBottom: 14 }}>
@@ -656,6 +696,9 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
                       ? <Text style={{ color: colors.coolText, fontSize: 11.5 }}>In {fmt(new Date(e.inTime))} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>
                       : <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '700' }}>Absent</Text>}
                   </View>
+                  {/* Punch face photos for that day — tap to view. */}
+                  {e.inPhoto ? <PunchThumb uri={e.inPhoto} label="IN" size={30} onPress={onViewPhoto} /> : null}
+                  {e.outPhoto ? <PunchThumb uri={e.outPhoto} label="OUT" size={30} onPress={onViewPhoto} /> : null}
                   {/* Corrections: fix a missed punch; only Manual days can be reverted to absent. */}
                   {!e.inTime ? (
                     <Pressable onPress={() => onSetDay(e.date, true)} hitSlop={6} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
@@ -732,6 +775,16 @@ const Stat3 = memo(function Stat3({ n, label, color, bg }: { n: number; label: s
     </View>
   );
 });
+// Small punch-photo thumbnail with an IN/OUT tag — tap opens the full-screen viewer.
+const PunchThumb = memo(function PunchThumb({ uri, label, onPress, size = 38 }: { uri: string; label: string; onPress: (url: string) => void; size?: number }) {
+  return (
+    <Pressable onPress={() => onPress(uri)} hitSlop={4} style={{ alignItems: 'center' }}>
+      <Image source={{ uri }} style={{ width: size, height: size, borderRadius: 10, backgroundColor: colors.coolMuted }} />
+      <Text style={{ color: colors.coolText, fontSize: 8.5, fontWeight: '700', marginTop: 1 }}>{label}</Text>
+    </Pressable>
+  );
+});
+
 const Badge = memo(function Badge({ on }: { on: boolean }) {
   return <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (on ? colors.primary : colors.danger) + '18' }}><Text style={{ color: on ? colors.primary : colors.danger, fontSize: 10, fontWeight: '700' }}>{on ? 'PRESENT' : 'ABSENT'}</Text></View>;
 });
