@@ -14,6 +14,8 @@ export const listSmartFolders = (): Promise<SmartFolder[]> => apiFetch('/api/ema
 export const createSmartFolder = (name: string, from: string[], backfill = true): Promise<SmartFolder> =>
   apiFetch('/api/email/folders', { method: 'POST', body: { name, from, backfill } });
 export const deleteSmartFolder = (id: string): Promise<void> => apiFetch(`/api/email/folders/${id}`, { method: 'DELETE' });
+// Delete a real Outlook folder (custom folder chip) — Graph moves it + its mail to Deleted Items.
+export const deleteOutlookFolder = (id: string): Promise<void> => apiFetch(`/api/email/outlook-folders/${id}`, { method: 'DELETE' });
 export const listFolderMessages = (id: string, skip = 0): Promise<Email[]> =>
   apiFetch(`/api/email/folders/${id}/messages${skip ? `?skip=${skip}` : ''}`);
 

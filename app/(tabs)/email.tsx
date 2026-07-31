@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, KeyboardAvoidingView, Platform, type ListRenderItem } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, KeyboardAvoidingView, Platform, Alert, type ListRenderItem } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Folder as FolderIcon, FolderPlus, X, ChevronDown, Check } from 'lucide-react-native';
@@ -31,8 +31,6 @@ export default function EmailScreen() {
   const deleteForever = useEmailStore((s) => s.deleteForever);
   const smartFolders = useEmailStore((s) => s.smartFolders);
   const outlookFolders = useEmailStore((s) => s.outlookFolders);
-  const syncing = useEmailStore((s) => s.syncing);
-  const syncProgress = useEmailStore((s) => s.syncProgress);
   const showToast = useUiStore((s) => s.showToast);
   const ms = useMicrosoftEmail();
 
@@ -182,26 +180,25 @@ export default function EmailScreen() {
           autoCapitalize="none" autoCorrect={false} style={{ flex: 1, color: colors.ink, fontSize: 15 }} />
       </View>
 
-      {/* Full offline sync progress — walking every folder + downloading bodies in the background. */}
-      {syncing ? (
-        <View className="flex-row items-center mx-4" style={{ gap: 8, marginTop: 8 }}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={{ color: colors.coolText, fontSize: 12 }}>
-            Downloading mail for offline…{syncProgress ? ` ${syncProgress} messages` : ''}
-          </Text>
-        </View>
-      ) : null}
-
       {/* Your folders — smart folders (auto-file rules) + every folder created in Outlook itself.
           Tap to view its mail; ＋ to create. Standard folders live in the dropdown next to the title. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10, alignItems: 'center' }}>
         {smartFolders.map((sf) => (
-          <Pressable key={sf.id} onPress={() => router.push(`/email/folder/${sf.id}`)} className="flex-row items-center" style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+          <Pressable key={sf.id} onPress={() => router.push(`/email/folder/${sf.id}`)}
+            onLongPress={() => Alert.alert(`Delete “${sf.name}”?`, 'The folder and its rule are removed; its emails move to Deleted Items in Outlook.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => { void useEmailStore.getState().deleteSmartFolder(sf.id); showToast('Folder deleted'); } },
+            ])}
+            className="flex-row items-center" style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
             <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>{sf.name}</Text>
           </Pressable>
         ))}
         {customFolders.map((f) => (
           <Pressable key={f.id} onPress={() => router.push({ pathname: '/email/outlook/[id]', params: { id: f.id, name: f.name } })}
+            onLongPress={() => Alert.alert(`Delete “${f.name}”?`, 'The folder is removed; its emails move to Deleted Items in Outlook.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => { void useEmailStore.getState().deleteOutlookFolder(f.id); showToast('Folder deleted'); } },
+            ])}
             className="flex-row items-center" style={{ gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
             <FolderIcon size={13} color={colors.primary} />
             <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>{f.name}</Text>

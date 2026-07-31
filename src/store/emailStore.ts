@@ -93,6 +93,7 @@ export interface EmailState {
   loadSmartFolders: () => Promise<void>;
   createSmartFolder: (name: string, from: string[]) => Promise<SmartFolder | null>;
   deleteSmartFolder: (id: string) => Promise<void>;
+  deleteOutlookFolder: (graphFolderId: string) => Promise<void>; // custom Outlook folder chips
   setFolder: (folder: EmailFolder) => void;
   setSearch: (q: string) => void;
   setEmails: (emails: Email[]) => void;
@@ -278,9 +279,33 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
       return sf;
     } catch { return null; }
   },
+  // Deleting a folder in-app deletes the REAL Outlook folder too (server moves it + its mail to
+  // Deleted Items). Locally: drop the chip, purge its cached messages and its sync-done mark.
   deleteSmartFolder: async (id) => {
-    set((st) => ({ smartFolders: st.smartFolders.filter((f) => f.id !== id) })); // optimistic
-    try { await emailApi.deleteSmartFolder(id); } catch { void get().loadSmartFolders(); }
+    const sf = get().smartFolders.find((f) => f.id === id);
+    set((st) => {
+      const fsd = { ...st.folderSyncDone };
+      if (sf) delete fsd[sf.graphFolderId];
+      return {
+        smartFolders: st.smartFolders.filter((f) => f.id !== id), // optimistic
+        outlookFolders: sf ? st.outlookFolders.filter((f) => f.id !== sf.graphFolderId) : st.outlookFolders,
+        emails: sf ? st.emails.filter((e) => e.graphFolderId !== sf.graphFolderId) : st.emails,
+        folderSyncDone: fsd,
+      };
+    });
+    try { await emailApi.deleteSmartFolder(id); } catch { void get().loadSmartFolders(); void get().loadOutlookFolders(); }
+  },
+  deleteOutlookFolder: async (graphFolderId) => {
+    set((st) => {
+      const fsd = { ...st.folderSyncDone };
+      delete fsd[graphFolderId];
+      return {
+        outlookFolders: st.outlookFolders.filter((f) => f.id !== graphFolderId), // optimistic
+        emails: st.emails.filter((e) => e.graphFolderId !== graphFolderId),
+        folderSyncDone: fsd,
+      };
+    });
+    try { await emailApi.deleteOutlookFolder(graphFolderId); } catch { void get().loadOutlookFolders(); }
   },
   setFolder: (folder) => { set({ folder, search: '', searchResults: [], searching: false }); void get().loadFolder(folder); },
   setSearch: (search) => set({ search }),
