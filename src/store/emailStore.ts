@@ -138,6 +138,27 @@ const adopt = (existing: Email | undefined, fresh: Email): Email => {
   return existing.bodyFull ? { ...fresh, body: existing.body, bodyType: existing.bodyType, bodyFull: true } : fresh;
 };
 
+// Client-side smart-folder filing — mirror of the server's rule. The server MOVES matching mail
+// into the folder, but this offline-first cache keeps stale inbox copies until that folder's page
+// is re-fetched (rare). Stamping matching inbox mail with the folder's graphFolderId locally makes
+// it leave the Inbox list instantly and appear under its folder — and the next real folder fetch
+// re-adopts server truth. Rule matches are lowercase substrings of the sender address (domain or
+// full address), exactly like the backend's matcher.
+const fileByRules = (emails: Email[], folders: SmartFolder[]): Email[] => {
+  if (!folders.length) return emails;
+  let changed = false;
+  const out = emails.map((e) => {
+    if (e.folder !== 'inbox' || e.graphFolderId) return e;
+    const sender = (e.from?.email ?? '').toLowerCase();
+    if (!sender) return e;
+    const hit = folders.find((sf) => sf.from.some((m) => m && sender.includes(m)));
+    if (!hit) return e;
+    changed = true;
+    return { ...e, graphFolderId: hit.graphFolderId };
+  });
+  return changed ? out : emails;
+};
+
 // Cap how many multi-hundred-KB full bodies (HTML with inlined base64 images) stay in the JS heap:
 // only the most recently OPENED messages keep theirs; older ones collapse back to the preview
 // (the on-disk body cache still has the full copy, so re-opening is instant even offline).
@@ -194,7 +215,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
         const have = new Set(st.emails.map((e) => e.id));
         const fresh = page.filter((e) => !have.has(e.id)).map((e) => (stamp ? stamp(e) : e));
         added = fresh.length;
-        return fresh.length ? { emails: [...st.emails, ...fresh] } : {};
+        return fresh.length ? { emails: fileByRules([...st.emails, ...fresh], st.smartFolders) } : {};
       });
       return added;
     };
@@ -270,12 +291,21 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
       .catch(() => { void get().silentRefresh(); void get().loadOutlookFolders(); }); // move failed → refresh restores truth
   },
   loadSmartFolders: async () => {
-    try { set({ smartFolders: await emailApi.listSmartFolders() }); } catch { /* keep last */ }
+    try {
+      const list = await emailApi.listSmartFolders();
+      // Re-stamp the cache against the fresh rules so folder mail never lingers in the Inbox view.
+      set((st) => ({ smartFolders: list, emails: fileByRules(st.emails, list) }));
+    } catch { /* keep last */ }
   },
   createSmartFolder: async (name, from) => {
     try {
       const sf = await emailApi.createSmartFolder(name, from, true);
-      set((st) => ({ smartFolders: [...st.smartFolders, sf] }));
+      // Stamp matching cached inbox mail into the new folder immediately — the server's backfill
+      // moves it out of the real Inbox; this keeps the app's list in step without waiting on a sync.
+      set((st) => {
+        const next = [...st.smartFolders, sf];
+        return { smartFolders: next, emails: fileByRules(st.emails, next) };
+      });
       return sf;
     } catch { return null; }
   },
@@ -354,7 +384,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
         const freshIds = new Set(list.map((e) => e.id));
         const keptOlder = st.emails.filter((e) => e.folder === f && !freshIds.has(e.id));
         return {
-          emails: [...st.emails.filter((e) => e.folder !== f), ...list.map((e) => adopt(byId.get(e.id), e)), ...keptOlder],
+          emails: fileByRules([...st.emails.filter((e) => e.folder !== f), ...list.map((e) => adopt(byId.get(e.id), e)), ...keptOlder], st.smartFolders),
           hasMore: { ...st.hasMore, [f]: st.hasMore[f] ?? list.length >= emailApi.EMAIL_PAGE },
           loading: false,
         };
@@ -379,7 +409,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
         const keptOlder = st.emails.filter((e) => e.folder === f && !freshIds.has(e.id)); // pages already scrolled past
         const others = st.emails.filter((e) => e.folder !== f); // other folders' cached mail
         return {
-          emails: [...others, ...page0.map((e) => adopt(byId.get(e.id), e)), ...keptOlder],
+          emails: fileByRules([...others, ...page0.map((e) => adopt(byId.get(e.id), e)), ...keptOlder], st.smartFolders),
           hasMore: { ...st.hasMore, [f]: st.hasMore[f] ?? page0.length >= emailApi.EMAIL_PAGE },
         };
       });
