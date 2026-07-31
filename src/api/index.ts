@@ -10,7 +10,7 @@ export * as remindersApi from './reminders';
 export * as attendanceApi from './attendance';
 export * as chatsApi from './chats';
 export * as emailApi from './email';
-export * as callsApi from './calls';
+export * as pushApi from './push';
 export * as adminApi from './admin';
 export * as alertsApi from './alerts';
 export * as notificationsApi from './notifications';

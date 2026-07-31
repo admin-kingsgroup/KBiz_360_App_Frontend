@@ -12,6 +12,9 @@ export interface PunchBody {
   // check-outs only — the server back-dates checkOutAt to it within hard bounds (same business
   // day, after check-in, not in the future).
   exitAt?: string;
+  // URL of the face photo captured at punch time (uploaded via /api/uploads first). Required by
+  // the server for both check-in and check-out (owner rules, 07-31).
+  facePhotoUrl?: string;
 }
 
 export interface MyAttendance {
@@ -26,6 +29,7 @@ export interface MyAttendance {
   wifiSsid?: string | null;
   faceVerified?: boolean | null;
   exempt?: boolean; // attendance not tracked for this user
+  hidden?: boolean; // background (director) attendance — silent geofence engine, no punch UI
 }
 
 export interface AttendanceOffice {

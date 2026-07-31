@@ -5,7 +5,6 @@ import type { ChatMessage } from '../api/chat';
 import { useMessagingStore } from '../store/messagingStore';
 import { useReminderBadgeStore } from '../store/reminderBadgeStore';
 import { usePulseStore } from '../store/pulseStore';
-import { callManager } from '../services/rtc/CallManager';
 
 // Single Socket.IO client for the whole app. Connects with the JWT, wires chat events into the
 // messaging store, and reconnects automatically (socket.io built-in backoff).
@@ -18,9 +17,6 @@ export function connectChatSocket(): void {
 
   socket = io(getApiBaseUrl(), { auth: { token }, transports: ['websocket'], reconnection: true });
   const store = useMessagingStore.getState;
-
-  // Audio calling: wire the WebRTC signaling (call:incoming/accept/reject/end/missed + offer/answer/ice).
-  callManager.attach(socket);
 
   socket.on('connect', () => {
     void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void usePulseStore.getState().refresh();
@@ -84,7 +80,6 @@ export function connectChatSocket(): void {
 }
 
 export function disconnectChatSocket(): void {
-  callManager.detach();
   socket?.disconnect();
   socket = null;
 }

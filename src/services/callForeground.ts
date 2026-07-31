@@ -2,12 +2,12 @@ import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import { useRouter, useSegments } from 'expo-router';
-import { registerFcmDevice } from '../api/calls';
-import { callManager } from './rtc/CallManager';
+import { registerFcmDevice } from '../api/push';
 import { consumePendingChatTap, setPendingChatTap, subscribePendingChatTap } from './notifications/pendingTap';
 import { useGate } from '../navigation/guards';
 
-// Native-only helpers for the full-screen incoming-call UI. No-op in Expo Go.
+// FCM device registration + notification-tap routing. (This file kept its name from the retired
+// calling feature — the FCM pipeline it owns also delivers chat pushes, which is all it does now.)
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const native = !isRunningInExpoGo();
 function load(): { fb: any; notifee: any; EventType: { ACTION_PRESS: number; PRESS: number } } | null {
@@ -22,7 +22,7 @@ function load(): { fb: any; notifee: any; EventType: { ACTION_PRESS: number; PRE
   }
 }
 
-// Register this device's raw FCM token with the backend (enables the data-push call UI).
+// Register this device's raw FCM token with the backend (enables background chat data pushes).
 // Modular RNFirebase v22+ API (getMessaging/getToken/requestPermission).
 export async function registerFcmToken(): Promise<void> {
   const m = load();
@@ -45,9 +45,7 @@ interface NotifLike { notification?: { id?: string; data?: Record<string, string
 // useNotificationRouting's handledResponseId).
 let initialTapHandled = false;
 
-// Taps on NOTIFEE notifications — cold-start launch + foreground taps. Calls: 'answer' accepts
-// (the reconnect re-emit + pendingAccept connect the call); 'decline' rejects; a body/full-screen
-// tap just opens the app and the in-app overlay shows Accept/Decline. Chat: a body tap LATCHES the
+// Taps on NOTIFEE notifications — cold-start launch + foreground taps. A chat body tap LATCHES the
 // conversation (pendingTap) and the effect below opens it once the auth gate has settled — routing
 // immediately raced the gate's login → (tabs) replace() on cold start, which stomped the chat
 // screen and left the user on Home. Background presses land in callBackground's onBackgroundEvent,
@@ -68,14 +66,7 @@ export function useCallNotifications(): void {
         if (initialTapHandled) return;
         initialTapHandled = true;
       }
-      if (data.type === 'call') {
-        const actionId = info?.pressAction?.id;
-        if (actionId === 'answer') callManager.acceptFromNotification(data.callId);
-        else if (actionId === 'decline') {
-          callManager.declineFromNotification(data.callId);
-          if (info?.notification?.id) void notifee.cancelNotification(info.notification.id);
-        }
-      } else if (data.type === 'chat' && (data.id || data.conversationId)) {
+      if (data.type === 'chat' && (data.id || data.conversationId)) {
         setPendingChatTap(String(data.id ?? data.conversationId));
       }
     };

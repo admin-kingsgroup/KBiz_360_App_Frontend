@@ -8,7 +8,7 @@ const restricted = (alerts: string[], branches: string[] = []): AccessControl =>
 
 describe('system-alert access — branch channels', () => {
   it('defines the branch channels (attendance + finance + crm + sales + AR + AP) with matching grants', () => {
-    expect(attendanceAlertChannels.map((c) => c.id)).toEqual(['tk_att_bom', 'tk_att_amd']);
+    expect(attendanceAlertChannels.map((c) => c.id)).toEqual(['tk_att_bom', 'tk_att_amd', 'tk_att_dir']);
     expect(financeAlertChannels.map((c) => c.id)).toEqual(['tk_fin_bom', 'tk_fin_amd']);
     expect(crmAlertChannels.map((c) => c.id)).toEqual(['tk_crm_bom', 'tk_crm_amd']);
     expect(salesInvoiceAlertChannels.map((c) => c.id)).toEqual(['tk_si_bom', 'tk_si_amd', 'tk_si_nbo', 'tk_si_dar', 'tk_si_fbm']);
@@ -28,7 +28,7 @@ describe('system-alert access — branch channels', () => {
       'BOM-bookings', 'AMD-bookings', 'NBO-bookings', 'DAR-bookings', 'FBM-bookings',
       'BOM-acct', 'AMD-acct', 'NBO-acct', 'DAR-acct', 'FBM-acct',
       'BOM-bankcash', 'AMD-bankcash', 'NBO-bankcash', 'DAR-bankcash', 'FBM-bankcash',
-      'BOM-hr', 'AMD-hr',
+      'BOM-hr', 'AMD-hr', 'DIR-hr',
     ]);
   });
 
@@ -98,7 +98,7 @@ describe('system-alert channel groups', () => {
     expect(pulseGroups.map((g) => g.channels.length)).toEqual([
       ...(CRM_ALERTS_ENABLED ? [2] : []),
       ...(FINANCE_ALERTS_ENABLED ? [2] : []),
-      5, 5, 5, 5, 5, 5, 2,
+      5, 5, 5, 5, 5, 5, 3,
     ]);
     for (const gid of ['grp_sales', 'grp_receivables', 'grp_payables', 'grp_bookings', 'grp_acct', 'grp_bankcash']) {
       expect(groupById(gid)?.channels.map((c) => c.branch)).toEqual(['BOM', 'AMD', 'NBO', 'DAR', 'FBM']);

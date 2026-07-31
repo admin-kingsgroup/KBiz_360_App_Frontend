@@ -1,9 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { View, Text, Pressable, ScrollView, Alert, Linking, AppState, ActivityIndicator } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { ChevronLeft, ChevronRight, Clock, Check, Navigation, Zap, ScanFace, Lock, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPinOff, MapPin, Building2, X, Wifi } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { colors } from '../src/theme';
@@ -12,17 +12,14 @@ import { useEventCallback } from '../src/hooks/useEventCallback';
 import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAccessStore } from '../src/store/accessStore';
 import { useUiStore } from '../src/store/uiStore';
-import { canFacePunch } from '../src/logic/attendance';
+import { distanceMeters } from '../src/logic/geo';
 import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
-import { getCurrentSsid } from '../src/services/wifi';
-import { ssidMatches, cleanSsid } from '../src/logic/wifi';
-import { syncAttendanceGeofencing, disarmAttendanceGeofencing, getBackgroundLocationState, type BackgroundLocationState } from '../src/services/backgroundAttendance';
-import { notePendingExit, peekPendingExit, clearPendingExit } from '../src/services/pendingExit';
+import { uploadFile } from '../src/api/media';
+import { disarmAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { clearPendingExit } from '../src/services/pendingExit';
 import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
-
-const WARN = '#E8A13A'; // semantic warning (orange) — kept distinct from the brand green.
 const fmt = (d: Date | null) => (d ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null);
 // Device-local 'YYYY-MM-DD' key (matches the backend business day for on-site devices).
 const keyOf = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -37,25 +34,24 @@ const dateLabel = (key: string): string => {
   return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
-// Attendance — faithful port of source AttendanceScreen, wired to the tested attendanceStore
-// (computePresence/autoPunch/canFacePunch/facePunch). Wi-Fi is a simulated toggle (source-faithful);
-// geofence uses expo-location via useGeoFence; face fallback is biometric (expo-local-authentication),
-// no ML. Consent-gated on first use.
+// Attendance — owner rules 07-31: the Check in / Check out button is enabled ONLY while a live
+// GPS fix places the device inside the office geofence (default 100 m). Tapping it opens the
+// FRONT CAMERA, captures a face photo, uploads it, and records the punch (server re-verifies the
+// distance and requires the photo). No Wi-Fi condition, no auto-punch, no background geofencing.
+// Consent-gated on first use.
 //
 // RENDER ARCHITECTURE: every section below is a React.memo child fed primitives + stable
-// callbacks (useEventCallback), so a state tick only repaints the section whose data changed —
-// a GPS fix repaints the geofence card, an SSID change the Wi-Fi card, the 1s clock only
-// <LiveClock/>. The 15s presence heartbeat is a plain interval (no state), so it re-renders
-// NOTHING by itself. Do not pass fresh objects/arrays/closures to these children.
+// callbacks (useEventCallback), so a state tick only repaints the section whose data changed;
+// the minute clock only re-renders <LiveClock/>. Do not pass fresh objects/arrays/closures to
+// these children.
 export default function Attendance() {
   const router = useRouter();
-  const [offices, setOffices] = useState<AttendanceOffice[]>([]);
-  const [office, setOffice] = useState<AttendanceOffice | null>(null);
   const [tab, setTab] = useState<'mine' | 'team'>('mine');
+  const [offices, setOffices] = useState<AttendanceOffice[]>([]);
+  const [punching, setPunching] = useState(false); // camera → upload → punch in flight
   // NOTE: no per-second state here. The ticking clock lives in <LiveClock /> (its own leaf
   // component) so the seconds display doesn't re-render this whole screen — that re-render is
   // what made the page lag and stutter while scrolling.
-  const [scanning, setScanning] = useState(false);
   const [team, setTeam] = useState<TeamAttendanceEntry[]>([]);
   const [teamDate, setTeamDate] = useState(todayKey()); // day shown on the admin team tab
   const [branchFilter, setBranchFilter] = useState<string>('all'); // branchId shown on the team tab ('all' = every branch, grouped)
@@ -63,16 +59,11 @@ export default function Attendance() {
   const [userHistory, setUserHistory] = useState<AttendanceHistoryEntry[] | null>(null); // selected teammate's recent days (admin modal)
   const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
   const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
-  // Exempt is TRI-STATE: null = not known yet. The auto-punch engine may only run once the server
-  // has said exempt === false — an exempt account (super admins are always untracked server-side)
-  // that auto-punches gets rejected, reverts to "not checked in", and fires again a minute later:
-  // an endless toast pair ("Auto check-in…" / "Check-in NOT recorded…") that read as the page
-  // "blinking" forever. Presence/GPS/Wi-Fi work is skipped entirely for exempt accounts.
+  // Exempt is TRI-STATE: null = not known yet — don't flash the punch UI before the server says
+  // whether this account is tracked (super admins are always untracked server-side).
   const [exempt, setExempt] = useState<boolean | null>(null);
-  const exemptRef = useRef<boolean | null>(null);
-  const [ssid, setSsid] = useState<string | null>(null); // Wi-Fi network the device is on (null when unreadable)
-  const autoBlockedUntilRef = useRef(0); // back-off after the server rejects an auto punch (no retry storm)
-  const autoFailsRef = useRef(0); // consecutive silent-punch failures — escalates the back-off
+  // Hidden (director) background attendance: tracked silently — history is shown, punch UI is not.
+  const [hidden, setHidden] = useState(false);
 
   const role = useAccessStore((s) => s.user?.role);
   const isSuper = role === 'SUPER_ADMIN';
@@ -81,56 +72,33 @@ export default function Attendance() {
   const canSeeTeam = isSuper || role === 'DIRECTOR' || role === 'BRANCH_MANAGER';
   const consent = useAttendanceStore((s) => s.consent);
   const att = useAttendanceStore((s) => s.att);
-  const presence = useAttendanceStore((s) => s.presence);
-  const refreshPresence = useAttendanceStore((s) => s.refreshPresence);
-  const runAutoPunch = useAttendanceStore((s) => s.runAutoPunch);
   const showToast = useUiStore((s) => s.showToast);
 
-  // GPS watch only for accounts the server actually tracks (exempt === false).
-  const { coords, geoState } = useGeoFence(exempt === false ? office : null);
+  // Live GPS watch while the screen is open (manual punchers only) — it drives the button gate.
+  // The hook only needs A location to start watching; range is judged against ALL offices below.
+  const { coords, geoState } = useGeoFence(exempt === false && !hidden ? (offices[0] ?? null) : null);
 
-  // Poll the connected Wi-Fi SSID (Android needs location perms/services on to read it; the
-  // consent flow already asks). Drives the Wi-Fi half of presence — verified again server-side.
-  // setSsid with an unchanged string is a same-value set, so the poll itself re-renders nothing;
-  // only an actual network change does (and that must reach presence logic + the Wi-Fi card).
-  //
-  // FLAP GUARD: NetInfo on Samsung intermittently reads null for one poll while still on Wi-Fi.
-  // Taking that null at face value flipped the Wi-Fi card OFF→ON, the status pill red→green and
-  // the fallback buttons locked→unlocked every few polls — the "page keeps blinking" bug. A null
-  // now needs TWO consecutive reads before we drop the SSID; a real network is adopted instantly.
-  const ssidMissRef = useRef(0);
-  useEffect(() => {
-    if (exempt !== false) return; // presence inputs are only needed for tracked accounts
-    let alive = true;
-    const read = (): void => {
-      void getCurrentSsid().then((s) => {
-        if (!alive) return;
-        if (s) { ssidMissRef.current = 0; setSsid(s); return; }
-        ssidMissRef.current += 1;
-        if (ssidMissRef.current >= 2) setSsid(null);
-      });
-    };
-    read();
-    const t = setInterval(read, 15000);
-    return () => { alive = false; clearInterval(t); };
-  }, [exempt]);
+  // Nearest office to the current fix + whether we're inside its radius (default 100 m).
+  const nearest = useMemo(() => {
+    if (!coords || offices.length === 0) return null;
+    let best: { office: AttendanceOffice; distance: number } | null = null;
+    for (const o of offices) {
+      const d = distanceMeters(coords, o);
+      if (!best || d < best.distance) best = { office: o, distance: d };
+    }
+    return best ? { ...best, within: best.distance <= best.office.radius } : null;
+  }, [coords, offices]);
+  // No configured office → the server accepts the punch unverified; don't brick attendance.
+  const canPunch = offices.length === 0 || !!nearest?.within;
 
-  // Background-location state drives the "Allow all the time" banner; re-checked when the app
-  // returns from Settings (AppState active) so the banner clears the moment the user grants it.
-  const [bgLocation, setBgLocation] = useState<BackgroundLocationState>('granted');
+  // A pending load failure re-fires immediately on foreground — no waiting out the backoff.
   useEffect(() => {
-    const check = (): void => { void getBackgroundLocationState().then(setBgLocation); };
-    check();
-    // Background geofencing only re-arms for tracked accounts (exempt punches are doomed server-side).
-    // A pending load failure also re-fires immediately on foreground — no waiting out the backoff.
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') { check(); if (exemptRef.current === false) void syncAttendanceGeofencing(); if (loadErrorRef.current) loadCore(); } });
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active' && loadErrorRef.current) loadCore(); });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load the caller's office geofence(s), today's record, history, and the team view on open.
-  // Background geofencing is armed/disarmed only AFTER the server says whether this account is
-  // tracked — an exempt account arming geofences just generates rejected punches forever.
+  // Load today's record, history, and the admin data on open.
   //
   // RETRY, DON'T SWALLOW: these fetches used to fail SILENTLY (.catch(() => undefined)) — one
   // flaky moment and the screen rendered half-empty (no office chips, no history), which also made
@@ -144,27 +112,22 @@ export default function Attendance() {
   const loadCore = useEventCallback((): void => {
     if (retryRef.current) { clearTimeout(retryRef.current); retryRef.current = null; }
     const tasks: Promise<unknown>[] = [
-      getOffices().then((list) => { setOffices(list); setOffice((cur) => cur ?? list[0] ?? null); }),
       getMyAttendance().then((m) => {
-        const isExempt = !!m.exempt;
-        setExempt(isExempt); exemptRef.current = isExempt;
-        if (isExempt) void disarmAttendanceGeofencing();
-        else void syncAttendanceGeofencing();
-        autoBlockedUntilRef.current = 0; // server answered — auto-punch may run (tracked accounts)
+        setExempt(!!m.exempt);
+        setHidden(!!m.hidden);
+        // Manual punchers get no background geofencing — clear anything an older build left armed.
+        // Hidden (director) accounts keep theirs (armed by hiddenAttendance's reconcile).
+        if (!m.hidden) { void disarmAttendanceGeofencing(); void clearPendingExit(); }
         useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       }),
       getAttendanceHistory().then(setHistory),
+      getOffices().then(setOffices), // office geofences — drive the 100 m button gate
       ...(isSuper ? [getAdminOffices().then(setAdminOffices)] : []), // offices for the reassign picker
     ];
     void Promise.allSettled(tasks).then((results) => {
-      // Exempt gate fallback while the server hasn't answered yet: behave as tracked so the UI
-      // stays usable (manual punch works; the server is the gate), but do NOT auto-punch on a
-      // guess — if this account is actually exempt, every auto punch is doomed to a reject +
-      // revert + toast pair (the old "blinking" loop). Auto unblocks on the first server answer.
-      if (results[1].status === 'rejected' && exemptRef.current === null) {
-        setExempt(false); exemptRef.current = false;
-        autoBlockedUntilRef.current = Number.MAX_SAFE_INTEGER;
-      }
+      // While the server hasn't said whether this account is tracked, behave as tracked so the UI
+      // stays usable (manual punch works; the server is the gate).
+      if (results[0].status === 'rejected') setExempt((cur) => cur ?? false);
       const failed = results.some((r) => r.status === 'rejected');
       setLoadError(failed); loadErrorRef.current = failed;
       if (failed) {
@@ -237,44 +200,18 @@ export default function Attendance() {
       .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not update the day'));
   });
 
-  // Persist a punch to the backend and adopt the server's record. `silent` = auto (no success
-  // toast). Failures are NEVER silent: the server is the record of truth, so on rejection we
-  // re-adopt its state (the optimistic local punch would otherwise show "checked in" all day
-  // while the server has nothing — the person then reads as absent tomorrow) and tell the user.
-  const apiPunch = useEventCallback(async (kind: 'in' | 'out', method: 'auto' | 'face', silent = false, source?: 'geofence'): Promise<void> => {
+  // Persist a punch to the backend and adopt the server's record. Failures are NEVER silent: the
+  // server is the record of truth, so on rejection we re-adopt its state (the optimistic local
+  // punch would otherwise show "checked in" all day while the server has nothing — the person
+  // then reads as absent tomorrow) and tell the user.
+  const apiPunch = useEventCallback(async (kind: 'in' | 'out', facePhotoUrl: string): Promise<void> => {
     try {
-      // source:'geofence' marks a distance-driven AUTO punch so the server applies its exit drift
-      // guard to it; manual/face punches never send it (user-initiated punches are never blocked).
-      // A geofence check-out also carries the pending-exit marker (exitAt): if the departure was
-      // first detected while the app was backgrounded (refused/undelivered punch), the server
-      // back-dates checkOutAt to that instant instead of stamping "now".
-      const pendingExitAt = kind === 'out' && source === 'geofence' ? await peekPendingExit() : null;
-      const body = { coords: coords ? { lat: coords.lat, lng: coords.lng } : null, method, wifiSsid: ssid, ...(source ? { source } : {}), ...(pendingExitAt ? { exitAt: pendingExitAt } : {}) };
+      const body = { coords: coords ?? null, method: 'face' as const, facePhotoUrl };
       const m = kind === 'in' ? await checkIn(body) : await checkOut(body);
-      // Punch accepted → the pending exit is resolved either way: 'out' closed the day at the
-      // back-dated time; 'in' proves presence at the office (the marker was drift).
-      void clearPendingExit();
-      autoFailsRef.current = 0; // server reachable + accepting — clear the failure escalation
-      if (autoBlockedUntilRef.current === Number.MAX_SAFE_INTEGER) autoBlockedUntilRef.current = 0; // mount fetch had failed; server is back
       useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       getAttendanceHistory().then(setHistory).catch(() => undefined);
-      if (!silent) showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
+      showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
     } catch (e) {
-      // A server REJECTION (ApiError) won't heal in a minute — back off 15 min so a persistently
-      // rejected auto-punch can't toast-spam the screen. A single network blip keeps the 60s retry,
-      // but CONSECUTIVE network failures escalate to 15 min too: on a flaky office uplink the POST
-      // can fail while the recovery GET succeeds (reverting the punch), and a flat 60s backoff
-      // replayed that check-in → revert → toast pair every minute for as long as the screen was open.
-      if (silent) {
-        autoFailsRef.current += 1;
-        autoBlockedUntilRef.current = Date.now() + (e instanceof ApiError || autoFailsRef.current >= 2 ? 15 * 60_000 : 60_000);
-      }
-      // Marker hygiene mirrors the headless task: a server REJECTION refutes the pending exit
-      // (drift guard / already out); a network failure keeps its instant for the retry punch.
-      if (kind === 'out' && source === 'geofence') {
-        if (e instanceof ApiError) void clearPendingExit();
-        else void notePendingExit();
-      }
       try {
         const m = await getMyAttendance(); // revert the optimistic local state to the server's truth
         useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
@@ -283,105 +220,51 @@ export default function Attendance() {
     }
   });
 
-  // Recompute presence (office Wi-Fi + geofence) whenever GPS, Wi-Fi or office changes, then
-  // auto-punch. The backend re-verifies both the location and the SSID on every punch.
-  // Check-IN: while PRESENT (both signals hold — positive evidence), instant.
-  // Check-OUT: IMMEDIATE the moment a real fix is beyond the office fence (owner call, 07-28:
-  // "out 100 m → checked out, no delay") — no grace period, no spatial buffer. It is DISTANCE-ONLY:
-  // a Wi-Fi drop alone never checks anyone out (removed earlier the same day), and a lost fix is
-  // UNKNOWN, not an exit. The server re-verifies the coords via its drift guard (source:'geofence').
-  const evaluatePresence = useEventCallback((): void => {
-    if (exempt !== false || !office) return; // only tracked accounts run presence + auto-punch
-    const wifiOn = ssidMatches(ssid, office.wifiSsid);
-    const wifiConfigured = !!cleanSsid(office.wifiSsid);
-    const p = refreshPresence({ wifiOn, wifiConfigured, coords, office: { lat: office.lat, lng: office.lng, radius: office.radius } });
-    // Provably at the office → any pending-exit marker was drift that never resolved; refute it
-    // so a later real check-out can't back-date to a bogus mid-day instant.
-    if (p.present) void clearPendingExit();
-    // Not present AND not provably outside the fence (no fix / fix still inside): unknown — do
-    // nothing. This is the Wi-Fi-drop / GPS-silence case that must never close the day.
-    if (!p.present && (p.distance == null || p.distance <= office.radius)) return;
-    if (Date.now() < autoBlockedUntilRef.current) return; // throttled — one auto-punch per minute, see below
-    const fired = runAutoPunch();
-    if (fired) {
-      // Throttle EVERY auto-punch (not just server rejections) to at most once a minute. A punch's
-      // own success can flip presence-derived state, so an unthrottled evaluate could ping-pong.
-      autoBlockedUntilRef.current = Date.now() + 60_000;
-      const a = useAttendanceStore.getState().att;
-      if (a.outTime) { showToast('Auto check-out · ' + fmt(a.outTime)); void apiPunch('out', 'auto', true, 'geofence'); }
-      else if (a.inTime) { showToast('Auto check-in · ' + fmt(a.inTime) + ' · ' + (p.viaNow || 'Auto')); void apiPunch('in', 'auto', true); }
-    }
-  });
-  // Presence heartbeat: re-evaluates auto-punch even when no GPS/Wi-Fi event arrives (e.g. the
-  // away-grace timer maturing). 15s against a 5-minute grace is ample. The heartbeat is a plain
-  // interval calling a stable callback — it holds NO state, so a quiet tick re-renders nothing
-  // (the old `beat` counter re-rendered the entire screen every 15s; before that, a 1-second
-  // clock tick re-rendered it 60×/min). Store writes inside refreshPresence only publish when a
-  // presence field actually changed, so quiet ticks stay render-free end to end.
-  useEffect(() => {
-    evaluatePresence();
-    const t = setInterval(evaluatePresence, 15000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords, ssid, office, exempt]);
-
   const inTime = att.inTime;
   const outTime = att.outTime;
-  const present = presence?.present ?? false;
-  const viaNow = presence?.viaNow ?? '';
-  const distance = presence?.distance ?? null;
-  const inside = presence?.inside ?? false;
-  const wifiOnNow = presence?.wifiOn ?? false;
-  const wifiConfigured = presence?.wifiConfigured ?? false;
   const punchedVia = att.via || '';
 
   const agree = useCallback((): void => { useAttendanceStore.getState().setConsent(true); void saveConsent(true); }, []);
   const onBack = useCallback((): void => router.back(), [router]);
-  const openSettings = useCallback((): void => { void Linking.openSettings(); }, []);
-  const selectOffice = useCallback((o: AttendanceOffice): void => setOffice(o), []);
   const closeReassign = useCallback((): void => setReassign(null), []);
 
-  // Biometric face fallback (no ML) — gated by foundation canFacePunch.
-  const faceScan = useEventCallback(async (): Promise<void> => {
-    if (!canFacePunch(present, att, scanning)) { if (!present) showToast('Face punch needs office Wi-Fi + geofence'); return; }
-    setScanning(true);
-    try {
-      const has = await LocalAuthentication.hasHardwareAsync();
-      const enrolled = has && (await LocalAuthentication.isEnrolledAsync());
-      const res = enrolled ? await LocalAuthentication.authenticateAsync({ promptMessage: 'Verify to punch attendance' }) : { success: true };
-      if (res.success) {
-        const kind: 'in' | 'out' | null = !inTime ? 'in' : (!outTime ? 'out' : null);
-        if (kind) await apiPunch(kind, 'face');
-      } else {
-        showToast('Face verification cancelled');
-      }
-    } catch {
-      Alert.alert('Biometric unavailable', 'Could not start face/fingerprint verification on this device.');
-    } finally {
-      setScanning(false);
-    }
-  });
-
-  const punchPresent = useEventCallback((): void => {
-    if (!present) { showToast('Need office Wi-Fi + geofence'); return; }
+  // Punch flow (owner rules): gate on the 100 m geofence, then FRONT CAMERA face capture →
+  // upload → punch. The server re-verifies the distance and refuses a punch without the photo.
+  const punchNow = useEventCallback(async (): Promise<void> => {
+    if (punching) return;
     const kind: 'in' | 'out' | null = !inTime ? 'in' : (!outTime ? 'out' : null);
-    if (kind) void apiPunch(kind, 'auto');
+    if (!kind) return;
+    if (!canPunch) { showToast(nearest ? `You are ${nearest.distance} m from ${nearest.office.label} — get within ${nearest.office.radius} m` : 'Waiting for your location…'); return; }
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) { showToast('Camera permission is needed to mark attendance'); return; }
+    const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, cameraType: ImagePicker.CameraType.front, quality: 0.5, allowsEditing: false });
+    const photo = shot.canceled ? null : shot.assets?.[0] ?? null;
+    if (!photo) return; // user backed out of the camera — no punch
+    setPunching(true);
+    try {
+      const up = await uploadFile({ uri: photo.uri, name: `attendance-${kind}.jpg`, mime: photo.mimeType ?? 'image/jpeg' });
+      await apiPunch(kind, up.url);
+    } catch (e) {
+      showToast(`Could not upload the face photo — ${e instanceof Error ? e.message : 'try again'}`);
+    } finally {
+      setPunching(false);
+    }
   });
 
   // Derived display values — memoized primitives so the memo children below bail out whenever
   // the underlying values are unchanged (att is re-adopted as a fresh object after server calls).
   const inText = useMemo(() => fmt(inTime), [inTime]);
   const outText = useMemo(() => fmt(outTime), [outTime]);
-  const statusColor = useMemo(() => (inTime ? (outTime ? colors.coolText : colors.primary) : (present ? colors.primary : colors.danger)), [inTime, outTime, present]);
-  const statusText = useMemo(() => (inTime ? (outTime ? 'Done for today' : 'Checked in') : (present ? 'Detecting' : 'Not checked in')), [inTime, outTime, present]);
-  const wifiSub = useMemo(
-    () => (!office ? 'No office set' : !wifiConfigured ? 'No office Wi-Fi configured — geofence only' : wifiOnNow ? `Connected · ${cleanSsid(ssid) ?? office.wifiSsid}` : ssid ? `On “${cleanSsid(ssid)}” — not the office Wi-Fi` : 'Not connected to Wi-Fi'),
-    [office, wifiConfigured, wifiOnNow, ssid],
-  );
-  const geoSub = useMemo(
-    () => (!office ? 'No office set' : distance != null ? `${distance} m away · radius ${office.radius} m` : `Radius ${office.radius} m · ${geoState}`),
-    [office, distance, geoState],
-  );
+  const statusColor = useMemo(() => (inTime ? (outTime ? colors.coolText : colors.primary) : colors.danger), [inTime, outTime]);
+  const statusText = useMemo(() => (inTime ? (outTime ? 'Done for today' : 'Checked in') : 'Not checked in'), [inTime, outTime]);
+  // One line describing the location gate ("N m from OFFICE · within 100 m" / permission nudges).
+  const locationSub = useMemo(() => {
+    if (offices.length === 0) return loadError ? 'Couldn’t reach the server — retrying automatically…' : 'No office location set for your branch yet — punches are recorded unverified.';
+    if (geoState === 'denied') return 'Location permission is needed — enable it in Settings to mark attendance.';
+    if (geoState === 'unavailable') return 'Location is unavailable on this device.';
+    if (!nearest) return 'Getting your location…';
+    return `${nearest.distance} m from ${nearest.office.label} · ${nearest.within ? 'in range' : `must be within ${nearest.office.radius} m`}`;
+  }, [offices.length, geoState, nearest, loadError]);
   const teamFooterNote = isSuper || role === 'DIRECTOR' ? 'Visible to admins only. Staff see only their own record.' : 'Your branches only. Staff see only their own record.';
 
   // ---- Consent gate ----
@@ -391,16 +274,13 @@ export default function Attendance() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
-      <Header title="Attendance" subtitle="Auto first · face is backup" onBack={onBack} />
+      <Header title="Attendance" subtitle="At the office · face photo" onBack={onBack} />
       {/* NO flexGrow on contentContainerStyle: flexGrow:1 pins the content container to exactly
           the viewport height — children (history/team rows) still DRAW past the bottom edge, but
           the scrollable range computes to zero, so the page looks full yet cannot scroll at all.
           That was the "attendance can't scroll" bug. flexGrow belongs only on screens that must
           stretch SHORT content (e.g. to center a spinner); this page's content is long. */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
-        {/* Auto-punch needs "Allow all the time" location. Android 11+ never shows that option in
-            the in-app dialog — the user must flip it in Settings, so guide them there. */}
-        {bgLocation === 'denied' || bgLocation === 'undetermined' ? <BgLocationBanner onOpenSettings={openSettings} /> : null}
         {canSeeTeam ? <TabSwitch tab={tab} onChange={setTab} /> : null}
 
         {canSeeTeam && tab === 'team' ? (
@@ -422,13 +302,22 @@ export default function Attendance() {
           <View className="items-center" style={{ paddingVertical: 56 }}><ActivityIndicator color={colors.primary} /></View>
         ) : exempt ? (
           <ExemptView />
+        ) : hidden ? (
+          // Director (hidden) mode: attendance records itself from the office geofence — show the
+          // day + history read-only, no punch UI, no location gating.
+          <>
+            <LiveClock />
+            <StatusCard statusText={statusText} statusColor={statusColor} punchedVia={punchedVia} inText={inText} outText={outText} />
+            <Text style={{ color: colors.coolText, fontSize: 12.5, textAlign: 'center', marginBottom: 16, paddingHorizontal: 16 }}>
+              Attendance is automatic for your account — you are checked in when you arrive at the office and checked out when you leave.
+            </Text>
+            <HistorySection history={history} />
+          </>
         ) : (
           <>
             <LiveClock />
-            <OfficeSection offices={offices} officeId={office?.id ?? null} address={office?.address ?? null} loadFailed={loadError} onSelect={selectOffice} />
             <StatusCard statusText={statusText} statusColor={statusColor} punchedVia={punchedVia} inText={inText} outText={outText} />
-            <AutoSection wifiOnNow={wifiOnNow} inside={inside} wifiConfigured={wifiConfigured} wifiSub={wifiSub} geoSub={geoSub} />
-            <FallbackCard present={present} hasIn={!!inTime} hasOut={!!outTime} viaNow={viaNow} scanning={scanning} onPunch={punchPresent} onFace={faceScan} />
+            <PunchCard hasIn={!!inTime} hasOut={!!outTime} canPunch={canPunch} inRange={!!nearest?.within || offices.length === 0} punching={punching} locationSub={locationSub} onPunch={punchNow} />
             <HistorySection history={history} />
           </>
         )}
@@ -494,11 +383,11 @@ const ConsentView = memo(function ConsentView({ onAgree, onBack }: { onAgree: ()
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32 }}>
         <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}><Clock size={28} color={colors.primary} /></View>
         <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginBottom: 8 }}>How attendance works</Text>
-        <Text style={{ color: colors.coolText, fontSize: 14, lineHeight: 20, marginBottom: 16 }}>When you open KBiz 360 at the office, you are checked in automatically when you are on the office Wi-Fi and inside the office area. Face punch is a manual backup if auto-detection fails.</Text>
+        <Text style={{ color: colors.coolText, fontSize: 14, lineHeight: 20, marginBottom: 16 }}>Tap Check in when you arrive at the office and Check out when you leave. Both work only inside the office area and capture a photo of your face.</Text>
         {([
-          ['Automatic first', 'On the office Wi-Fi and inside the geofence together, check-in / check-out happen on their own.'],
-          ['Face = backup', 'If auto-detection fails, punch manually by face (still at the office) so no one is wrongly marked absent.'],
-          ['What we record', 'Only check-in / check-out time, date, and method (Wi-Fi, Geofence or Face).'],
+          ['At the office only', 'The button unlocks when your phone is within the office area (about 100 m of your branch).'],
+          ['Face photo', 'Each punch opens the camera and captures your face — it is stored with that day’s record.'],
+          ['What we record', 'Check-in / check-out time, date, your distance from the office and the face photo.'],
           ['Who can see it', 'You see your own record. Only your Super Admin sees the team dashboard. Times feed your Accounts software.'],
         ] as [string, string][]).map(([t, d]) => (
           <View key={t} className="flex-row gap-3 mb-3">
@@ -514,26 +403,6 @@ const ConsentView = memo(function ConsentView({ onAgree, onBack }: { onAgree: ()
   );
 });
 
-// "Allow all the time" nudge — static apart from the stable settings callback.
-const BgLocationBanner = memo(function BgLocationBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
-  return (
-    <Pressable
-      onPress={onOpenSettings}
-      className="flex-row items-center gap-2.5 p-3 mb-3"
-      style={{ borderRadius: 14, backgroundColor: WARN + '14', borderWidth: 1, borderColor: WARN + '40' }}
-    >
-      <MapPinOff size={18} color={WARN} />
-      <View className="flex-1">
-        <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>Auto check-in is off</Text>
-        <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>
-          Set location to “Allow all the time” so the office geofence can punch you in even when the app is closed.
-        </Text>
-      </View>
-      <Text style={{ color: WARN, fontSize: 12.5, fontWeight: '700' }}>Settings</Text>
-    </Pressable>
-  );
-});
-
 const TabSwitch = memo(function TabSwitch({ tab, onChange }: { tab: 'mine' | 'team'; onChange: (t: 'mine' | 'team') => void }) {
   return (
     <View className="flex-row p-1 mb-3" style={{ borderRadius: 999, backgroundColor: colors.coolMuted }}>
@@ -543,46 +412,6 @@ const TabSwitch = memo(function TabSwitch({ tab, onChange }: { tab: 'mine' | 'te
         </Pressable>
       ))}
     </View>
-  );
-});
-
-// Office label + picker chips + address. Re-renders only when the office list/selection changes.
-// loadFailed distinguishes "the server said there are no offices" from "we couldn't ask the
-// server" — showing the ask-your-admin message for a network failure sent admins chasing a
-// non-existent configuration problem.
-const OfficeSection = memo(function OfficeSection({ offices, officeId, address, loadFailed, onSelect }: { offices: AttendanceOffice[]; officeId: string | null; address: string | null; loadFailed: boolean; onSelect: (o: AttendanceOffice) => void }) {
-  return (
-    <>
-      <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 6, paddingHorizontal: 4 }}>OFFICE</Text>
-      {offices.length === 0 ? (
-        <View className="flex-row items-center gap-2.5 p-3 mb-3" style={{ backgroundColor: WARN + '14', borderWidth: 1, borderColor: WARN + '40', borderRadius: 14 }}>
-          <MapPinOff size={18} color={WARN} />
-          <Text style={{ color: colors.coolText, fontSize: 12.5, flex: 1 }}>
-            {loadFailed
-              ? 'Couldn’t reach the server to load your office — retrying automatically…'
-              : 'No office location is set for your branch yet. Ask your admin to set it in Admin → Office locations.'}
-          </Text>
-        </View>
-      ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 12 }}>
-          {offices.map((o) => {
-            const sel = o.id === officeId;
-            return (
-              <Pressable key={o.id} onPress={() => onSelect(o)} style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: sel ? colors.primary : colors.coolMuted }}>
-                <Text style={{ color: sel ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{o.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-
-      {address ? (
-        <View className="flex-row items-center gap-1.5" style={{ marginBottom: 12, paddingHorizontal: 2 }}>
-          <MapPin size={13} color={colors.coolText} />
-          <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 12, flex: 1 }}>{address}</Text>
-        </View>
-      ) : null}
-    </>
   );
 });
 
@@ -603,60 +432,35 @@ const StatusCard = memo(function StatusCard({ statusText, statusColor, punchedVi
   );
 });
 
-// Automatic (Wi-Fi + geofence) cards. A GPS fix or SSID change repaints ONLY this section.
-const AutoSection = memo(function AutoSection({ wifiOnNow, inside, wifiConfigured, wifiSub, geoSub }: { wifiOnNow: boolean; inside: boolean; wifiConfigured: boolean; wifiSub: string; geoSub: string }) {
+// Punch card — the button is ENABLED only inside the office geofence (owner rules, 07-31);
+// tapping it opens the front camera for the face photo, then records the punch.
+// Repaints only when punch/location state changes.
+const PunchCard = memo(function PunchCard({ hasIn, hasOut, canPunch, inRange, punching, locationSub, onPunch }: { hasIn: boolean; hasOut: boolean; canPunch: boolean; inRange: boolean; punching: boolean; locationSub: string; onPunch: () => void }) {
   return (
     <>
-      <View className="flex-row items-center gap-1.5 mb-2 px-1"><Zap size={13} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>AUTOMATIC · PRIMARY</Text></View>
-      <View style={{ gap: 8, marginBottom: 12 }}>
-        <AutoCard
-          icon={<Wifi size={18} color={wifiOnNow ? colors.primary : colors.coolText} />}
-          title="Office Wi-Fi"
-          sub={wifiSub}
-          on={wifiOnNow}
-          color={colors.primary}
-        />
-        <AutoCard
-          icon={<Navigation size={18} color={inside ? colors.primary : colors.coolText} />}
-          title="Office geofence"
-          sub={geoSub}
-          on={inside}
-          color={colors.primary}
-        />
-        <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center' }}>
-          {wifiConfigured
-            ? 'Check-in needs the office Wi-Fi AND the office area together. The moment either drops, you are checked out. Both are verified on the server.'
-            : 'You are checked in automatically when you are inside the office area, and checked out when you leave. Your location is verified on the server.'}
-        </Text>
-      </View>
-    </>
-  );
-});
-
-// Manual face/confirm fallback. Repaints only when presence/punch state or scanning changes.
-const FallbackCard = memo(function FallbackCard({ present, hasIn, hasOut, viaNow, scanning, onPunch, onFace }: { present: boolean; hasIn: boolean; hasOut: boolean; viaNow: string; scanning: boolean; onPunch: () => void; onFace: () => void }) {
-  return (
-    <>
-      <View className="flex-row items-center gap-1.5 mb-2 px-1"><ScanFace size={13} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MANUAL FALLBACK · IF AUTO FAILS</Text></View>
-      <View style={{ padding: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: present ? colors.primary + '55' : colors.coolDivider, marginBottom: 12 }}>
-        <Text style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 10 }}>If auto did not trigger, punch manually while at the office (Wi-Fi + geofence). Works for check-in and check-out so no one can punch from outside.</Text>
-        {!present ? (
-          <View className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: colors.coolMuted }}><Lock size={16} color={colors.coolText3} /><Text style={{ color: colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Needs office Wi-Fi + geofence</Text></View>
-        ) : hasIn && hasOut ? (
+      <View className="flex-row items-center gap-1.5 mb-2 px-1"><Clock size={13} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MARK ATTENDANCE</Text></View>
+      <View style={{ padding: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: inRange ? colors.primary + '55' : colors.coolDivider, marginBottom: 12 }}>
+        {/* Location gate status — distance to the nearest office, or what's blocking the fix. */}
+        <View className="flex-row items-center gap-1.5" style={{ marginBottom: 10 }}>
+          <MapPin size={14} color={inRange ? colors.primary : colors.coolText} />
+          <Text style={{ color: colors.coolText, fontSize: 12.5, flex: 1 }}>{locationSub}</Text>
+          <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (inRange ? colors.primary : colors.danger) + '18' }}>
+            <Text style={{ color: inRange ? colors.primary : colors.danger, fontSize: 10, fontWeight: '700' }}>{inRange ? 'IN RANGE' : 'OUT OF RANGE'}</Text>
+          </View>
+        </View>
+        {hasIn && hasOut ? (
           <View className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: colors.coolMuted }}><CheckCircle2 size={16} color={colors.coolText3} /><Text style={{ color: colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Done for today</Text></View>
         ) : (
           <>
-            <View className="flex-row gap-2 mb-2">
-              <Pressable onPress={onPunch} className="flex-row items-center justify-center gap-1.5" style={{ flex: 1, paddingVertical: 13, borderRadius: 999, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: colors.card }}>
-                <Navigation size={16} color={colors.primary} />
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>{!hasIn ? 'Check in' : 'Check out'} · {viaNow || 'office'}</Text>
-              </Pressable>
-              <Pressable onPress={onFace} disabled={scanning} className="flex-row items-center justify-center gap-1.5" style={{ flex: 1, paddingVertical: 13, borderRadius: 999, backgroundColor: scanning ? colors.primaryDark : colors.primary }}>
-                <ScanFace size={16} color="#fff" />
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>{scanning ? 'Verifying…' : (!hasIn ? 'Face in' : 'Face out')}</Text>
-              </Pressable>
-            </View>
-            <Text style={{ color: colors.coolText, fontSize: 11, textAlign: 'center' }}>Check {!hasIn ? 'in' : 'out'} by Wi-Fi/geofence confirm, or by face — both within the office.</Text>
+            <Pressable onPress={onPunch} disabled={!canPunch || punching} className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: canPunch && !punching ? colors.primary : colors.coolMuted }}>
+              <Camera size={16} color={canPunch && !punching ? '#fff' : colors.coolText3} />
+              <Text style={{ color: canPunch && !punching ? '#fff' : colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>
+                {punching ? 'Recording…' : !hasIn ? 'Check in' : 'Check out'}
+              </Text>
+            </Pressable>
+            <Text style={{ color: colors.coolText, fontSize: 11, textAlign: 'center', marginTop: 8 }}>
+              {canPunch ? 'Tapping opens the camera to capture your face.' : 'The button unlocks when you are inside the office area.'}
+            </Text>
           </>
         )}
       </View>
@@ -930,16 +734,4 @@ const Stat3 = memo(function Stat3({ n, label, color, bg }: { n: number; label: s
 });
 const Badge = memo(function Badge({ on }: { on: boolean }) {
   return <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (on ? colors.primary : colors.danger) + '18' }}><Text style={{ color: on ? colors.primary : colors.danger, fontSize: 10, fontWeight: '700' }}>{on ? 'PRESENT' : 'ABSENT'}</Text></View>;
-});
-const AutoCard = memo(function AutoCard({ icon, title, sub, on, color, children }: { icon: ReactNode; title: string; sub: string; on: boolean; color: string; children?: ReactNode }) {
-  return (
-    <View style={{ padding: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: on ? color + '55' : colors.coolDivider }}>
-      <View className="flex-row items-center gap-2.5">
-        <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: (on ? color : colors.coolText) + '18', alignItems: 'center', justifyContent: 'center' }}>{icon}</View>
-        <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{title}</Text><Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{sub}</Text></View>
-        <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (on ? colors.primary : colors.coolText) + '18' }}><Text style={{ color: on ? colors.primary : colors.coolText, fontSize: 10, fontWeight: '700' }}>{on ? 'ON' : 'OFF'}</Text></View>
-      </View>
-      {children}
-    </View>
-  );
 });

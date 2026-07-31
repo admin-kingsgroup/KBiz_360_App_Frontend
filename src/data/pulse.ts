@@ -17,6 +17,9 @@ export interface PulseEvent {
 export const attendanceAlertChannels: PulseChannel[] = [
   { id: 'tk_att_bom', bizId: 'tk', module: 'hr', branch: 'BOM', name: 'BOM Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs · Mumbai branch', members: [] },
   { id: 'tk_att_amd', bizId: 'tk', module: 'hr', branch: 'AMD', name: 'AMD Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs · Ahmedabad branch', members: [] },
+  // Directors' hidden-attendance day summary. branch 'DIR' is not a real branch: the grant
+  // 'DIR-hr' is never assigned, so only super-admins (who see every channel) get this card.
+  { id: 'tk_att_dir', bizId: 'tk', module: 'hr', branch: 'DIR', name: 'Directors Attendance', icon: '👔', color: '#9A6CF0', tint: '#EBE2FC', description: 'Daily directors in/out summary · super admins only', members: [] },
 ];
 
 // Real, backend-fed Finance + CRM channels — events are pushed live by the KBiz Books ERP and CRM

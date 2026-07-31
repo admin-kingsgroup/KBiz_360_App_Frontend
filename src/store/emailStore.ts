@@ -15,6 +15,8 @@ interface PersistedEmailState {
   smartFolders: SmartFolder[];
   outlookFolders: OutlookFolder[];
   lastFullSyncAt: number;
+  folderSyncDone: Record<string, boolean>;
+  lastSyncAttemptAt: number;
 }
 
 // File-backed storage for the mailbox cache (documentDirectory/<name>.json). A file instead of
@@ -78,6 +80,11 @@ export interface EmailState {
   syncing: boolean; // full offline sync in progress
   syncProgress: number | null; // messages walked so far this sync (display only)
   lastFullSyncAt: number; // last COMPLETED full sync (0 = never) — gates auto re-runs
+  // Folders whose history has been FULLY walked once ('inbox' | … | a Graph folder id). A done
+  // folder is never re-walked — later passes fetch only its newest page. This is what stops the
+  // mailbox re-downloading after an interrupted sync: completed folders stay completed.
+  folderSyncDone: Record<string, boolean>;
+  lastSyncAttemptAt: number; // last sync START — cool-down so a failing sync can't retry on every tab focus
 
   syncAll: () => Promise<void>; // download the whole mailbox (all folders + bodies) for offline
   cacheFolderPage: (graphFolderId: string, list: Email[]) => void; // merge user-folder mail into the offline cache
@@ -155,6 +162,8 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
   syncing: false,
   syncProgress: null,
   lastFullSyncAt: 0,
+  folderSyncDone: {},
+  lastSyncAttemptAt: 0,
 
   // ── full offline sync ──
   // Walk EVERY folder (standard + user folders) to exhaustion, merging all message headers into
@@ -166,39 +175,63 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
     const st0 = get();
     if (st0.syncing || st0.connected !== true) return;
     if (Date.now() - st0.lastFullSyncAt < 60 * 60 * 1000) return; // full pass ≤1h old — silentRefresh covers new mail
-    set({ syncing: true, syncProgress: 0 });
+    // Cool-down between ATTEMPTS (not just completed passes): a big mailbox that keeps tripping
+    // Graph throttling used to restart the download burst on every tab focus. Manual actions
+    // (pull-to-refresh, opening folders) are unaffected — this only gates the automatic sweep.
+    if (Date.now() - st0.lastSyncAttemptAt < 10 * 60 * 1000) return;
+    set({ syncing: true, syncProgress: 0, lastSyncAttemptAt: Date.now() });
     let walked = 0;
     let complete = true;
     const bump = (n: number) => set({ syncProgress: n });
+    const isDone = (key: string): boolean => get().folderSyncDone[key] === true;
+    const markDone = (key: string): void => set((st) => ({ folderSyncDone: { ...st.folderSyncDone, [key]: true } }));
+    // Append-only merge: messages already cached are NEVER fetched or replaced by the sweep
+    // (read/star changes reconcile through loadFolder/silentRefresh instead).
+    const mergeNew = (page: Email[], stamp?: (e: Email) => Email): number => {
+      let added = 0;
+      set((st) => {
+        const have = new Set(st.emails.map((e) => e.id));
+        const fresh = page.filter((e) => !have.has(e.id)).map((e) => (stamp ? stamp(e) : e));
+        added = fresh.length;
+        return fresh.length ? { emails: [...st.emails, ...fresh] } : {};
+      });
+      return added;
+    };
     try {
-      // 1. Standard folders, oldest pages included.
+      // 1. Standard folders. A folder whose history is already fully downloaded (folderSyncDone)
+      //    is NOT re-walked — one newest-page fetch picks up anything new since the last pass.
       for (const f of ['inbox', 'sent', 'drafts', 'deleted', 'spam'] as EmailFolder[]) {
+        if (isDone(f)) {
+          try { walked += mergeNew(await emailApi.listMessages(f, 0)); bump(walked); } catch { complete = false; }
+          continue;
+        }
         for (let guard = 0; guard < 250; guard++) { // 250 × 40 = 10k messages per folder cap
           const skip = get().emails.filter((e) => e.folder === f && !e.graphFolderId).length;
           let page: Email[];
           try { page = await emailApi.listMessages(f, skip); } catch { complete = false; break; } // offline/throttled — resume next run
-          set((st) => {
-            const have = new Set(st.emails.map((e) => e.id));
-            return { emails: [...st.emails, ...page.filter((e) => !have.has(e.id))] };
-          });
-          walked += page.length; bump(walked);
-          if (page.length < emailApi.EMAIL_PAGE) { set((st) => ({ hasMore: { ...st.hasMore, [f]: false } })); break; }
+          walked += page.length; bump(walked); mergeNew(page);
+          if (page.length < emailApi.EMAIL_PAGE) { markDone(f); set((st) => ({ hasMore: { ...st.hasMore, [f]: false } })); break; }
         }
       }
-      // 2. User folders (Outlook-created + smart), by Graph folder id.
+      // 2. User folders (Outlook-created + smart), by Graph folder id — same done-once rule.
       try { await get().loadOutlookFolders(); await get().loadSmartFolders(); } catch { /* use cached lists */ }
       const gids = new Set<string>([...get().outlookFolders.map((f) => f.id), ...get().smartFolders.map((sf) => sf.graphFolderId)]);
       for (const gid of gids) {
+        if (isDone(gid)) {
+          try { walked += mergeNew(await emailApi.listOutlookFolderMessages(gid, 0), (e) => ({ ...e, graphFolderId: gid })); bump(walked); } catch { complete = false; }
+          continue;
+        }
         for (let guard = 0; guard < 250; guard++) {
           const skip = get().emails.filter((e) => e.graphFolderId === gid).length;
           let page: Email[];
           try { page = await emailApi.listOutlookFolderMessages(gid, skip); } catch { complete = false; break; }
           get().cacheFolderPage(gid, page);
           walked += page.length; bump(walked);
-          if (page.length < emailApi.EMAIL_PAGE) break;
+          if (page.length < emailApi.EMAIL_PAGE) { markDone(gid); break; }
         }
       }
       // 3. Bodies: hydrate everything that's missing (newest first, sequential, resumes on failure).
+      //    The on-disk body cache is checked per message, so already-downloaded bodies are skipped.
       hydrate(get().emails, get().emails);
     } finally {
       set({ syncing: false, syncProgress: null, ...(complete ? { lastFullSyncAt: Date.now() } : {}) });
@@ -398,7 +431,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
 
   disconnect: async () => {
     await emailApi.disconnect().catch(() => undefined);
-    set({ connected: false, account: null, emails: [], inboxUnread: 0, smartFolders: [], outlookFolders: [], lastFullSyncAt: 0 });
+    set({ connected: false, account: null, emails: [], inboxUnread: 0, smartFolders: [], outlookFolders: [], lastFullSyncAt: 0, folderSyncDone: {}, lastSyncAttemptAt: 0 });
     void clearBodies();
   },
 
@@ -410,7 +443,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
       emails: [], folder: 'inbox', search: '', connected: null, account: null,
       loading: false, loadingMore: false, hasMore: {}, inboxUnread: 0,
       searchResults: [], searching: false, smartFolders: [], outlookFolders: [],
-      syncing: false, syncProgress: null, lastFullSyncAt: 0,
+      syncing: false, syncProgress: null, lastFullSyncAt: 0, folderSyncDone: {}, lastSyncAttemptAt: 0,
     });
     void clearBodies();
   },
@@ -522,5 +555,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
     smartFolders: s.smartFolders,
     outlookFolders: s.outlookFolders,
     lastFullSyncAt: s.lastFullSyncAt,
+    folderSyncDone: s.folderSyncDone,
+    lastSyncAttemptAt: s.lastSyncAttemptAt,
   }),
 }));

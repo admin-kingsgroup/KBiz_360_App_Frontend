@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import type { NotificationResponse } from 'expo-notifications';
 import { Notifications } from '../services/notifications';
 import { routeForData, type NotifData } from '../services/notifications/routes';
-import { callManager } from '../services/rtc/CallManager';
 
 // Module-level, NOT a ref: getLastNotificationResponseAsync returns the most recent response for
 // the LIFETIME of the process, and a per-mount ref forgets it whenever the gate remounts — every
@@ -11,7 +10,7 @@ import { callManager } from '../services/rtc/CallManager';
 let handledResponseId: string | null = null;
 
 // Registers a tap-response listener and routes into the app. Also handles the cold-start case
-// (app launched by tapping a notification) and the incoming-call Accept/Decline action buttons.
+// (app launched by tapping a notification).
 export function useNotificationRouting() {
   const router = useRouter();
 
@@ -31,15 +30,7 @@ export function useNotificationRouting() {
       const reqId = resp?.notification.request.identifier;
       if (!resp || !reqId || handledResponseId === reqId) return;
       handledResponseId = reqId;
-      const data = resp.notification.request.content.data as NotifData & { callId?: string };
-      const action = resp.actionIdentifier;
-      // Incoming-call Accept / Decline buttons (categoryId 'incoming_call').
-      if (data?.type === 'call' && (action === 'accept' || action === 'decline')) {
-        const callId = (data.callId ?? data.id) ?? '';
-        if (action === 'accept') { callManager.acceptFromNotification(callId); go(data); }
-        else callManager.declineFromNotification(callId);
-        return;
-      }
+      const data = resp.notification.request.content.data as NotifData;
       go(data);
     };
 

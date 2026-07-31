@@ -1,4 +1,4 @@
-export type PunchMethod = 'Wi-Fi' | 'Geofence' | 'Face' | 'Auto' | 'Manual'; // Manual = admin correction
+export type PunchMethod = 'Wi-Fi' | 'Geofence' | 'Face' | 'Auto' | 'Manual' | 'Auto-closed'; // Manual = admin correction; Auto-closed = forgotten checkout stamped by the 10pm sweep
 
 export interface AttendanceRecord {
   inTime: Date | null;

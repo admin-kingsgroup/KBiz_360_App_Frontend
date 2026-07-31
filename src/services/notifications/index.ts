@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import { isRunningInExpoGo } from 'expo';
 import type { NotificationResponse } from 'expo-notifications';
 import { routeForData, type NotifType, type NotifData } from './routes';
-import { registerCallDevice } from '../../api/calls';
+import { registerPushDevice } from '../../api/push';
 import { useMessagingStore } from '../../store/messagingStore';
 
 // Client-only notifications. No backend/push delivery — we configure the foreground display
@@ -45,10 +45,6 @@ load()?.setNotificationHandler({
     };
   },
 });
-
-// Register the incoming-call Accept/Decline action category on startup (needs no permission), so the
-// buttons appear on the call push even when the app was killed. (ensureCallCategory is hoisted.)
-void ensureCallCategory();
 
 // WhatsApp-style app-icon badge: only unread CHATS count. Chat notifications live on notifee's
 // 'messages' channel (badge ON — see chatNotifications.ts); everything else (reminders, alerts)
@@ -107,33 +103,7 @@ export async function cancelLocal(notificationId: string): Promise<void> {
 
 // Ensure a high-importance Android channel for incoming calls (the backend push targets channelId
 // 'calls'). No-op on iOS / Expo Go.
-async function ensureCallChannel(): Promise<void> {
-  const m = load();
-  if (!m || Platform.OS !== 'android') return;
-  await m.setNotificationChannelAsync('calls', {
-    name: 'Calls',
-    importance: m.AndroidImportance.MAX,
-    // No explicit `sound` — passing a string makes expo-notifications look for a bundled custom
-    // sound file (and warn when missing). Omitting it uses the system default notification sound.
-    vibrationPattern: [0, 250, 250, 250],
-    bypassDnd: true,
-    lockscreenVisibility: m.AndroidNotificationVisibility.PUBLIC,
-  });
-}
-
-// Register the incoming-call notification category so the call push shows Accept / Decline buttons
-// (the backend tags those pushes with categoryId 'incoming_call'). Tapping a button is handled in
-// useNotificationRouting via the action identifier. No-op on Expo Go.
-export async function ensureCallCategory(): Promise<void> {
-  const m = load();
-  if (!m) return;
-  await m.setNotificationCategoryAsync('incoming_call', [
-    { identifier: 'accept', buttonTitle: 'Accept', options: { opensAppToForeground: true } },
-    { identifier: 'decline', buttonTitle: 'Decline', options: { opensAppToForeground: true, isDestructive: true } },
-  ]);
-}
-
-// Register this device's Expo push token with the backend so it can ring us when offline. Requires
+// Register this device's Expo push token with the backend for reminder/alert/chat pushes. Requires
 // notification permission + an EAS projectId (app.json → extra.eas.projectId); fails soft otherwise.
 export async function registerPushToken(): Promise<void> {
   const m = load();
@@ -141,11 +111,9 @@ export async function registerPushToken(): Promise<void> {
   try {
     const granted = (await m.getPermissionsAsync()).granted;
     if (!granted) return;
-    await ensureCallChannel();
-    await ensureCallCategory();
     const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
     const { data: token } = await m.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
-    if (token) await registerCallDevice(token, Platform.OS);
+    if (token) await registerPushDevice(token, Platform.OS);
   } catch (e) {
     // eslint-disable-next-line no-console
     console.warn('[push] token registration skipped:', (e as Error).message);

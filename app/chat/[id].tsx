@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, ScrollView, StyleSheet, Vibration, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Linking, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Phone, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Play, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Avatar } from '../../src/components/ui';
 import { VoiceMessage, LinkedText } from '../../src/components/chat';
+import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -23,7 +24,6 @@ import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasE
 import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
-import { callManager } from '../../src/services/rtc/CallManager';
 import { daySeparator, isDifferentDay, dateStamp } from '../../src/utils/time';
 
 // Chat-screen redesign palette (kbiz360_chat_screen_redesign mockup): teal accent, white message
@@ -89,6 +89,8 @@ export default function ChatDetail() {
   const [cursor, setCursor] = useState(0);
   const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [active, setActive] = useState<StoredMessage | null>(null);
+  const [reactionsFor, setReactionsFor] = useState<string | null>(null); // message id → reactions sheet
+  const [reactPickerOpen, setReactPickerOpen] = useState<string | null>(null); // message id → full emoji picker
   const [infoFor, setInfoFor] = useState<StoredMessage | null>(null);
   const [savingImage, setSavingImage] = useState(false);
   const [editing, setEditing] = useState<StoredMessage | null>(null);
@@ -101,6 +103,7 @@ export default function ChatDetail() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false); // WhatsApp-style emoji panel below the composer
   const [viewer, setViewer] = useState<string | null>(null);
   const [pinned, setPinned] = useState<ChatMessage[]>([]);
   const [contactOpen, setContactOpen] = useState(false);
@@ -229,6 +232,30 @@ export default function ChatDetail() {
   };
   const pickMention = (p: User): void => applyPicked(p.name);
   const pickEveryone = (): void => applyPicked(MENTION_EVERYONE);
+
+  // ── emoji panel (WhatsApp-style) ──
+  // Smiley toggles the panel (dismissing the keyboard); focusing the input brings the keyboard
+  // back and hides the panel. Insertions go to the tracked cursor, exactly like mention picks.
+  useEffect(() => { if (keyboardVisible) setEmojiOpen(false); }, [keyboardVisible]);
+  const toggleEmoji = (): void => {
+    if (!emojiOpen) { Keyboard.dismiss(); setAttachOpen(false); }
+    setEmojiOpen((v) => !v);
+  };
+  const insertEmoji = (e: string): void => {
+    const next = text.slice(0, cursor) + e + text.slice(cursor);
+    const c = cursor + e.length;
+    setText(next); setCursor(c); setSel({ start: c, end: c });
+  };
+  const emojiBackspace = (): void => {
+    if (cursor <= 0) return;
+    // Drop one code point before the cursor (a naive slice(-1) can cut an emoji's surrogate pair
+    // in half). ZWJ family sequences may take a few presses — same as most non-WhatsApp keyboards.
+    const before = Array.from(text.slice(0, cursor));
+    before.pop();
+    const head = before.join('');
+    setText(head + text.slice(cursor));
+    setCursor(head.length); setSel({ start: head.length, end: head.length });
+  };
 
   const submitText = async (): Promise<void> => {
     const t = text.trim();
@@ -483,11 +510,6 @@ export default function ChatDetail() {
             </Text>
           </View>
         </Pressable>
-        {!isGroup && conv?.otherUserId ? (
-          <Pressable onPress={() => callManager.startOutgoing({ id: conv.otherUserId as string, name: title }, 'voice')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-            <Phone size={21} color={colors.ink} />
-          </Pressable>
-        ) : null}
         <Pressable onPress={() => (isGroup ? router.push({ pathname: '/chat/group-info', params: { id: convId } }) : setContactOpen(true))} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={colors.ink} /></Pressable>
       </View>
       )}
@@ -548,7 +570,8 @@ export default function ChatDetail() {
                   onPress={() => (selecting ? toggleSelect(m) : !m.deletedForEveryone && setActive(m))}
                   onLongPress={() => onMsgLongPress(m)}
                   selecting={selecting}
-                  onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])} />
+                  onOpenImage={setViewer} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])}
+                  onReactions={() => setReactionsFor(m.id)} />
               );
               const row = m.type === 'system'
                 ? <SystemNotice text={m.text} />
@@ -649,8 +672,11 @@ export default function ChatDetail() {
               <Text style={{ color: colors.coolText, fontSize: 13 }}>Recording…</Text>
             </View>
           ) : (
-            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: colors.coolMuted, paddingLeft: 14, paddingRight: 10 }}>
-              <TextInput value={text} onChangeText={onChangeText} onFocus={() => setAttachOpen(false)} onSubmitEditing={submitText} placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
+            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: colors.coolMuted, paddingLeft: 6, paddingRight: 10 }}>
+              <Pressable onPress={toggleEmoji} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
+                <Smile size={22} color={emojiOpen ? colors.primary : colors.coolText} />
+              </Pressable>
+              <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} onSubmitEditing={submitText} placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
                 selection={sel}
                 onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
                 style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: colors.ink, maxHeight: 110 }} />
@@ -664,6 +690,9 @@ export default function ChatDetail() {
             {text.trim() || isRecording ? <Send size={20} color="#fff" /> : <Mic size={22} color="#fff" />}
           </Pressable>
         </View>
+
+        {/* Emoji panel — sits where the keyboard would be (smiley toggles it, focusing the input swaps back). */}
+        {emojiOpen && !isRecording ? <EmojiPicker onPick={insertEmoji} onBackspace={emojiBackspace} /> : null}
       </KeyboardAvoidingView>
 
       {/* Full-screen image viewer */}
@@ -691,10 +720,6 @@ export default function ChatDetail() {
                   {c?.roleName ? <Text style={{ color: colors.coolText, fontSize: 11.5, marginTop: 1 }}>{c.roleName}</Text> : null}
                   {c?.email ? <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>{c.email}</Text> : null}
                   <View className="flex-row gap-2" style={{ marginTop: 16 }}>
-                    <Pressable onPress={() => { setContactOpen(false); if (conv?.otherUserId) callManager.startOutgoing({ id: conv.otherUserId, name: title }, 'voice'); }}
-                      className="flex-row items-center gap-1.5" style={{ paddingHorizontal: 18, paddingVertical: 11, borderRadius: 999, backgroundColor: colors.primary }}>
-                      <Phone size={16} color="#fff" /><Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>Voice call</Text>
-                    </Pressable>
                     <Pressable onPress={() => setContactOpen(false)} style={{ paddingHorizontal: 18, paddingVertical: 11, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider }}>
                       <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>Close</Text>
                     </Pressable>
@@ -710,8 +735,22 @@ export default function ChatDetail() {
       {active ? (
         <Pressable onPress={closeMenu} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 8, minWidth: 250 }}>
-            <View className="flex-row justify-around" style={{ paddingVertical: 6, marginBottom: 4, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-              {REACTIONS.map((e) => (<Pressable key={e} onPress={() => { void useMessagingStore.getState().react(active.id, e); finishAction(); }}><Text style={{ fontSize: 24 }}>{e}</Text></Pressable>))}
+            <View className="flex-row items-center justify-around" style={{ paddingVertical: 6, marginBottom: 4, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+              {/* My current reaction is highlighted; tapping it again REMOVES it (server toggles). */}
+              {REACTIONS.map((e) => {
+                const isMine = active.reactions.some((r) => r.userId === myUserId && r.emoji === e);
+                return (
+                  <Pressable key={e} onPress={() => { void useMessagingStore.getState().react(active.id, e); finishAction(); }}
+                    style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: isMine ? colors.primarySoft : 'transparent' }}>
+                    <Text style={{ fontSize: 24 }}>{e}</Text>
+                  </Pressable>
+                );
+              })}
+              {/* "+" → full emoji picker, WhatsApp-style. */}
+              <Pressable onPress={() => { setReactPickerOpen(active.id); closeMenu(); }}
+                style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+                <Plus size={20} color={colors.coolText} />
+              </Pressable>
             </View>
             {[
               { label: 'Reply', Icon: Reply, onPress: () => { setReplyTo(active); finishAction(); } },
@@ -744,6 +783,45 @@ export default function ChatDetail() {
 
       {/* Message info: who read / received one of MY messages (sender-only endpoint) */}
       <MessageInfoSheet message={infoFor} users={users} nameOf={nameOf} onClose={() => setInfoFor(null)} />
+
+      {/* Full emoji picker for reactions ("+" in the quick bar) */}
+      <Modal visible={!!reactPickerOpen} transparent animationType="slide" onRequestClose={() => setReactPickerOpen(null)}>
+        <Pressable onPress={() => setReactPickerOpen(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: 'hidden' }}>
+            <EmojiPicker
+              onPick={(e) => { const id = reactPickerOpen; setReactPickerOpen(null); setSelectedIds([]); if (id) void useMessagingStore.getState().react(id, e); }}
+              onBackspace={() => setReactPickerOpen(null)}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Reactions sheet — who reacted; tap YOUR OWN row/emoji to remove it (server toggles). */}
+      <Modal visible={!!reactionsFor} transparent animationType="fade" onRequestClose={() => setReactionsFor(null)}>
+        <Pressable onPress={() => setReactionsFor(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, paddingBottom: insets.bottom + 16, maxHeight: '60%' }}>
+            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Reactions</Text>
+            <Text style={{ color: colors.coolText, fontSize: 12, marginBottom: 10 }}>Tap your reaction to remove it.</Text>
+            <ScrollView>
+              {(messages.find((x) => x.id === reactionsFor)?.reactions ?? []).map((r) => {
+                const isMine = r.userId === myUserId;
+                return (
+                  <Pressable key={`${r.userId}-${r.emoji}`} disabled={!isMine}
+                    onPress={() => { const id = reactionsFor; setReactionsFor(null); if (id) void useMessagingStore.getState().react(id, r.emoji); }}
+                    className="flex-row items-center gap-3" style={{ paddingVertical: 10, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+                    <Avatar initials={(nameOf(r.userId)[0] ?? '?').toUpperCase()} color={colors.blue} size={36} uri={users.find((u) => u.id === r.userId)?.avatar} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{isMine ? 'You' : nameOf(r.userId)}</Text>
+                      {isMine ? <Text style={{ color: colors.coolText, fontSize: 11.5 }}>Tap to remove</Text> : null}
+                    </View>
+                    <Text style={{ fontSize: 22 }}>{r.emoji}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1048,7 +1126,7 @@ function SwipeToReply({ onReply, children }: { onReply: () => void; children: Re
   );
 }
 
-function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onRetry, onForward }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onRetry: (clientId: string) => void; onForward?: () => void }) {
+function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onRetry, onForward, onReactions }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
   // Tick glyphs on the light cards: pending → clock, sent → ✓, delivered → ✓✓ (muted grey),
@@ -1111,9 +1189,10 @@ function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenIma
       </View>
       {m.reactions.length ? (
         <View className="flex-row" style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: -6, marginRight: 4 }}>
-          <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+          {/* Tapping the chip opens the reactions sheet (who reacted; tap your own to remove). */}
+          <Pressable onPress={onReactions} hitSlop={6} style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
             <Text style={{ fontSize: 12 }}>{[...new Set(m.reactions.map((r) => r.emoji))].join(' ')} {m.reactions.length}</Text>
-          </View>
+          </Pressable>
         </View>
       ) : null}
     </View>

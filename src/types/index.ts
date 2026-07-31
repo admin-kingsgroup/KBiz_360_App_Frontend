@@ -6,6 +6,5 @@ export * from './reminder';
 export * from './attendance';
 export * from './chat';
 export * from './email';
-export * from './call';
 export * from './notification';
 export * from './common';

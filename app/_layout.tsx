@@ -9,24 +9,20 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary, OfflineBanner } from '../src/components/common';
-import { IncomingCallOverlay, ActiveCallOverlay } from '../src/components/call';
 import { GlobalToast } from '../src/components/ui';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
 import { useAttendanceStore } from '../src/store/attendanceStore';
 import { useAuthStore } from '../src/store/authStore';
 import { connectChatSocket, disconnectChatSocket } from '../src/realtime/chatSocket';
-import { syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
-import { autoCheckInOnForeground } from '../src/services/foregroundAttendance';
+import { reconcileHiddenAttendance } from '../src/services/hiddenAttendance';
 import { installGlobalCrashHandler, flushStoredCrash } from '../src/services/crashReporter';
 import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
 import { registerForegroundChatPush, syncChatNotifications } from '../src/services/chatNotifications';
-import { setupIosCallKeep } from '../src/services/iosCallKeep';
 import { registerPushToken, ensureNotificationChannels } from '../src/services/notifications';
 import { maybePromptBatteryOptimization } from '../src/services/batteryOptimization';
 import { useEmailStore } from '../src/store/emailStore';
 import { useMessagingStore } from '../src/store/messagingStore';
-import { useCallSessionStore } from '../src/store/callSessionStore';
 import { loadPrefs, savePerms } from '../src/services/storage';
 import { getBackgroundLocationStatus } from '../src/services/locationPermission';
 import { locationPermSatisfied } from '../src/logic/permissionGate';
@@ -71,11 +67,11 @@ function GateController() {
     void enforceBgLocation();
     connectChatSocket();
     void registerPushToken(); // Expo push token → background message/reminder notifications (every launch, so returning users stay registered)
-    void registerFcmToken(); // raw FCM token → native full-screen call UI (Android)
-    setupIosCallKeep(); // iOS: CallKit + VoIP/PushKit incoming-call screen
+    void registerFcmToken(); // raw FCM token → background chat data pushes (Android)
     void ensureNotificationChannels(); // migrate legacy badging 'default' channel → non-badging 'general' (badge = chats only)
-    void syncAttendanceGeofencing(); // start OS geofencing for the user's offices (background auto check-in)
-    void autoCheckInOnForeground(); // opening the app at the office marks attendance (foreground, any screen)
+    // Hidden (director) attendance: silently reconcile check-in/out against the office geofence on
+    // every app open. For everyone else this only disarms any leftover background geofencing.
+    void reconcileHiddenAttendance();
     void useEmailStore.getState().refreshUnread(); // Email tab badge — real Graph inbox unread (without opening Email)
     // FCM chat pushes while the app is OPEN → heads-up banner (suppressed for the active chat and
     // for muted conversations).
@@ -90,19 +86,19 @@ function GateController() {
       if (badgeTimer) clearTimeout(badgeTimer);
       badgeTimer = setTimeout(() => void syncChatNotifications(s.conversations), 400);
     });
+    // Light heartbeat for hidden (director) attendance while the app stays open — catches leaving
+    // the office with the app foregrounded. No-op (a single cheap /me) for everyone else.
+    const hiddenTick = setInterval(() => void reconcileHiddenAttendance(), 5 * 60_000);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void enforceBgLocation(); // location revoked in Settings while backgrounded → back to the gate
-        void autoCheckInOnForeground(); // re-check on every foreground: at the office → auto check-in
+        void reconcileHiddenAttendance(); // director geofence reconcile on every return to foreground
         connectChatSocket();
         void useMessagingStore.getState().loadConversations(); // refresh chat list on return (server is source of truth)
         void useEmailStore.getState().refreshUnread(); // Email tab badge
         void useEmailStore.getState().silentRefresh('inbox'); // + bring new inbox mail into the list (no spinner)
       } else if (state === 'background') {
-        // Keep the signaling socket alive during a call — backgrounding mid-call must NOT drop
-        // call:offer/answer/ice/end (that would hang the call). Drop it only when idle.
-        const cs = useCallSessionStore.getState();
-        if (!cs.active && !cs.incoming) disconnectChatSocket();
+        disconnectChatSocket(); // marks the user offline promptly; messages fall back to push
       }
     });
     return () => {
@@ -110,6 +106,7 @@ function GateController() {
       unsubChatPush();
       unsubBadge();
       if (badgeTimer) clearTimeout(badgeTimer);
+      clearInterval(hiddenTick);
     };
   }, [signedIn]);
 
@@ -157,7 +154,6 @@ function GateController() {
       <Stack.Screen name="email/folder/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="email/outlook/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="email/compose" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="call/[id]" options={{ presentation: 'card' }} />
     </Stack>
   );
 }
@@ -202,10 +198,6 @@ export default function RootLayout() {
             <View style={{ flex: 1 }}>
               {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
             </View>
-            {/* Global call overlays — render over any screen and survive navigation (call state
-                lives in callSessionStore). Active first so an incoming call layers above it. */}
-            <ActiveCallOverlay />
-            <IncomingCallOverlay />
             {/* App-wide toast host — must be last so it layers above every screen. Mounted here
                 (not per-screen) so showToast() from any screen is actually visible. */}
             <GlobalToast />

@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { View, Text, Image, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, Bell, Phone, Mail, type LucideIcon } from 'lucide-react-native';
+import { MessageCircle, Bell, Mail, type LucideIcon } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useEmailStore } from '../../src/store/emailStore';
@@ -62,7 +62,6 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: ({ color, focused }) => <TabPill Icon={MessageCircle} color={color} focused={focused} />, tabBarBadge: chatsBadge > 0 ? (chatsBadge > 9 ? '9+' : chatsBadge) : undefined }} />
       <Tabs.Screen name="reminders" options={{ title: 'Reminders', tabBarIcon: ({ color, focused }) => <TabPill Icon={Bell} color={color} focused={focused} />, tabBarBadge: reminderBadge > 0 ? (reminderBadge > 9 ? '9+' : reminderBadge) : undefined }} />
-      <Tabs.Screen name="call" options={{ title: 'Calls', tabBarIcon: ({ color, focused }) => <TabPill Icon={Phone} color={color} focused={focused} /> }} />
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused }) => <ProfileTabIcon focused={focused} /> }} />
     </Tabs>
