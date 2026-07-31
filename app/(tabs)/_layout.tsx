@@ -1,12 +1,14 @@
 import { Tabs } from 'expo-router';
 import { View, Text, Image, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, Bell, Mail, type LucideIcon } from 'lucide-react-native';
+import { MessageCircle, Users, Bell, Mail, type LucideIcon } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
+import { usePulseStore } from '../../src/store/pulseStore';
+import { isVisibleAlertChannel } from '../../src/data/pulse';
 
 // Pill that highlights behind the active tab's icon (WhatsApp-style bottom bar).
 function TabPill({ Icon, color, focused }: { Icon: LucideIcon; color: ColorValue; focused: boolean }) {
@@ -33,7 +35,12 @@ function ProfileTabIcon({ focused }: { focused: boolean }) {
 }
 
 export default function TabsLayout() {
-  const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.unread || 0), 0));
+  // Chats badge counts DIRECT conversations only; group unread rolls into the Groups tab badge
+  // together with unread system-alert events (same visible-channel gate as the Alerts pane).
+  const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'direct' ? c.unread || 0 : 0), 0));
+  const groupUnread = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'group' ? c.unread || 0 : 0), 0));
+  const alertUnread = usePulseStore((s) => s.events.reduce((n, e) => n + (!e.read && isVisibleAlertChannel(e.channelId) ? 1 : 0), 0));
+  const groupsBadge = groupUnread + alertUnread;
   const reminderBadge = useReminderBadgeStore((s) => s.count);
   const emailBadge = useEmailStore((s) => s.inboxUnread); // real Graph inbox unread count
   // Reserve room for the system navigation bar (3-button nav) so the icons + labels never sit under
@@ -61,6 +68,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: ({ color, focused }) => <TabPill Icon={MessageCircle} color={color} focused={focused} />, tabBarBadge: chatsBadge > 0 ? (chatsBadge > 9 ? '9+' : chatsBadge) : undefined }} />
+      <Tabs.Screen name="groups" options={{ title: 'Groups', tabBarIcon: ({ color, focused }) => <TabPill Icon={Users} color={color} focused={focused} />, tabBarBadge: groupsBadge > 0 ? (groupsBadge > 9 ? '9+' : groupsBadge) : undefined }} />
       <Tabs.Screen name="reminders" options={{ title: 'Reminders', tabBarIcon: ({ color, focused }) => <TabPill Icon={Bell} color={color} focused={focused} />, tabBarBadge: reminderBadge > 0 ? (reminderBadge > 9 ? '9+' : reminderBadge) : undefined }} />
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused }) => <ProfileTabIcon focused={focused} /> }} />
