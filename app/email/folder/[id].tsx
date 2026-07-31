@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { View, Text, Pressable, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, Trash2, Inbox as InboxIcon } from 'lucide-react-native';
-import { EmailListItem } from '../../../src/components/email';
+import { ChevronLeft, Trash2, Pencil, Inbox as InboxIcon } from 'lucide-react-native';
+import { EmailListItem, SmartFolderModal } from '../../../src/components/email';
 import { colors } from '../../../src/theme';
 import { useEmailStore } from '../../../src/store/emailStore';
 import { useUiStore } from '../../../src/store/uiStore';
@@ -21,6 +21,7 @@ export default function SmartFolderScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const openEmail = useCallback((e: Email) => router.push(`/email/${e.id}`), [router]);
 
@@ -65,6 +66,7 @@ export default function SmartFolderScreen() {
           <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>{folder?.name ?? 'Folder'}</Text>
           {folder?.from?.length ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>Auto-files mail from {folder.from.join(', ')}</Text> : null}
         </View>
+        <Pressable onPress={() => setEditOpen(true)} accessibilityLabel="Edit folder" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Pencil size={18} color={colors.ink} /></Pressable>
         <Pressable onPress={confirmDelete} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Trash2 size={19} color={colors.danger} /></Pressable>
       </View>
 
@@ -85,6 +87,9 @@ export default function SmartFolderScreen() {
           </View>
         }
       />
+
+      {/* Edit this folder's name / sender matches; new matches may re-file mail, so reload the list. */}
+      <SmartFolderModal visible={editOpen} editing={folder ?? null} onClose={() => setEditOpen(false)} onSaved={() => void load()} />
     </SafeAreaView>
   );
 }

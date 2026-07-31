@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, KeyboardAvoidingView, Platform, Alert, type ListRenderItem } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, Alert, type ListRenderItem } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Folder as FolderIcon, FolderPlus, X, ChevronDown, Check } from 'lucide-react-native';
-import { EmailListItem } from '../../src/components/email';
+import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Folder as FolderIcon, FolderPlus, ChevronDown, Check } from 'lucide-react-native';
+import { EmailListItem, SmartFolderModal } from '../../src/components/email';
 import { colors } from '../../src/theme';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMicrosoftEmail } from '../../src/hooks/useMicrosoftEmail';
 import { emailsInFolder, searchEmails, mergeSearchResults } from '../../src/logic/email';
-import { EMAIL_FOLDERS, type EmailFolder, type Email } from '../../src/types';
+import { EMAIL_FOLDERS, type EmailFolder, type Email, type SmartFolder } from '../../src/types';
 
 export default function EmailScreen() {
   const router = useRouter();
@@ -22,6 +22,7 @@ export default function EmailScreen() {
   const loading = useEmailStore((s) => s.loading);
   const loadingMore = useEmailStore((s) => s.loadingMore);
   const inboxUnread = useEmailStore((s) => s.inboxUnread);
+  const folderUnread = useEmailStore((s) => s.folderUnread);
   const searchResults = useEmailStore((s) => s.searchResults);
   const searching = useEmailStore((s) => s.searching);
   const setFolder = useEmailStore((s) => s.setFolder);
@@ -34,31 +35,27 @@ export default function EmailScreen() {
   const showToast = useUiStore((s) => s.showToast);
   const ms = useMicrosoftEmail();
 
-  // Folder dropdown (replaces the old filter-chip row) + create-smart-folder modal state.
+  // Folder dropdown (replaces the old filter-chip row) + create/edit-smart-folder modal state.
   const [folderOpen, setFolderOpen] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
-  const [fName, setFName] = useState('');
-  const [fFrom, setFFrom] = useState('');
-  const [creating, setCreating] = useState(false);
-  const createFolder = async () => {
-    const name = fName.trim();
-    const from = fFrom.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-    if (!name) { showToast('Folder name required'); return; }
-    if (!from.length) { showToast('Add a sender domain or email to match'); return; }
-    setCreating(true);
-    const sf = await useEmailStore.getState().createSmartFolder(name, from);
-    setCreating(false);
-    if (!sf) { showToast('Could not create folder'); return; }
-    setNewOpen(false); setFName(''); setFFrom('');
-    showToast(`"${sf.name}" created — existing & new mail will file here`);
-    router.push(`/email/folder/${sf.id}`);
-  };
+  const [sfModal, setSfModal] = useState<{ open: boolean; editing: SmartFolder | null }>({ open: false, editing: null });
 
   // Real Outlook folders that AREN'T already shown as a smart folder (a smart folder IS an Outlook
   // folder — its graphFolderId would otherwise render the same folder twice).
   const customFolders = useMemo(
     () => outlookFolders.filter((f) => !smartFolders.some((sf) => sf.graphFolderId === f.id)),
     [outlookFolders, smartFolders],
+  );
+
+  // Unread count for a standard folder. Inbox reads inboxUnread (mutations keep it optimistically
+  // in sync); the rest come from the per-folder counts refreshUnread fetches.
+  const unreadOf = useCallback(
+    (f: EmailFolder) => (f === 'inbox' ? inboxUnread : folderUnread[f] ?? 0),
+    [inboxUnread, folderUnread],
+  );
+  // A smart folder is a real Outlook folder — its live unread count rides along in outlookFolders.
+  const smartUnread = useCallback(
+    (graphFolderId: string) => outlookFolders.find((f) => f.id === graphFolderId)?.unread ?? 0,
+    [outlookFolders],
   );
 
   // Swipe a row → delete (move to Deleted, or permanently if already in Deleted).
@@ -160,9 +157,9 @@ export default function EmailScreen() {
           <Pressable onPress={() => setFolderOpen(true)} className="flex-row items-center"
             style={{ gap: 5, height: 34, paddingHorizontal: 12, borderRadius: 999, backgroundColor: colors.coolMuted, flexShrink: 0 }}>
             <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '600' }}>{EMAIL_FOLDERS.find((f) => f.key === folder)?.label ?? 'Inbox'}</Text>
-            {folder === 'inbox' && inboxUnread > 0 ? (
+            {unreadOf(folder) > 0 ? (
               <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{inboxUnread}</Text>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{unreadOf(folder)}</Text>
               </View>
             ) : null}
             <ChevronDown size={15} color={colors.coolText} />
@@ -185,12 +182,23 @@ export default function EmailScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10, alignItems: 'center' }}>
         {smartFolders.map((sf) => (
           <Pressable key={sf.id} onPress={() => router.push(`/email/folder/${sf.id}`)}
-            onLongPress={() => Alert.alert(`Delete “${sf.name}”?`, 'The folder and its rule are removed; its emails move to Deleted Items in Outlook.', [
+            onLongPress={() => Alert.alert(sf.name, `Files mail from ${sf.from.join(', ')}`, [
               { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => { void useEmailStore.getState().deleteSmartFolder(sf.id); showToast('Folder deleted'); } },
+              { text: 'Edit', onPress: () => setSfModal({ open: true, editing: sf }) },
+              { text: 'Delete', style: 'destructive', onPress: () => {
+                Alert.alert(`Delete “${sf.name}”?`, 'The folder and its rule are removed; its emails move to Deleted Items in Outlook.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => { void useEmailStore.getState().deleteSmartFolder(sf.id); showToast('Folder deleted'); } },
+                ]);
+              } },
             ])}
-            className="flex-row items-center" style={{ height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+            className="flex-row items-center" style={{ gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.primarySoft }}>
             <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>{sf.name}</Text>
+            {smartUnread(sf.graphFolderId) > 0 ? (
+              <View style={{ minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{smartUnread(sf.graphFolderId)}</Text>
+              </View>
+            ) : null}
           </Pressable>
         ))}
         {customFolders.map((f) => (
@@ -209,7 +217,7 @@ export default function EmailScreen() {
             ) : null}
           </Pressable>
         ))}
-        <Pressable onPress={() => setNewOpen(true)} className="flex-row items-center" style={{ gap: 4, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.coolDivider, borderStyle: 'dashed' }}>
+        <Pressable onPress={() => setSfModal({ open: true, editing: null })} className="flex-row items-center" style={{ gap: 4, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.coolDivider, borderStyle: 'dashed' }}>
           <FolderPlus size={14} color={colors.coolText} />
           <Text style={{ color: colors.coolText, fontSize: 13, fontWeight: '600' }}>Folder</Text>
         </Pressable>
@@ -246,14 +254,15 @@ export default function EmailScreen() {
           <View style={{ marginTop: insets.top + 56, marginLeft: 16, width: 232, borderRadius: 18, backgroundColor: colors.card, paddingVertical: 6, shadowColor: '#0b1220', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}>
             {EMAIL_FOLDERS.map((f) => {
               const on = folder === f.key;
+              const unread = unreadOf(f.key);
               return (
                 <Pressable key={f.key} onPress={() => { setFolderOpen(false); if (!on) setFolder(f.key as EmailFolder); }} android_ripple={{ color: colors.coolMuted }}
                   className="flex-row items-center justify-between" style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
                   <Text style={{ color: on ? colors.primary : colors.ink, fontSize: 15, fontWeight: on ? '700' : '500' }}>{f.label}</Text>
                   <View className="flex-row items-center" style={{ gap: 8 }}>
-                    {f.key === 'inbox' && inboxUnread > 0 ? (
+                    {unread > 0 ? (
                       <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{inboxUnread}</Text>
+                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{unread}</Text>
                       </View>
                     ) : null}
                     {on ? <Check size={16} color={colors.primary} /> : null}
@@ -265,30 +274,10 @@ export default function EmailScreen() {
         </Pressable>
       </Modal>
 
-      {/* Create smart folder */}
-      <Modal visible={newOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setNewOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: 18 }}>
-            <View className="flex-row items-center justify-between" style={{ marginBottom: 4 }}>
-              <View className="flex-row items-center" style={{ gap: 8 }}><FolderPlus size={18} color={colors.primary} /><Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>New smart folder</Text></View>
-              <Pressable onPress={() => setNewOpen(false)} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={18} color={colors.coolText} /></Pressable>
-            </View>
-            <Text style={{ color: colors.coolText, fontSize: 12.5, marginBottom: 12 }}>Mail from these senders is filed here automatically — existing & future.</Text>
-            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 }}>FOLDER NAME</Text>
-            <TextInput value={fName} onChangeText={setFName} autoFocus placeholder="e.g. Travkings" placeholderTextColor={colors.coolText3}
-              style={fIn} />
-            <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 12, marginBottom: 4 }}>FROM (DOMAIN OR EMAIL)</Text>
-            <TextInput value={fFrom} onChangeText={setFFrom} autoCapitalize="none" autoCorrect={false} placeholder="travkings.com, accounts@travkings.com" placeholderTextColor={colors.coolText3}
-              style={fIn} />
-            <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>Separate multiple with commas. A domain matches everyone from that company.</Text>
-            <Pressable onPress={createFolder} disabled={creating} style={{ marginTop: 16, backgroundColor: colors.primary, borderRadius: 999, height: 48, alignItems: 'center', justifyContent: 'center', opacity: creating ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{creating ? 'Creating…' : 'Create folder'}</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {/* Create / edit smart folder (edit reached via long-press on a folder chip) */}
+      <SmartFolderModal visible={sfModal.open} editing={sfModal.editing}
+        onClose={() => setSfModal({ open: false, editing: null })}
+        onSaved={(sf, created) => { if (created) router.push(`/email/folder/${sf.id}`); }} />
     </SafeAreaView>
   );
 }
-
-const fIn = { backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, fontWeight: '500' as const };

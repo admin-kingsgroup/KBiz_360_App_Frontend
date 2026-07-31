@@ -13,6 +13,10 @@ export const moveToOutlookFolder = (id: string, folderId: string): Promise<{ id:
 export const listSmartFolders = (): Promise<SmartFolder[]> => apiFetch('/api/email/folders');
 export const createSmartFolder = (name: string, from: string[], backfill = true): Promise<SmartFolder> =>
   apiFetch('/api/email/folders', { method: 'POST', body: { name, from, backfill } });
+// Edit a smart folder's name and/or sender matches — renames the Outlook folder and updates its
+// filing rule server-side; backfill re-files existing inbox mail matching the new senders.
+export const updateSmartFolder = (id: string, name: string, from: string[], backfill = true): Promise<SmartFolder> =>
+  apiFetch(`/api/email/folders/${id}`, { method: 'PATCH', body: { name, from, backfill } });
 export const deleteSmartFolder = (id: string): Promise<void> => apiFetch(`/api/email/folders/${id}`, { method: 'DELETE' });
 // Delete a real Outlook folder (custom folder chip) — Graph moves it + its mail to Deleted Items.
 export const deleteOutlookFolder = (id: string): Promise<void> => apiFetch(`/api/email/outlook-folders/${id}`, { method: 'DELETE' });
@@ -32,8 +36,10 @@ export const downloadAttachment = (id: string, attId: string): Promise<{ name: s
 // ── account / OAuth ──
 export interface EmailStatus { connected: boolean; email: string | null }
 export const getStatus = (): Promise<EmailStatus> => apiFetch('/api/email/status');
-// Real Inbox unread count (Graph unreadItemCount) — drives the Email tab badge.
-export const getUnread = (): Promise<{ inbox: number }> => apiFetch('/api/email/unread');
+// Real unread counts per standard folder (Graph unreadItemCount) — inbox drives the Email tab
+// badge, the rest badge the folder dropdown. Folders beyond `inbox` are optional: a backend that
+// predates per-folder counts returns { inbox } only.
+export const getUnread = (): Promise<{ inbox: number } & Partial<Record<EmailFolder, number>>> => apiFetch('/api/email/unread');
 export const connect = (code: string, codeVerifier: string, redirectUri: string): Promise<{ connected: boolean; email: string }> =>
   apiFetch('/api/email/connect', { method: 'POST', body: { code, codeVerifier, redirectUri } });
 export const disconnect = (): Promise<void> => apiFetch('/api/email/disconnect', { method: 'POST' });

@@ -11,6 +11,7 @@ interface PersistedEmailState {
   connected: boolean | null;
   account: string | null;
   inboxUnread: number;
+  folderUnread: Partial<Record<EmailFolder, number>>;
   hasMore: Partial<Record<EmailFolder, boolean>>;
   smartFolders: SmartFolder[];
   outlookFolders: OutlookFolder[];
@@ -73,6 +74,9 @@ export interface EmailState {
   loadingMore: boolean;
   hasMore: Partial<Record<EmailFolder, boolean>>; // per-folder: is there another page to fetch?
   inboxUnread: number; // real Graph unreadItemCount → Email tab badge
+  // Real per-folder unread counts (sent/drafts/deleted/spam — inbox stays in inboxUnread, which is
+  // also kept optimistically in sync by mutations). Badges the folder dropdown.
+  folderUnread: Partial<Record<EmailFolder, number>>;
   searchResults: Email[]; // server-side ($search) results for the current query
   searching: boolean;
   smartFolders: SmartFolder[]; // user-created auto-categorize folders
@@ -92,6 +96,7 @@ export interface EmailState {
   moveToGraphFolder: (id: string, folderId: string) => void; // file a message into an Outlook folder
   loadSmartFolders: () => Promise<void>;
   createSmartFolder: (name: string, from: string[]) => Promise<SmartFolder | null>;
+  updateSmartFolder: (id: string, name: string, from: string[]) => Promise<SmartFolder | null>; // edit name/senders
   deleteSmartFolder: (id: string) => Promise<void>;
   deleteOutlookFolder: (graphFolderId: string) => Promise<void>; // custom Outlook folder chips
   setFolder: (folder: EmailFolder) => void;
@@ -177,6 +182,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
   loadingMore: false,
   hasMore: {},
   inboxUnread: 0,
+  folderUnread: {},
   searchResults: [],
   searching: false,
   smartFolders: [],
@@ -309,6 +315,19 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
       return sf;
     } catch { return null; }
   },
+  updateSmartFolder: async (id, name, from) => {
+    try {
+      const sf = await emailApi.updateSmartFolder(id, name, from, true);
+      // Adopt the server's copy and re-stamp cached inbox mail against the NEW matches — mail from
+      // newly added senders leaves the Inbox list immediately (the server backfills the real move).
+      set((st) => {
+        const next = st.smartFolders.map((f) => (f.id === id ? sf : f));
+        return { smartFolders: next, emails: fileByRules(st.emails, next) };
+      });
+      void get().loadOutlookFolders(); // the renamed Graph folder feeds chip names/unread counts
+      return sf;
+    } catch { return null; }
+  },
   // Deleting a folder in-app deletes the REAL Outlook folder too (server moves it + its mail to
   // Deleted Items). Locally: drop the chip, purge its cached messages and its sync-done mark.
   deleteSmartFolder: async (id) => {
@@ -351,7 +370,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
         void get().syncAll(); // background: bring the WHOLE mailbox offline (no-op if a recent pass completed)
       } else {
         // The server says the mailbox is genuinely disconnected — clear the cached session too.
-        set({ connected: false, account: null, emails: [], inboxUnread: 0, smartFolders: [], outlookFolders: [] });
+        set({ connected: false, account: null, emails: [], inboxUnread: 0, folderUnread: {}, smartFolders: [], outlookFolders: [] });
         void clearBodies();
       }
     } catch {
@@ -363,10 +382,10 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
 
   // Real Inbox unread count from Graph (exact). Safe to call any time; no-op cost if not connected.
   refreshUnread: async () => {
-    if (get().connected === false) { set({ inboxUnread: 0 }); return; }
+    if (get().connected === false) { set({ inboxUnread: 0, folderUnread: {} }); return; }
     try {
-      const { inbox } = await emailApi.getUnread();
-      set({ inboxUnread: Math.max(0, inbox || 0) });
+      const counts = await emailApi.getUnread();
+      set({ inboxUnread: Math.max(0, counts.inbox || 0), folderUnread: counts });
     } catch { /* keep last value */ }
   },
 
@@ -486,7 +505,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
 
   disconnect: async () => {
     await emailApi.disconnect().catch(() => undefined);
-    set({ connected: false, account: null, emails: [], inboxUnread: 0, smartFolders: [], outlookFolders: [], lastFullSyncAt: 0, folderSyncDone: {}, lastSyncAttemptAt: 0 });
+    set({ connected: false, account: null, emails: [], inboxUnread: 0, folderUnread: {}, smartFolders: [], outlookFolders: [], lastFullSyncAt: 0, folderSyncDone: {}, lastSyncAttemptAt: 0 });
     void clearBodies();
   },
 
@@ -496,7 +515,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
   resetForLogout: () => {
     set({
       emails: [], folder: 'inbox', search: '', connected: null, account: null,
-      loading: false, loadingMore: false, hasMore: {}, inboxUnread: 0,
+      loading: false, loadingMore: false, hasMore: {}, inboxUnread: 0, folderUnread: {},
       searchResults: [], searching: false, smartFolders: [], outlookFolders: [],
       syncing: false, syncProgress: null, lastFullSyncAt: 0, folderSyncDone: {}, lastSyncAttemptAt: 0,
     });
@@ -523,6 +542,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
     set((st) => ({
       emails: st.emails.map((e) => (e.folder === f && !e.graphFolderId && !e.read ? { ...e, read: true } : e)),
       inboxUnread: f === 'inbox' ? 0 : st.inboxUnread,
+      folderUnread: { ...st.folderUnread, [f]: 0 },
     }));
     try {
       await emailApi.markAllRead(f); // bulk: marks every unread in the folder server-side (one shot)
@@ -606,6 +626,7 @@ export const useEmailStore = create<EmailState>()(persist((set, get) => ({
     connected: s.connected,
     account: s.account,
     inboxUnread: s.inboxUnread,
+    folderUnread: s.folderUnread,
     hasMore: s.hasMore,
     smartFolders: s.smartFolders,
     outlookFolders: s.outlookFolders,
