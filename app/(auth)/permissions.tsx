@@ -8,14 +8,16 @@ import type { PermKey } from '../../src/constants/permissions';
 import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { savePerms } from '../../src/services/storage';
 import { requestNotificationPermission, registerPushToken } from '../../src/services/notifications';
-import { getBackgroundLocationStatus, requestBackgroundLocation, openLocationSettings } from '../../src/services/locationPermission';
+import { getBackgroundLocationStatus, requestForegroundLocation, openLocationSettings } from '../../src/services/locationPermission';
 import { locationPermSatisfied, type BgLocationStatus } from '../../src/logic/permissionGate';
 
-// Port of source PermissionGate with ONE deliberate deviation from source: LOCATION is now a real
-// OS grant, and background location ("Allow all the time") is STRICTLY REQUIRED — the location row
-// only turns ON once the OS reports "Allow all the time", so the app cannot be entered without it
-// (background geofence attendance is the core guarantee). "While using the app" alone keeps the
-// row OFF with a hint that routes to Settings.
+// Port of source PermissionGate with ONE deliberate deviation from source: LOCATION is a real
+// OS grant, but only FOREGROUND ("While using the app") — that alone turns the row ON and opens
+// the app. Background ("Allow all the time") is an OPTIONAL auto-punch enhancement nudged from
+// the Attendance screen; it is never requested or required here (the Android 11+ background
+// request drops the user into the system Settings page, which read as "Allow all the time is
+// compulsory to open the app"). Only a full location deny keeps the row OFF, with a hint that
+// routes to Settings.
 //  - Notifications use the real OS prompt (as before); network has no OS prompt.
 //  - If the OS won't prompt again (hard deny), we show an Open Settings path and auto-recheck when
 //    the app returns to the foreground.
@@ -40,11 +42,10 @@ export default function Permissions() {
       setPerm('notifications', ok);
       if (ok) void registerPushToken(); // register Expo push token for message/call/reminder pushes
     } else if (key === 'location') {
-      // Location is STRICTLY required at "Allow all the time" (background geofence auto-punch must
-      // work with the app closed). This fires the foreground prompt, then the background one —
-      // on Android 11+ the OS opens the app's location settings page where the user must pick
-      // "Allow all the time". Anything less keeps the row OFF and the app gated.
-      const st = await requestBackgroundLocation();
+      // Foreground ("While using the app") only — enough to open the app and record check-ins.
+      // The background "Allow all the time" upgrade is offered later on the Attendance screen;
+      // firing it here would bounce a fresh install into the system Settings page.
+      const st = await requestForegroundLocation();
       const ok = locationPermSatisfied(st);
       setPerm('location', ok);
       setLocBlocked(ok ? null : st);
@@ -122,14 +123,13 @@ export default function Permissions() {
         {locBlocked != null && (
           <View className="mx-5 mt-3" style={{ padding: 12, borderRadius: 12, backgroundColor: colors.coral + '14' }}>
             <Text style={{ color: colors.coral, fontSize: 12.5, fontWeight: '700', lineHeight: 17 }}>
-              {locBlocked === 'foreground-only'
-                ? 'KBiz 360 needs location set to “Allow all the time” — open Settings · Location and choose “Allow all the time”. Without it the app cannot open.'
-                : 'Location is off. KBiz 360 needs location set to “Allow all the time” to record attendance. Without it the app cannot open.'}
+              Location is off. KBiz 360 needs location (“While using the app” is enough) to record
+              attendance check-ins — open Settings · Location and allow it.
             </Text>
             <Pressable onPress={openLocationSettings} className="flex-row items-center justify-center gap-1.5 mt-2.5"
               style={{ paddingVertical: 11, borderRadius: 999, backgroundColor: colors.primary }}>
               <Settings size={15} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Open Settings · Allow all the time</Text>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Open Settings · Location</Text>
             </Pressable>
           </View>
         )}

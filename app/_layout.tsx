@@ -39,10 +39,11 @@ import { setApiBaseUrl } from '../src/api';
 // use your machine's LAN IP when testing on a physical device).
 setApiBaseUrl((Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? 'http://localhost:4000');
 
-// Location revocation guard. Background location ("Allow all the time") is STRICTLY required —
-// verified on every app open + foreground; if it is revoked or downgraded to "While using the app"
-// in Settings, flip the perm OFF, which sends the gate back to the permissions screen until
-// re-granted. Downgrade-only — granting lives on the permissions screen (avoids the two racing).
+// Location revocation guard. Only FOREGROUND location ("While using the app") is required —
+// verified on every app open + foreground; if location is fully revoked in Settings, flip the perm
+// OFF, which sends the gate back to the permissions screen until re-granted. "Allow all the time"
+// is optional (Attendance-screen nudge) and its absence never gates entry. Downgrade-only —
+// granting lives on the permissions screen (avoids the two racing).
 async function enforceBgLocation(): Promise<void> {
   const st = await getBackgroundLocationStatus();
   if (locationPermSatisfied(st)) return;
