@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
-import { applyChatPush, chatPushLine, type ChatPushData } from '../logic/chatPushApply';
+import { applyChatPush, chatPushLine, pushedMessage, type ChatPushData } from '../logic/chatPushApply';
 import { loadSession } from './storage/session';
 import type { ChatConversation } from '../api/chat';
 
@@ -145,6 +145,16 @@ async function ackDeliveredViaRest(conversationId: string): Promise<void> {
 export async function handleChatMessagePush(data: ChatPushData): Promise<void> {
   if (!data.conversationId) return;
   void ackDeliveredViaRest(data.conversationId); // fire-and-forget — never delays the notification
+  // 0) Store the message on the device NOW, while the app is still closed. This is what makes the
+  //    chat already contain it — from local storage, no request — when the notification is tapped.
+  //    Best-effort: if the payload wasn't the complete message, catch-up sync collects it later.
+  const pushed = pushedMessage(data);
+  if (pushed) {
+    try {
+      const db = (await import('./chatDb')) as typeof import('./chatDb');
+      await db.upsert(data.conversationId, [pushed as unknown as { id: string; createdAt: string }]);
+    } catch { /* headless context without the filesystem module — sync will pick it up */ }
+  }
 
   // 1) Fold the message into the persisted store snapshot → cold open shows it instantly.
   let unreadChats: number | null = null;

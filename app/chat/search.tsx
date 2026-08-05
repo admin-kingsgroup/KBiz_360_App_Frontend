@@ -9,6 +9,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { searchMessages, getOrCreateDirect, type ChatMessage } from '../../src/api/chat';
+import { search as searchLocal } from '../../src/services/chatDb';
 import { listUsers, toUser } from '../../src/api/directory';
 import { startVoiceSearch, stopVoiceSearch } from '../../src/services/speech';
 
@@ -17,7 +18,9 @@ const hhmm = (iso: string): string => { const d = new Date(iso); return `${d.get
 // Uppercase section label on the cool canvas (matches the redesigned Chats screen language).
 const sectionLabel = { color: colors.coolText, fontSize: 11, fontWeight: '700' as const, letterSpacing: 0.8, paddingHorizontal: 16, marginBottom: 8 };
 
-// Search: matching PEOPLE (tap to start a chat) + global message search (Mongo text index).
+// Search: matching PEOPLE (tap to start a chat) + message search read from the DEVICE's own message
+// database — instant and works offline, like WhatsApp. The server text index is only consulted when
+// local storage has nothing to offer (a thread this device never downloaded).
 export default function ChatSearch() {
   const router = useRouter();
   const [q, setQ] = useState('');
@@ -48,7 +51,15 @@ export default function ChatSearch() {
     if (!t.trim()) { setResults([]); setLoading(false); return; }
     setLoading(true);
     timer.current = setTimeout(async () => {
-      try { setResults(await searchMessages(t.trim())); } catch { setResults([]); } finally { setLoading(false); }
+      const term = t.trim();
+      try {
+        // Device first, most-recently-active chats first — no network, no wait.
+        const local = await searchLocal(conversations.map((c) => c.id), term, { limit: 50 });
+        if (local.length) { setResults(local as ChatMessage[]); return; }
+        // Nothing stored matches: fall back to the server's index, which can also reach history this
+        // device never downloaded. Offline, an empty result is simply the honest answer.
+        setResults(await searchMessages(term));
+      } catch { setResults([]); } finally { setLoading(false); }
     }, 300);
   };
 

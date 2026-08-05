@@ -16,6 +16,52 @@ export interface ChatPushData {
   msgType?: string;
   sentAt?: string;
   mention?: string; // '1' when this recipient was @-mentioned (FCM data values are strings)
+  // The message itself, for writing straight into the on-device database (services/chatDb) as the
+  // push lands. `full: '1'` is the server's signal that `text`/`att` are the COMPLETE message and not
+  // the truncated notification preview — without it, nothing is stored and the next catch-up sync
+  // fetches the message instead.
+  full?: string;
+  text?: string;
+  att?: string; // JSON-encoded attachment array
+}
+
+// Build the storable message from a push payload, or null when the payload isn't the whole message.
+// Shaped like the REST DTO so the on-device copy is indistinguishable from a synced one; the next
+// catch-up replaces it with the server's version anyway (same id ⇒ upsert, never a duplicate).
+export function pushedMessage(data: ChatPushData): Record<string, unknown> | null {
+  if (data.full !== '1' || !data.messageId || !data.conversationId) return null;
+  let attachments: unknown[] = [];
+  if (data.att) {
+    try {
+      const parsed: unknown = JSON.parse(data.att);
+      if (!Array.isArray(parsed)) return null;
+      attachments = parsed;
+    } catch { return null; } // malformed payload — let the sync fetch it properly
+  }
+  const at = data.sentAt || new Date().toISOString();
+  return {
+    id: data.messageId,
+    conversationId: data.conversationId,
+    senderId: data.senderId || '',
+    type: data.msgType || 'text',
+    text: data.text ?? '',
+    deletedForEveryone: false,
+    attachments,
+    replyTo: null,
+    forwardedFrom: null,
+    mentions: [],
+    reactions: [],
+    status: 'sent',
+    sentAt: at,
+    deliveredAt: null,
+    readAt: null,
+    pinned: false,
+    edited: false,
+    editedAt: null,
+    createdAt: at,
+    mine: false, // pushes only ever go to recipients
+    starred: false,
+  };
 }
 
 // The notification line for one pushed message, WhatsApp-style: group lines carry the sender's

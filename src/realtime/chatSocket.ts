@@ -20,11 +20,15 @@ export function connectChatSocket(): void {
 
   socket.on('connect', () => {
     void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void usePulseStore.getState().refresh();
+    // Catch-up: one request for everything that changed anywhere while this device was away — new
+    // messages, edits, deletions, reactions, ticks. This is what keeps the local database current, so
+    // opening a chat needs no request of its own.
+    void store().catchUp();
     // Reconnect healing: after a transient drop the server no longer has this socket in the open
-    // conversation's room (typing/receipt events would silently die) and events were missed — rejoin
-    // and reload the thread from REST.
+    // conversation's room (typing/receipt events would silently die) — rejoin. The catch-up above
+    // already refilled anything missed while the socket was down.
     const active = store().activeConversationId;
-    if (active) { socket?.emit('chat:join', { conversationId: active }); void store().loadMessages(active); }
+    if (active) socket?.emit('chat:join', { conversationId: active });
   });
   // Reconnect attempts reuse the handshake auth — refresh it so a rotated token doesn't get rejected.
   socket.io.on('reconnect_attempt', () => { if (socket) socket.auth = { token: getAccessToken() ?? '' }; });
@@ -57,7 +61,12 @@ export function connectChatSocket(): void {
   socket.on('presence:update', (p: { userId: string; status?: string; lastSeen?: number | string | null }) => store().onPresence(p));
   socket.on('chat:conversationNew', () => void store().loadConversations());
   socket.on('chat:conversationUpdated', () => void store().loadConversations());
-  socket.on('chat:conversationDeleted', () => void store().loadConversations());
+  // Deleted / removed-from: drop the thread's local history too, so the device isn't left holding
+  // messages from a conversation the user can no longer open.
+  socket.on('chat:conversationDeleted', (p: { conversationId?: string }) => {
+    if (p?.conversationId) void store().forgetConversation(p.conversationId);
+    void store().loadConversations();
+  });
 
   // Reminders: refresh the tab badge when one is assigned to me / sent back for my review.
   socket.on('reminder:new', () => void useReminderBadgeStore.getState().refresh());

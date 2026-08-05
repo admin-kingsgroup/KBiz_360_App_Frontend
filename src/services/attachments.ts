@@ -29,6 +29,34 @@ export const localPathFor = (att: ChatAttachment): string => {
   return `${MEDIA_DIR}${hash(url)}${extOf(att.name ?? '', url)}`;
 };
 
+// Write a text file into the media directory and return its path — used by "Export chat" to build
+// the transcript before handing it to the share sheet.
+export async function writeTextFile(path: string, contents: string): Promise<string> {
+  await FS.makeDirectoryAsync(MEDIA_DIR, { intermediates: true }).catch(() => undefined);
+  await FS.writeAsStringAsync(path, contents);
+  return path;
+}
+
+// How much space downloaded photos, videos, voice notes and documents take up, and how many files —
+// what the storage screen shows before offering to free it.
+export async function mediaCacheUsage(): Promise<{ bytes: number; files: number }> {
+  try {
+    const names = await FS.readDirectoryAsync(MEDIA_DIR);
+    let bytes = 0;
+    for (const n of names) {
+      const info = await FS.getInfoAsync(`${MEDIA_DIR}${n}`);
+      if (info.exists && !info.isDirectory) bytes += info.size ?? 0;
+    }
+    return { bytes, files: names.length };
+  } catch { return { bytes: 0, files: 0 }; } // nothing downloaded yet
+}
+
+// Delete every downloaded file. Safe by design: media is re-downloadable from the server on demand,
+// and the messages themselves live in the message database, untouched by this.
+export async function clearMediaCache(): Promise<void> {
+  try { await FS.deleteAsync(MEDIA_DIR, { idempotent: true }); } catch { /* nothing to clear */ }
+}
+
 // file:// URI if this attachment is already on disk, else null.
 export async function downloadedUri(att: ChatAttachment): Promise<string | null> {
   try {

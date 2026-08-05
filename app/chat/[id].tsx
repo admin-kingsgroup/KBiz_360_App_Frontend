@@ -5,14 +5,14 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, MoreVertical, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Search as SearchIcon, BellOff, Bell, Ban, Timer, Palette, Share2, ArrowDown, MapPin, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { WebView } from 'react-native-webview';
 import { Avatar } from '../../src/components/ui';
-import { VoiceMessage, LinkedText, AttachmentTile } from '../../src/components/chat';
+import { VoiceMessage, LinkedText, AttachmentTile, LinkPreviewCard } from '../../src/components/chat';
 import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
@@ -20,7 +20,8 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
 import { getConversation, getPinned, getReceipts, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
-import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice } from '../../src/services/attachments';
+import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
+import { WALLPAPERS } from '../../src/theme/wallpapers';
 import { listUsers, toUser } from '../../src/api/directory';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
@@ -48,6 +49,13 @@ const TIME_FAINT = '#A2AAB2'; // in-bubble timestamps
 const ONLINE_DOT = '#2BC48A'; // avatar presence dot
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+// Disappearing-message durations, matching WhatsApp's menu.
+const DISAPPEAR_CHOICES: { label: string; seconds: number | null }[] = [
+  { label: 'Off', seconds: null },
+  { label: '24 hours', seconds: 86400 },
+  { label: '7 days', seconds: 7 * 86400 },
+  { label: '90 days', seconds: 90 * 86400 },
+];
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const DELETE_EVERYONE_MS = 60 * 60 * 1000;
 const hhmm = (iso: string): string => { const d = new Date(iso); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; };
@@ -83,9 +91,15 @@ export default function ChatDetail() {
   const myUserId = useMessagingStore((s) => s.myUserId);
   const presence = useMessagingStore((s) => s.presence);
   const users = useAccessStore((s) => s.users);
+  const privacy = useMessagingStore((s) => s.privacy);
+  // Per-chat wallpaper (this device only, like WhatsApp's) — falls back to the default canvas.
+  const wallpaperKey = useMessagingStore((s) => s.wallpapers[convId]);
+  const wallpaper = WALLPAPERS.find((w) => w.key === wallpaperKey) ?? WALLPAPERS[0];
 
   const [conv, setConv] = useState<ChatConversation | undefined>(convFromStore);
-  const [text, setText] = useState('');
+  // Draft: whatever was left in the composer last time this chat was open (WhatsApp keeps it and
+  // shows it in the chat list). Read once at mount — the store is the source of truth between visits.
+  const [text, setText] = useState(() => useMessagingStore.getState().drafts[convId] ?? '');
   // Caret position + controlled-selection override, for @-mention insertion (same pattern as the
   // reminder composer): `sel` is set once after a pick to park the caret, then released.
   const [cursor, setCursor] = useState(0);
@@ -102,7 +116,13 @@ export default function ChatDetail() {
   // Multi-select (WhatsApp-style): long-press enters selection mode, taps toggle; the header
   // becomes an action bar (copy/star/forward/delete). Empty = not selecting.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Local-first open (WhatsApp model): the thread comes off the device's own message database, so it
+  // paints on the first frame and there is no loading state to show at all. `fetched` only marks when
+  // the background sync has settled — it gates the "no messages yet" copy and the unread divider,
+  // never the messages themselves.
+  const [fetched, setFetched] = useState(false);
+  const loadingOlder = useRef(false);
+  const reachedTop = useRef(false);
   const [uploading, setUploading] = useState<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false); // WhatsApp-style emoji panel below the composer
@@ -115,6 +135,15 @@ export default function ChatDetail() {
   // Jump-to-pinned (WhatsApp-style): which pin the banner targets next, the message id waiting to be
   // scrolled to (resolved by an effect once the row is in the list data), and the highlight flash.
   const [pinIdx, setPinIdx] = useState(0);
+  // In-chat search (the header magnifier): matches inside THIS conversation, walked with ↑/↓ like
+  // WhatsApp. Hits come from what is loaded; older pages are paged in on demand while searching.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [hitIdx, setHitIdx] = useState(0);
+  // Jump-to-latest button: shown once the user has scrolled up away from the newest message.
+  const [showJumpLatest, setShowJumpLatest] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [wallpaperOpen, setWallpaperOpen] = useState(false);
   const [pendingJump, setPendingJump] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,11 +167,13 @@ export default function ChatDetail() {
   useEffect(() => { if (convFromStore) setConv(convFromStore); }, [convFromStore]);
 
   useEffect(() => {
-    if (dividerComputed.current || loading) return;
+    if (dividerComputed.current || !fetched) return;
     dividerComputed.current = true;
     const n = initialUnreadRef.current ?? 0;
     if (n <= 0) return;
-    // Read the just-loaded messages from the store (loading flips false only after loadMessages).
+    // Read the just-loaded messages from the store. Keyed on `fetched`, NOT on the spinner: with a
+    // warm cache the screen renders before the network answers, and anchoring off stale cache would
+    // put the divider above the wrong message.
     // The unread are the last N messages from the other side: walk from the newest, counting
     // received (not-mine) messages until we reach N; that message is the first unread.
     const loaded = useMessagingStore.getState().messages[convId] ?? [];
@@ -153,7 +184,7 @@ export default function ChatDetail() {
     }
     if (anchorId) setUnreadDivider({ anchorId, count });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, [fetched]);
 
   useEffect(() => {
     if (!convId) return;
@@ -161,7 +192,7 @@ export default function ChatDetail() {
     store.setActive(convId);
     joinConversation(convId);
     Promise.all([store.loadMessages(convId), convFromStore ? Promise.resolve() : getConversation(convId).then(setConv).catch(() => undefined)])
-      .finally(() => { setLoading(false); void store.markRead(convId); emitRead(convId); });
+      .finally(() => { setFetched(true); void store.markRead(convId); emitRead(convId); });
     setPinIdx(0); setPendingJump(null); setHighlightId(null);
     getPinned(convId).then(setPinned).catch(() => setPinned([]));
     if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
@@ -207,6 +238,7 @@ export default function ChatDetail() {
 
   const onChangeText = (t: string): void => {
     setText(t);
+    if (!editing) useMessagingStore.getState().setDraft(convId, t); // an edit-in-progress is not a draft
     emitTyping(convId);
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => emitStopTyping(convId), 1500);
@@ -267,6 +299,7 @@ export default function ChatDetail() {
     if (!t) return;
     if (editing) { await useMessagingStore.getState().edit(editing.id, convId, t); setEditing(null); setText(''); return; }
     setText('');
+    useMessagingStore.getState().setDraft(convId, ''); // sent ⇒ no longer a draft
     emitStopTyping(convId);
     let mentions = isGroup ? mentionIdsInText(t, mentionPeople) : undefined;
     if (isGroup && canMentionEveryone && hasEveryoneMention(t)) {
@@ -436,6 +469,24 @@ export default function ChatDetail() {
     const a = r.assets[0];
     await doUpload({ uri: a.uri, name: a.name, mime: a.mimeType ?? 'application/octet-stream' }, 'document', { size: a.size ?? 0 });
   };
+  // Share where I am. No map library ships in this app, so the card is a pin + coordinates that
+  // opens the phone's own map app — the same destination WhatsApp's map tap leads to.
+  const shareLocation = async (): Promise<void> => {
+    setAttachOpen(false);
+    try {
+      const Location = await import('expo-location');
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (!perm.granted) { showToast('Location permission is needed to share your location'); return; }
+      showToast('Getting your location…');
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = pos.coords;
+      const url = `https://www.google.com/maps?q=${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+      await useMessagingStore.getState().send(convId, `📍 My location: ${url}`);
+    } catch {
+      showToast('Could not get your location');
+    }
+  };
+
   const onMic = async (): Promise<void> => {
     if (isRecording) {
       const clip = await finish();
@@ -445,6 +496,101 @@ export default function ChatDetail() {
       const ok = await start();
       if (!ok) showToast('Microphone permission is needed to record');
     }
+  };
+
+  // Scrolled to the top of what's loaded → pull the previous page (device first, server only when the
+  // local history is exhausted). One at a time, and once the thread's beginning is reached, stop
+  // asking — an empty page means there is nothing older anywhere.
+  const loadOlder = async (): Promise<void> => {
+    if (loadingOlder.current || reachedTop.current || !messages.length) return;
+    loadingOlder.current = true;
+    try {
+      if ((await useMessagingStore.getState().loadOlderMessages(convId)) === 0) reachedTop.current = true;
+    } finally { loadingOlder.current = false; }
+  };
+
+  // ── in-chat search ──
+  // Matches are computed over what is loaded and shown newest-first, the order WhatsApp steps
+  // through. Opening search on a long thread pages a few screens of history in so there is something
+  // to find; everything after that is local.
+  const hits = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!q) return [] as StoredMessage[];
+    return messages.filter((m) => !m.deletedForEveryone && m.text.toLowerCase().includes(q)).reverse();
+  }, [messages, searchQ]);
+
+  useEffect(() => { setHitIdx(0); }, [searchQ]);
+  // Land on the current hit whenever it changes.
+  useEffect(() => {
+    const hit = hits[hitIdx];
+    if (searchOpen && hit) setPendingJump(hit.id);
+  }, [hitIdx, hits, searchOpen]);
+
+  const openSearch = (): void => {
+    setSearchOpen(true);
+    setMenuOpen(false);
+    // Pull a few pages of history in so a search is not limited to the last screenful.
+    void (async () => { for (let i = 0; i < 3; i++) if ((await useMessagingStore.getState().loadOlderMessages(convId)) === 0) break; })();
+  };
+  const closeSearch = (): void => { setSearchOpen(false); setSearchQ(''); setHighlightId(null); };
+  const stepHit = (delta: number): void => {
+    if (!hits.length) return;
+    setHitIdx((i) => (i + delta + hits.length) % hits.length);
+  };
+
+  // ── export chat ──
+  // Writes the thread out as the plain-text transcript WhatsApp produces ("[date, time] Name: text")
+  // and hands it to the share sheet. Media is referenced by name, not attached.
+  const exportChat = async (): Promise<void> => {
+    setMenuOpen(false);
+    try {
+      const lines = messages
+        .filter((m) => !m.pending && !m.failed)
+        .map((m) => {
+          const d = new Date(m.createdAt);
+          const stamp = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}, ${hhmm(m.createdAt)}`;
+          if (m.type === 'system') return `[${stamp}] ${m.text}`;
+          const who = m.mine ? 'You' : nameOf(m.senderId);
+          const body = m.deletedForEveryone ? 'This message was deleted'
+            : m.type === 'text' ? m.text
+              : `<${m.type}: ${m.attachments[0]?.name ?? m.type}>${m.text ? ` ${m.text}` : ''}`;
+          return `[${stamp}] ${who}: ${body}`;
+        });
+      const header = `${title} — exported ${new Date().toLocaleString()}\n${lines.length} messages\n\n`;
+      const path = `${MEDIA_DIR}chat-${convId}.txt`;
+      await writeTextFile(path, header + lines.join('\n'));
+      if (!(await shareFile(path, 'text/plain'))) showToast('Could not share the export');
+    } catch {
+      showToast('Could not export this chat');
+    }
+  };
+
+  // ── block / disappearing / wallpaper ──
+  const otherId = conv?.type === 'direct' ? conv.otherUserId : undefined;
+  const isBlocked = !!otherId && privacy.blocked.includes(otherId);
+  const toggleBlock = (): void => {
+    if (!otherId) return;
+    setMenuOpen(false);
+    const name = conv?.name ?? 'this contact';
+    if (isBlocked) { void useMessagingStore.getState().setBlocked(otherId, false).then(() => showToast(`${name} unblocked`)); return; }
+    Alert.alert(`Block ${name}?`, 'Blocked contacts cannot message you, and you cannot message them. They are not told.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block', style: 'destructive', onPress: () => void useMessagingStore.getState().setBlocked(otherId, true).then(() => showToast(`${name} blocked`)) },
+    ]);
+  };
+
+  const chooseDisappearing = (): void => {
+    setMenuOpen(false);
+    const cur = conv?.disappearAfterSec ?? null;
+    Alert.alert('Disappearing messages', cur ? 'New messages already disappear in this chat.' : 'New messages will delete themselves after the time you pick. Messages already sent stay.', [
+      { text: 'Cancel', style: 'cancel' },
+      ...DISAPPEAR_CHOICES.map((c) => ({
+        text: c.label + (c.seconds === cur ? ' ✓' : ''),
+        onPress: () => void useMessagingStore.getState().setDisappearing(convId, c.seconds)
+          .then(() => showToast(c.seconds ? `Messages disappear after ${c.label}` : 'Disappearing messages off'))
+          .catch(() => showToast('Only group admins can change this')),
+      })),
+    ]);
   };
 
   const closeMenu = (): void => setActive(null);
@@ -521,9 +667,28 @@ export default function ChatDetail() {
             </Text>
           </View>
         </Pressable>
-        <Pressable onPress={() => (isGroup ? router.push({ pathname: '/chat/group-info', params: { id: convId } }) : setContactOpen(true))} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={colors.ink} /></Pressable>
+        <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={colors.ink} /></Pressable>
+        <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={colors.ink} /></Pressable>
       </View>
       )}
+
+      {/* In-chat search bar — replaces the pinned banner row while open, with ↑/↓ through the hits. */}
+      {searchOpen ? (
+        <View className="flex-row items-center gap-2 px-3" style={{ backgroundColor: colors.card, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+          <SearchIcon size={18} color={colors.coolText3} />
+          <TextInput
+            value={searchQ} onChangeText={setSearchQ} autoFocus placeholder="Search in this chat"
+            placeholderTextColor={colors.coolText3}
+            style={{ flex: 1, fontSize: 15, color: colors.ink, paddingVertical: 4 }}
+          />
+          <Text style={{ color: colors.coolText3, fontSize: 12.5, minWidth: 46, textAlign: 'right' }}>
+            {searchQ.trim() ? (hits.length ? `${hitIdx + 1}/${hits.length}` : 'none') : ''}
+          </Text>
+          <Pressable onPress={() => stepHit(1)} disabled={!hits.length} hitSlop={6} style={{ padding: 4, opacity: hits.length ? 1 : 0.4 }}><ChevronUp size={19} color={colors.ink} /></Pressable>
+          <Pressable onPress={() => stepHit(-1)} disabled={!hits.length} hitSlop={6} style={{ padding: 4, opacity: hits.length ? 1 : 0.4 }}><ChevronDown size={19} color={colors.ink} /></Pressable>
+          <Pressable onPress={closeSearch} hitSlop={6} style={{ padding: 4 }}><X size={19} color={colors.coolText} /></Pressable>
+        </View>
+      ) : null}
 
       {/* Pinned bar — compact mockup style: teal rail + uppercase label; tap scrolls to the pinned
           message (repeated taps cycle through pins via the chevron too) */}
@@ -546,19 +711,30 @@ export default function ChatDetail() {
       })() : null}
 
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        {loading ? (
-          <View className="flex-1 items-center justify-center" style={{ backgroundColor: colors.coolBg }}><ActivityIndicator color={colors.primary} /></View>
-        ) : (
-          <FlatList
+        <FlatList
             ref={listRef}
             data={reversed}
             inverted
             keyExtractor={(m) => m.id}
-            style={{ flex: 1, backgroundColor: colors.coolBg }}
+            style={{ flex: 1, backgroundColor: wallpaper.bg }}
             contentContainerStyle={{ padding: 12 }}
+            // Paint the visible screenful on the first frame, then fill the rest in — a local-first
+            // open shouldn't be spent laying out 40 bubbles before anything appears.
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={11}
+            // Scrollback: on an inverted list the "end" is the TOP, i.e. the oldest loaded message.
+            // Pages come out of the on-device database first, so reaching back through old history is
+            // instant and works with no connection; the server is only asked once local runs dry.
+            onEndReachedThreshold={0.6}
+            onEndReached={() => void loadOlder()}
+            onScroll={(e) => setShowJumpLatest(e.nativeEvent.contentOffset.y > 400)}
+            scrollEventThrottle={64}
             // Counter-flip must mirror the list's inversion exactly: Android inverts with
             // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
-            ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View>}
+            // Held back until the first sync settles: a brand-new chat shouldn't flash "no messages"
+            // at someone whose thread is a few milliseconds from landing.
+            ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View> : null}
             // Jump-to-pinned can target a row far outside the rendered window (no getItemLayout —
             // rows are variable height): land near it by estimate, then retry precisely once rendered.
             onScrollToIndexFailed={(info) => {
@@ -582,7 +758,8 @@ export default function ChatDetail() {
                   onLongPress={() => onMsgLongPress(m)}
                   selecting={selecting}
                   onOpenImage={setViewer} onOpenFile={(f) => void openLocalFile(f)} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])}
-                  onReactions={() => setReactionsFor(m.id)} />
+                  onReactions={() => setReactionsFor(m.id)}
+                  onJumpToReply={(id) => void jumpToMessage(id)} highlight={searchOpen ? searchQ : undefined} />
               );
               const row = m.type === 'system'
                 ? <SystemNotice text={m.text} />
@@ -611,7 +788,6 @@ export default function ChatDetail() {
               );
             }}
           />
-        )}
 
         {/* Upload progress */}
         {uploading !== null ? (
@@ -668,10 +844,17 @@ export default function ChatDetail() {
             <AttachOption Icon={Camera} label="Camera" color={colors.primary} onPress={takePhoto} />
             <AttachOption Icon={ImageIcon} label="Photo / Video" color={colors.blue} onPress={pickImageOrVideo} />
             <AttachOption Icon={FileText} label="Document" color={colors.orange} onPress={pickDocument} />
+            <AttachOption Icon={MapPin} label="Location" color={colors.coral} onPress={shareLocation} />
           </View>
         ) : null}
 
-        {/* Composer — mockup style: plus button, grey pill with camera inside, teal circular send/mic */}
+        {/* Blocked: the composer is replaced by the way out, exactly like WhatsApp. */}
+        {isBlocked ? (
+          <Pressable onPress={toggleBlock} style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 18, paddingBottom: insets.bottom + 18, alignItems: 'center' }}>
+            <Text style={{ color: colors.coolText, fontSize: 13.5 }}>You blocked this contact.</Text>
+            <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
+          </Pressable>
+        ) : (
         <View className="flex-row items-end gap-2" style={{ backgroundColor: '#fff', borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
           <Pressable onPress={isRecording ? () => void cancel() : () => setAttachOpen((v) => !v)} style={{ width: 44, height: 46, alignItems: 'center', justifyContent: 'center' }}>
             {isRecording ? <Trash2 size={22} color={colors.danger} /> : <Plus size={24} color={colors.coolText} />}
@@ -702,9 +885,76 @@ export default function ChatDetail() {
           </Pressable>
         </View>
 
+        )}
+
         {/* Emoji panel — sits where the keyboard would be (smiley toggles it, focusing the input swaps back). */}
-        {emojiOpen && !isRecording ? <EmojiPicker onPick={insertEmoji} onBackspace={emojiBackspace} /> : null}
+        {emojiOpen && !isRecording && !isBlocked ? <EmojiPicker onPick={insertEmoji} onBackspace={emojiBackspace} /> : null}
       </KeyboardAvoidingView>
+
+      {/* Jump to latest — appears once scrolled away from the newest message (inverted list, so
+          "latest" is offset 0). Carries the unread count when new messages arrived meanwhile. */}
+      {showJumpLatest ? (
+        <Pressable
+          onPress={() => { listRef.current?.scrollToOffset({ offset: 0, animated: true }); setShowJumpLatest(false); }}
+          style={{ position: 'absolute', right: 16, bottom: 92, width: 44, height: 44, borderRadius: 22, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.coolDivider, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 }}
+        >
+          <ArrowDown size={20} color={colors.coolText} />
+          {conv?.unread ? (
+            <View style={{ position: 'absolute', top: -6, alignSelf: 'center', minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '700' }}>{conv.unread}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
+
+      {/* Overflow menu — the chat's own settings (WhatsApp's ⋮). */}
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable onPress={() => setMenuOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 8, paddingBottom: insets.bottom + 20 }}>
+            <View style={{ alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: colors.coolDivider, marginBottom: 10 }} />
+            {[
+              ...(isGroup ? [{ key: 'info', label: 'Group info', Icon: Info, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/group-info', params: { id: convId } }); } }]
+                : [{ key: 'contact', label: 'Contact info', Icon: Info, onPress: () => { setMenuOpen(false); setContactOpen(true); } }]),
+              { key: 'search', label: 'Search in chat', Icon: SearchIcon, onPress: openSearch },
+              {
+                key: 'mute',
+                label: conv?.muted ? 'Unmute notifications' : 'Mute notifications',
+                Icon: conv?.muted ? Bell : BellOff,
+                onPress: () => { setMenuOpen(false); void useMessagingStore.getState().setConversationSettings(convId, { muted: !conv?.muted, muteHours: conv?.muted ? null : 8 }); },
+              },
+              { key: 'disappear', label: `Disappearing messages${conv?.disappearAfterSec ? ' · on' : ''}`, Icon: Timer, onPress: chooseDisappearing },
+              { key: 'wallpaper', label: 'Wallpaper', Icon: Palette, onPress: () => { setMenuOpen(false); setWallpaperOpen(true); } },
+              { key: 'export', label: 'Export chat', Icon: Share2, onPress: () => void exportChat() },
+              ...(isGroup ? [] : [{ key: 'block', label: isBlocked ? 'Unblock' : 'Block', Icon: Ban, danger: !isBlocked, onPress: toggleBlock }]),
+            ].map((r, i) => (
+              <Pressable key={r.key} onPress={r.onPress} android_ripple={{ color: colors.coolMuted }}
+                className="flex-row items-center gap-3.5 px-5" style={{ paddingVertical: 13, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: colors.coolDivider }}>
+                <r.Icon size={20} color={r.danger ? colors.danger : colors.coolText} />
+                <Text style={{ color: r.danger ? colors.danger : colors.ink, fontSize: 15.5 }}>{r.label}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Wallpaper picker — per chat, stored on this device only (WhatsApp does the same). */}
+      <Modal visible={wallpaperOpen} transparent animationType="fade" onRequestClose={() => setWallpaperOpen(false)}>
+        <Pressable onPress={() => setWallpaperOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: insets.bottom + 24 }}>
+            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>Wallpaper</Text>
+            <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2, marginBottom: 14 }}>Applies to this chat, on this phone.</Text>
+            <View className="flex-row flex-wrap" style={{ gap: 12 }}>
+              {WALLPAPERS.map((w) => (
+                <Pressable key={w.key} onPress={() => { useMessagingStore.getState().setWallpaper(convId, w.key); setWallpaperOpen(false); }}
+                  style={{ alignItems: 'center', gap: 6, width: 66 }}>
+                  <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: w.swatch, borderWidth: w.key === wallpaper.key ? 2.5 : StyleSheet.hairlineWidth, borderColor: w.key === wallpaper.key ? colors.primary : colors.coolDivider }} />
+                  <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11 }}>{w.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Full-screen image viewer */}
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
@@ -1135,7 +1385,7 @@ function SwipeToReply({ onReply, children }: { onReply: () => void; children: Re
   );
 }
 
-function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void }) {
+function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions, onJumpToReply, highlight }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void; onJumpToReply?: (messageId: string) => void; highlight?: string }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
   // Tick glyphs on the light cards: pending → clock, sent → ✓, delivered → ✓✓ (muted grey),
@@ -1162,18 +1412,25 @@ function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenIma
             <Text style={{ color: colors.coolText3, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
           </View>
         ) : null}
+        {/* The quote is a link back to what was replied to — tapping it scrolls there and flashes it,
+            which is the only way to follow a conversation thread on a phone. */}
         {m.replyTo ? (
-          <View style={{ borderLeftWidth: 3, borderLeftColor: colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
+          <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
+            <Text numberOfLines={1} style={{ color: colors.primary, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
             <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{m.replyTo.preview}</Text>
-          </View>
+          </Pressable>
         ) : null}
         {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} /> : null}
         {deleted ? (
           <Text style={{ color: colors.coolText, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
         ) : m.text ? (
-          <LinkedText text={m.text} linkColor={colors.blue}
-            mentionNames={mentionNames} mentionColor={colors.primary} onLongPress={onLongPress}
-            style={{ color: colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
+          <>
+            {/* Link preview card above the text, WhatsApp-style — fetched server-side, cached per URL. */}
+            <LinkPreviewCard text={m.text} />
+            <LinkedText text={m.text} linkColor={colors.blue} highlight={highlight}
+              mentionNames={mentionNames} mentionColor={colors.primary} onLongPress={onLongPress}
+              style={{ color: colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
+          </>
         ) : null}
         <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 3, paddingHorizontal: 4 }}>
           {m.edited && !deleted ? <Text style={{ color: TIME_FAINT, fontSize: 10 }}>edited</Text> : null}

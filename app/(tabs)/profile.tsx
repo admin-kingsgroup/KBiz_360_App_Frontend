@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, FolderKanban } from 'lucide-react-native';
+import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, FolderKanban, HardDrive, Lock } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -168,6 +168,8 @@ export default function Profile() {
             rows: [
               { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, tint: colors.primary, onPress: () => router.navigate('/attendance') },
               { key: 'password', label: 'Change password', sub: 'Update your sign-in password', Icon: KeyRound, tint: colors.orange, onPress: () => setPwOpen(true) },
+              { key: 'storage', label: 'Storage', sub: 'Chats and downloads kept on this phone', Icon: HardDrive, tint: colors.teal, onPress: () => router.push('/storage') },
+              { key: 'chat-privacy', label: 'Chat privacy', sub: 'Last seen, read receipts, blocked contacts', Icon: Lock, tint: colors.blue, onPress: () => router.push('/chat/privacy') },
             ],
           },
           // Workspace administration: Super-Admin only (each target screen also enforces its own guard).

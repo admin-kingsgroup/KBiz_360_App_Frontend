@@ -10,6 +10,8 @@ import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
+import { ChatActionsSheet } from '../../src/components/chat';
+import type { ChatConversation } from '../../src/api/chat';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { isVisibleAlertChannel } from '../../src/data/pulse';
 
@@ -79,8 +81,14 @@ export default function Groups() {
   // Real group conversations the user belongs to — manual ones (branchId, no deptKey) surface under
   // their branch in the Groups pane. Refetched on focus so unread/previews stay current.
   const conversations = useMessagingStore((s) => s.conversations);
-  useFocusEffect(useCallback(() => { void useMessagingStore.getState().loadConversations(); }, []));
-  const groupConvs = conversations.filter((c) => c.type === 'group').map((c) => ({
+  // Long-pressed group row → mute / pin / archive (same sheet as the Chats tab).
+  const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
+  // Prefetch after the list lands so opening a group is instant on the first tap too (no-op for
+  // threads already cached and up to date).
+  useFocusEffect(useCallback(() => {
+    void useMessagingStore.getState().loadConversations().then(() => useMessagingStore.getState().prefetchMessages());
+  }, []));
+  const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => ({
     id: c.id, name: c.name, branchId: c.branchId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
     preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : undefined,
   }));
@@ -191,6 +199,7 @@ export default function Groups() {
                   businesses={dir.businesses}
                   branches={dir.branches}
                   groupConversations={groupConvs}
+                  onLongPressGroup={(id) => setActionsFor(conversations.find((c) => c.id === id) ?? null)}
                   onOpen={(g) => {
                     // A real group is an existing conversation — open it directly by id.
                     if (g.convId) { router.push({ pathname: '/chat/[id]', params: { id: g.convId } }); return; }
@@ -227,6 +236,8 @@ export default function Groups() {
           </Animated.ScrollView>
         ) : null}
       </View>
+      <ChatActionsSheet conv={actionsFor} onClose={() => setActionsFor(null)} />
+
     </SafeAreaView>
   );
 }

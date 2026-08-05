@@ -95,6 +95,9 @@ function GateController() {
         void reconcileHiddenAttendance(); // director geofence reconcile on every return to foreground
         connectChatSocket();
         void useMessagingStore.getState().loadConversations(); // refresh chat list on return (server is source of truth)
+        // Catch-up on return: pulls everything that changed while we were away into the on-device
+        // message database, so any chat opened from here reads from storage instead of the network.
+        void useMessagingStore.getState().catchUp();
         void useEmailStore.getState().refreshUnread(); // Email tab badge
         void useEmailStore.getState().silentRefresh('inbox'); // + bring new inbox mail into the list (no spinner)
       } else if (state === 'background') {
@@ -142,6 +145,7 @@ function GateController() {
       <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="share" options={{ presentation: 'modal' }} />
       <Stack.Screen name="attendance" />
+      <Stack.Screen name="storage" />
       <Stack.Screen name="admin" />
       <Stack.Screen name="view-as" options={{ presentation: 'modal' }} />
       <Stack.Screen name="business/[id]" />

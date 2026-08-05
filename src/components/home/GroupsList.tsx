@@ -22,10 +22,12 @@ interface Block { id: string; label: string; color: string; subs: Sub[]; }
 // nesting, Unread pinned on top, collapsible. `serverFiltered` skips client access filters (the
 // backend already scoped the rows). View-As-aware otherwise.
 export function GroupsList({
-  activeBizId, access, onOpen, onChipRowTouch,
+  activeBizId, access, onOpen, onLongPressGroup, onChipRowTouch,
   businesses = mockBusinesses, branches = mockBranches, serverFiltered = false, groupConversations = [],
 }: {
   activeBizId: string; access: AccessControl | null; onOpen: (g: GroupOpen) => void;
+  /** Long-press a real group row → the mute/pin/archive sheet (departments have no conversation). */
+  onLongPressGroup?: (conversationId: string) => void;
   // Fires true while a finger is on the branch-chip row, false on release. The Home pager uses it
   // to pause its own horizontal paging so the nested chip row can actually scroll (Android: the
   // outer horizontal ScrollView otherwise intercepts the drag).
@@ -68,7 +70,7 @@ export function GroupsList({
   }
 
   const GroupCard = (g: GItem) => (
-    <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
+    <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} onLongPress={() => g.convId && onLongPressGroup?.(g.convId)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
       style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
       <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: g.color, opacity: g.preview ? 1 : 0.55, alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{g.icon}</Text>

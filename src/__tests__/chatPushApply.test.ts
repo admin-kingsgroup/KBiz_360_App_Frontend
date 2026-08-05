@@ -1,4 +1,4 @@
-import { applyChatPush, type ChatPushData } from '../logic/chatPushApply';
+import { applyChatPush, pushedMessage, type ChatPushData } from '../logic/chatPushApply';
 import type { ChatConversation } from '../api/chat';
 
 const conv = (over: Partial<ChatConversation>): ChatConversation => ({
@@ -76,5 +76,38 @@ describe('applyChatPush (background push → persisted snapshot)', () => {
     const res = applyChatPush(state, push({ conversationId: 'c2', messageId: 'm9' }));
     expect(res.conversations.find((c) => c.id === 'c2')?.unread).toBe(1);
     expect(res.unreadChats).toBe(1); // muted c1 still holds its unread in the list, but never badges
+  });
+});
+
+// The push carries the message itself so the phone can store it while the app is closed — that is
+// what makes a tapped notification open onto a chat that already contains it, read from storage.
+describe('pushedMessage — writing a push straight into the local database', () => {
+  it('builds a storable message when the payload is the complete one', () => {
+    const m = pushedMessage(push({ full: '1', text: 'the whole message body', msgType: 'text', senderId: 'u2', sentAt: '2026-07-20T10:05:00.000Z' }));
+    expect(m).toMatchObject({
+      id: 'm2', conversationId: 'c1', senderId: 'u2', type: 'text',
+      text: 'the whole message body', mine: false, createdAt: '2026-07-20T10:05:00.000Z',
+      attachments: [], reactions: [], deletedForEveryone: false,
+    });
+  });
+
+  it('refuses a payload that only carries the truncated notification preview', () => {
+    expect(pushedMessage(push({ preview: 'Hi there, I wanted to ask abou…' }))).toBeNull();
+  });
+
+  it('refuses a payload with no message id or conversation', () => {
+    expect(pushedMessage(push({ full: '1', text: 'x', messageId: undefined }))).toBeNull();
+    expect(pushedMessage(push({ full: '1', text: 'x', conversationId: undefined }))).toBeNull();
+  });
+
+  it('carries attachments through for media messages', () => {
+    const att = [{ url: '/u/a.jpg', name: 'a.jpg', size: 1200, mime: 'image/jpeg' }];
+    const m = pushedMessage(push({ full: '1', msgType: 'image', att: JSON.stringify(att) }));
+    expect(m).toMatchObject({ type: 'image', attachments: att });
+  });
+
+  it('refuses malformed attachment json rather than storing a broken message', () => {
+    expect(pushedMessage(push({ full: '1', att: '{not json' }))).toBeNull();
+    expect(pushedMessage(push({ full: '1', att: '{"not":"an array"}' }))).toBeNull();
   });
 });

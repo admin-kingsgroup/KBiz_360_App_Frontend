@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, Plus, MessageCircle, Mic } from 'lucide-react-native';
-import { ChatListItem } from '../../src/components/chat';
+import { Search, Plus, MessageCircle, Mic, Archive, CircleDashed, ChevronRight } from 'lucide-react-native';
+import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader } from '../../src/components/home';
 import { colors } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
@@ -19,7 +19,7 @@ const relTime = (iso: string): string => {
     ? `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
     : `${d.getDate()}/${d.getMonth() + 1}`;
 };
-function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>, myUserId: string | null) {
+function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>, myUserId: string | null, draft?: string) {
   const last = c.lastMessage;
   // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
   // no live entry has arrived at all.
@@ -38,6 +38,9 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
     image: c.image ? mediaUrl(c.image) : null,
     // WhatsApp list ticks — only for MY last message (status may be absent on old cached rows).
     lastStatus: last && myUserId && last.senderId === myUserId ? last.status ?? null : null,
+    muted: !!c.muted,
+    pinned: !!c.pinned,
+    draft: draft ?? null,
   };
 }
 
@@ -55,15 +58,29 @@ export default function Home() {
   const conversations = useMessagingStore((s) => s.conversations);
   const presence = useMessagingStore((s) => s.presence);
   const myUserId = useMessagingStore((s) => s.myUserId);
+  const drafts = useMessagingStore((s) => s.drafts);
+  // Long-pressed row → the mute/pin/archive sheet.
+  const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
   useFocusEffect(useCallback(() => {
     void useMessagingStore.getState().loadConversations().then(() => {
       const ids = useMessagingStore.getState().conversations.filter((c) => c.type === 'direct' && c.otherUserId).map((c) => c.otherUserId as string);
       if (ids.length) void useMessagingStore.getState().loadPresence(ids);
+      // Warm the recent threads in the background so tapping one opens instantly (WhatsApp-style) —
+      // skips anything already cached and up to date, so this is usually a no-op.
+      void useMessagingStore.getState().prefetchMessages();
     });
+    void useMessagingStore.getState().loadPrivacy(); // block list drives who can be messaged
   }, []));
   // Show a direct chat only once it has a message (so tapping a person to "open" a chat without
   // sending anything doesn't leave an empty conversation in the list).
-  const chats = conversations.filter((c) => c.type === 'direct' && !!c.lastMessage).map((c) => convToItem(c, presence, myUserId));
+  // Archived chats live behind their own row (WhatsApp keeps them out of the main list entirely).
+  const active = conversations.filter((c) => c.type === 'direct' && !!c.lastMessage && !c.archived);
+  const archivedCount = conversations.filter((c) => c.archived && c.unread > 0).length;
+  const hasArchived = conversations.some((c) => c.archived);
+  // Pinned chats sit above everything else, in their own recency order — the list is already sorted
+  // by activity, so a stable partition is all that is needed.
+  const chats = [...active.filter((c) => c.pinned), ...active.filter((c) => !c.pinned)]
+    .map((c) => convToItem(c, presence, myUserId, drafts[c.id]));
   void realUser;
   const visible = unreadOnly ? chats.filter((c) => c.unread > 0) : chats;
 
@@ -96,6 +113,23 @@ export default function Home() {
 
       {/* Chats — flat full-width white rows on the cool canvas (mockup list), flush under the chips */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
+        {/* Status — 24-hour updates from colleagues (WhatsApp's Status tab, as a row here). */}
+        <Pressable onPress={() => router.push('/chat/status')} android_ripple={{ color: colors.coolMuted }}
+          className="flex-row items-center gap-3 px-4" style={{ minHeight: 56, backgroundColor: colors.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.coolDivider }}>
+          <CircleDashed size={20} color={colors.primary} />
+          <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Status</Text>
+          <ChevronRight size={18} color={colors.coolText3} />
+        </Pressable>
+
+        {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
+        {hasArchived ? (
+          <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: colors.coolMuted }}
+            className="flex-row items-center gap-3 px-4" style={{ minHeight: 56, backgroundColor: colors.card }}>
+            <Archive size={20} color={colors.coolText} />
+            <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Archived</Text>
+            {archivedCount ? <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>{archivedCount}</Text> : null}
+          </Pressable>
+        ) : null}
         {visible.length === 0 ? (
           <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
             <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -110,10 +144,14 @@ export default function Home() {
           </View>
         ) : (
           visible.map((c, i) => (
-            <ChatListItem key={c.id} chat={c} topDivider={i > 0} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })} />
+            <ChatListItem key={c.id} chat={c} topDivider={i > 0}
+              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })}
+              onLongPress={() => setActionsFor(conversations.find((x) => x.id === c.id) ?? null)} />
           ))
         )}
       </ScrollView>
+
+      <ChatActionsSheet conv={actionsFor} onClose={() => setActionsFor(null)} />
 
       {/* Toast is mounted app-wide in app/_layout.tsx (GlobalToast) — not here. */}
     </SafeAreaView>

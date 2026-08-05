@@ -64,3 +64,9 @@ export function splitLinks(text: string): TextSegment[] {
 
 // Cheap pre-check so callers can skip the segment render entirely for link-less messages.
 export const hasLink = (text: string): boolean => splitLinks(text).some((s) => s.url);
+
+// The first openable URL in a message — what the link-preview card describes. WhatsApp previews only
+// the first link, so extra URLs in the same message are deliberately ignored.
+export function firstLink(text: string): string | null {
+  return splitLinks(text).find((p) => p.url)?.url ?? null;
+}
