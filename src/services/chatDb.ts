@@ -242,6 +242,23 @@ export async function search<T extends DbMessage & { text?: string; deletedForEv
     .slice(0, limit);
 }
 
+/**
+ * First stored message created on/after `ms` — the jump-to-date anchor. Chunks are chronological,
+ * so whole files before the target are skipped off their last element without a scan.
+ */
+export async function firstOnOrAfter<T extends DbMessage>(convId: string, ms: number): Promise<T | null> {
+  const seqs = await listSeqs(convId);
+  for (const seq of seqs) {
+    const chunk = await readChunk<T>(convId, seq);
+    if (!chunk.length) continue;
+    if (new Date(chunk[chunk.length - 1].createdAt).getTime() < ms) continue;
+    for (const m of chunk) {
+      if (new Date(m.createdAt).getTime() >= ms) return m;
+    }
+  }
+  return null;
+}
+
 /** Per-conversation footprint on disk — what the storage screen lists and sorts by. */
 export async function usage(convIds: string[]): Promise<{ conversationId: string; bytes: number; messages: number }[]> {
   const out: { conversationId: string; bytes: number; messages: number }[] = [];

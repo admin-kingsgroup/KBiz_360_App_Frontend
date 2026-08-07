@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Search as SearchIcon, BellOff, Bell, Ban, Timer, Palette, Share2, ArrowDown, MapPin, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Search as SearchIcon, BellOff, Bell, Ban, Timer, Palette, Share2, ArrowDown, MapPin, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile, CalendarDays } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -18,9 +18,11 @@ import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
-import { getConversation, getPinned, getReceipts, searchMessages, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
-import { search as searchChatDb } from '../../src/services/chatDb';
+import { getConversation, getMessages, getPinned, getReceipts, searchMessages, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
+import { search as searchChatDb, firstOnOrAfter as dbFirstOnOrAfter } from '../../src/services/chatDb';
 import { mergeSearchHits } from '../../src/logic/searchHits';
+import { objectIdForTime, earlierCandidate } from '../../src/logic/dateJump';
+import { DateJumpSheet } from '../../src/components/chat/DateJumpSheet';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
 import { WALLPAPERS } from '../../src/theme/wallpapers';
@@ -150,6 +152,8 @@ export default function ChatDetail() {
   const searchToken = useRef(0);
   const lastHitJump = useRef<string | null>(null);
   const consumedJumpParam = useRef(false);
+  // Jump-to-date calendar (the search bar's calendar icon, WhatsApp-style).
+  const [dateJumpOpen, setDateJumpOpen] = useState(false);
   // Jump-to-latest button: shown once the user has scrolled up away from the newest message.
   const [showJumpLatest, setShowJumpLatest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -621,14 +625,31 @@ export default function ChatDetail() {
   // Tap the banner → scroll to the pinned message (cycling through pins on repeated taps). The
   // target may be far above the last-40 window the chat opened with, so page history in until it's
   // loaded (bounded so a deleted/foreign id can't loop forever), then let the effect below scroll.
-  const jumpToMessage = async (messageId: string): Promise<void> => {
+  const jumpToMessage = async (messageId: string, maxHops = 25): Promise<void> => {
     const store = useMessagingStore.getState;
     const has = (): boolean => (store().messages[convId] ?? []).some((m) => m.id === messageId);
-    for (let hops = 0; !has() && hops < 25; hops++) {
+    for (let hops = 0; !has() && hops < maxHops; hops++) {
       if ((await store().loadOlderMessages(convId)) === 0) break;
     }
     if (!has()) { showToast('Message is no longer available'); return; }
     setPendingJump(messageId);
+  };
+
+  // Calendar jump: land on the first message of the picked day (or the next one after an empty
+  // day, like WhatsApp). The device database and the server are asked in parallel — the server can
+  // hold history this device never downloaded, and its `after` cursor accepts a synthetic ObjectId
+  // built from the date — and the earlier of the two answers wins.
+  const jumpToDate = async (day: Date): Promise<void> => {
+    setDateJumpOpen(false);
+    const targetMs = day.getTime();
+    const [disk, remotePage] = await Promise.all([
+      dbFirstOnOrAfter<StoredMessage>(convId, targetMs).catch(() => null),
+      getMessages(convId, { after: objectIdForTime(targetMs), limit: 1 }).catch(() => [] as ChatMessage[]),
+    ]);
+    const target = earlierCandidate(disk, remotePage[0] ?? null);
+    if (!target) { showToast('No messages on or after that day'); return; }
+    // Deep bound: a date can sit far up the history; the paging is device-first, so it's cheap.
+    await jumpToMessage(target.id, 300);
   };
   const jumpToPinned = (): void => {
     if (!pinned.length) return;
@@ -724,11 +745,13 @@ export default function ChatDetail() {
           <Text style={{ color: colors.coolText3, fontSize: 12.5, minWidth: 46, textAlign: 'right' }}>
             {searchQ.trim() ? (hits.length ? `${hitIdx + 1}/${hits.length}` : 'none') : ''}
           </Text>
+          <Pressable onPress={() => setDateJumpOpen(true)} accessibilityLabel="Jump to date" hitSlop={6} style={{ padding: 4 }}><CalendarDays size={19} color={colors.ink} /></Pressable>
           <Pressable onPress={() => stepHit(1)} disabled={!hits.length} hitSlop={6} style={{ padding: 4, opacity: hits.length ? 1 : 0.4 }}><ChevronUp size={19} color={colors.ink} /></Pressable>
           <Pressable onPress={() => stepHit(-1)} disabled={!hits.length} hitSlop={6} style={{ padding: 4, opacity: hits.length ? 1 : 0.4 }}><ChevronDown size={19} color={colors.ink} /></Pressable>
           <Pressable onPress={closeSearch} hitSlop={6} style={{ padding: 4 }}><X size={19} color={colors.coolText} /></Pressable>
         </View>
       ) : null}
+      <DateJumpSheet visible={dateJumpOpen} onClose={() => setDateJumpOpen(false)} onPick={(d) => void jumpToDate(d)} />
 
       {/* Pinned bar — compact mockup style: teal rail + uppercase label; tap scrolls to the pinned
           message (repeated taps cycle through pins via the chevron too) */}
