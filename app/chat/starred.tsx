@@ -46,7 +46,7 @@ export default function StarredMessages() {
           contentContainerStyle={{ padding: 12, gap: 8 }}
           ListEmptyComponent={<View className="items-center" style={{ paddingVertical: 56 }}><View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}><Star size={40} color={colors.primary} /></View><Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginTop: 16 }}>No starred messages</Text><Text style={{ color: colors.coolText, fontSize: 13, marginTop: 5 }}>Long-press a message → Star</Text></View>}
           renderItem={({ item: m }) => (
-            <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+            <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId, messageId: m.id } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 14 }}>
               <View className="flex-row justify-between items-baseline gap-2">
                 <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{convName(m.conversationId)}</Text>
                 <Text style={{ color: colors.coolText3, fontSize: 12, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>

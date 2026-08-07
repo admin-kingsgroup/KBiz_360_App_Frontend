@@ -124,7 +124,12 @@ export const pinMessage = (id: string): Promise<{ pinned: boolean }> => apiFetch
 export interface MessageReceipts { readBy: { userId: string; at: number | null }[]; deliveredTo: string[]; participants: string[] }
 export const getReceipts = (messageId: string): Promise<MessageReceipts> => apiFetch(`/api/messages/${messageId}/receipts`);
 export const forwardMessage = (messageId: string, conversationIds: string[]): Promise<ChatMessage[]> => apiFetch('/api/messages/forward', { method: 'POST', body: { messageId, conversationIds } });
-export const searchMessages = (q: string): Promise<ChatMessage[]> => apiFetch(`/api/messages/search?q=${encodeURIComponent(q)}`);
+// Global by default; `conversationId` scopes it to one thread (the in-chat search bar), `before`
+// pages older results (message-id cursor, newest-first).
+export const searchMessages = (q: string, opts: { conversationId?: string; before?: string } = {}): Promise<ChatMessage[]> =>
+  apiFetch(`/api/messages/search?q=${encodeURIComponent(q)}`
+    + (opts.conversationId ? `&conversationId=${encodeURIComponent(opts.conversationId)}` : '')
+    + (opts.before ? `&before=${encodeURIComponent(opts.before)}` : ''));
 export const starredMessages = (): Promise<ChatMessage[]> => apiFetch('/api/messages/starred');
 
 // ── admin analytics (Super-Admin only) ──

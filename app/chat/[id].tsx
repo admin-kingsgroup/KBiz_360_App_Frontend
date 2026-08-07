@@ -18,7 +18,9 @@ import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
-import { getConversation, getPinned, getReceipts, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
+import { getConversation, getPinned, getReceipts, searchMessages, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
+import { search as searchChatDb } from '../../src/services/chatDb';
+import { mergeSearchHits } from '../../src/logic/searchHits';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
 import { WALLPAPERS } from '../../src/theme/wallpapers';
@@ -73,7 +75,9 @@ function lastSeenLabel(ts: number): string {
 
 export default function ChatDetail() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `messageId` arrives from surfaces that found a specific message elsewhere (global search,
+  // starred) — the thread opens and then lands on it instead of the bottom.
+  const { id, messageId: jumpParam } = useLocalSearchParams<{ id: string; messageId?: string }>();
   const convId = id ?? '';
   const showToast = useUiStore((s) => s.showToast);
   const insets = useSafeAreaInsets();
@@ -140,6 +144,12 @@ export default function ChatDetail() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [hitIdx, setHitIdx] = useState(0);
+  // Matches beyond what is loaded in memory: the device database + the server's index. Filled by a
+  // debounced effect; merged with the in-memory matches below.
+  const [deepHits, setDeepHits] = useState<StoredMessage[]>([]);
+  const searchToken = useRef(0);
+  const lastHitJump = useRef<string | null>(null);
+  const consumedJumpParam = useRef(false);
   // Jump-to-latest button: shown once the user has scrolled up away from the newest message.
   const [showJumpLatest, setShowJumpLatest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -510,21 +520,30 @@ export default function ChatDetail() {
   };
 
   // ── in-chat search ──
-  // Matches are computed over what is loaded and shown newest-first, the order WhatsApp steps
-  // through. Opening search on a long thread pages a few screens of history in so there is something
-  // to find; everything after that is local.
-  const hits = useMemo(() => {
-    const q = searchQ.trim().toLowerCase();
-    if (!q) return [] as StoredMessage[];
-    return messages.filter((m) => !m.deletedForEveryone && m.text.toLowerCase().includes(q)).reverse();
-  }, [messages, searchQ]);
+  // Matches come from three places, merged newest-first (the order WhatsApp steps through): what is
+  // loaded in memory, the device's own message database (full local history — instant, offline), and
+  // the server's index (history this device never downloaded). So a search finds a message from
+  // months ago, not just the last few screenfuls.
+  const hits = useMemo(() => mergeSearchHits(searchQ, messages, deepHits), [messages, deepHits, searchQ]);
+
+  // Deep results, debounced so typing doesn't grind the disk on every keystroke. The token drops a
+  // slow older lookup that resolves after a newer one already landed.
+  useEffect(() => {
+    const q = searchQ.trim();
+    if (!searchOpen || q.length < 2) { setDeepHits([]); return; }
+    const token = ++searchToken.current;
+    const t = setTimeout(() => {
+      void (async () => {
+        const local = await searchChatDb<StoredMessage>([convId], q, { limit: 100 }).catch(() => [] as StoredMessage[]);
+        // Offline (or an old server) just means device-only results — the honest answer.
+        const remote = await searchMessages(q, { conversationId: convId }).catch(() => [] as ChatMessage[]);
+        if (token === searchToken.current) setDeepHits([...local, ...(remote as StoredMessage[])]);
+      })();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchQ, searchOpen, convId]);
 
   useEffect(() => { setHitIdx(0); }, [searchQ]);
-  // Land on the current hit whenever it changes.
-  useEffect(() => {
-    const hit = hits[hitIdx];
-    if (searchOpen && hit) setPendingJump(hit.id);
-  }, [hitIdx, hits, searchOpen]);
 
   const openSearch = (): void => {
     setSearchOpen(true);
@@ -617,6 +636,27 @@ export default function ChatDetail() {
     setPinIdx((i + 1) % pinned.length);
     void jumpToMessage(pinned[i].id);
   };
+
+  // Land on the current search hit when it CHANGES (the ref guard matters: `hits` gets a new
+  // identity every time a history page loads in, and re-jumping on identity alone would snap the
+  // list back while the user scrolls around). jumpToMessage pages history until the hit — which may
+  // live only on disk or on the server — is actually in the list.
+  useEffect(() => {
+    const hit = hits[hitIdx];
+    if (!searchOpen || !hit) { lastHitJump.current = null; return; }
+    if (lastHitJump.current === hit.id) return;
+    lastHitJump.current = hit.id;
+    void jumpToMessage(hit.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hitIdx, hits, searchOpen]);
+
+  // Opened with a target message (global search / starred): land on it once the thread is up.
+  useEffect(() => {
+    if (!jumpParam || consumedJumpParam.current || !fetched) return;
+    consumedJumpParam.current = true;
+    void jumpToMessage(jumpParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpParam, fetched]);
 
   // Scroll fires from an effect (not inline in jumpToMessage) so rows paged in above are already in
   // the FlatList's data — scrollToIndex on a not-yet-committed index throws.
@@ -1404,7 +1444,9 @@ function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenIma
     <View className="mb-2.5" style={{ maxWidth: '80%', alignSelf: mine ? 'flex-end' : 'flex-start' }}>
       {/* Row places the forward arrow on the OUTER side of the bubble (left of outgoing, right of incoming). */}
       <View className="items-center" style={{ flexDirection: mine ? 'row-reverse' : 'row', gap: 6 }}>
-      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? colors.primarySoft : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: mine ? '#DCEDE9' : colors.coolDivider }}>
+      {/* overflow:hidden is the backstop — whatever a child's intrinsic width turns out to be on an
+          unusual screen, nothing is ever drawn outside the rounded card. */}
+      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? colors.primarySoft : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: mine ? '#DCEDE9' : colors.coolDivider }}>
         {isGroup && !mine && !deleted ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
         {m.forwardedFrom && !deleted ? (
           <View className="flex-row items-center gap-1" style={{ marginBottom: 2, paddingHorizontal: 4 }}>

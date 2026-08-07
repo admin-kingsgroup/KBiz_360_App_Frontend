@@ -147,7 +147,7 @@ export default function ChatSearch() {
           ) : null
         }
         renderItem={({ item: m }) => (
-          <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12 }}>
+          <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId, messageId: m.id } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12 }}>
             <View className="flex-row justify-between items-baseline gap-2">
               <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{convName(m.conversationId)}</Text>
               <Text style={{ color: colors.coolText3, fontSize: 12, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
