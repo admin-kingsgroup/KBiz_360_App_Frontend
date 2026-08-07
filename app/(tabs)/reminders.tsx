@@ -118,6 +118,9 @@ export default function Reminders() {
     void load(TABS[f]);
   };
   const onReassign = (r: ReminderRecord) => setReassignFor(r);
+  // Creator edits what/when in the same composer, prefilled (the server enforces creator-only).
+  const onEdit = (r: ReminderRecord) =>
+    router.push({ pathname: '/reminder/new', params: { editId: r.id, editText: r.text, editDueAt: r.dueAt ?? '', editForId: r.forId } });
   const doReassign = async (forId: string) => {
     const r = reassignFor;
     setReassignFor(null);
@@ -187,7 +190,7 @@ export default function Reminders() {
               </View>
               <View className="px-4" style={{ gap: 8 }}>
                 {(sec.items as ReminderRecord[]).map((r) => (
-                  <ReminderCard key={r.id} r={r} biz={null} meId={meId} onComplete={onComplete} onApprove={onApprove} onReassign={onReassign} />
+                  <ReminderCard key={r.id} r={r} biz={null} meId={meId} onComplete={onComplete} onApprove={onApprove} onReassign={onReassign} onEdit={onEdit} />
                 ))}
               </View>
             </View>

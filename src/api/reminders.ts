@@ -45,4 +45,8 @@ export const approveReminder = (id: string): Promise<PatchResult> =>
 export const reassignReminder = (id: string, forId: string): Promise<PatchResult> =>
   apiFetch(`/api/reminders/${id}`, { method: 'PATCH', body: { forId } });
 
+// Field edit — creator only (the server enforces it). Changing dueAt re-arms the due-time push.
+export const updateReminder = (id: string, body: { text?: string; when?: string; dueAt?: string }): Promise<PatchResult> =>
+  apiFetch(`/api/reminders/${id}`, { method: 'PATCH', body });
+
 export const deleteReminder = (id: string): Promise<void> => apiFetch(`/api/reminders/${id}`, { method: 'DELETE' });

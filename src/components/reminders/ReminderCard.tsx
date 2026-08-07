@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { Clock, Check, RotateCcw } from 'lucide-react-native';
+import { Clock, Check, Pencil, RotateCcw } from 'lucide-react-native';
 import { colors } from '../../theme';
 import type { Business } from '../../types';
 import { type ReminderRecord } from '../../data/reminders';
@@ -9,9 +9,11 @@ import { formatWhenLabel } from '../../logic/reminderWhen';
 // Status/affordances depend on for-me/by-me + state. `meId` is the signed-in user's real id.
 // White card on the cool canvas; the left stripe keeps the semantic accent (pink = personal,
 // business color = that business, green = default).
-function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
+function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign, onEdit }: {
   r: ReminderRecord; biz: Business | null; meId: string;
   onComplete: (id: string) => void; onApprove: (id: string) => void; onReassign: (r: ReminderRecord) => void;
+  /** Creator-only field edit (text/time) — shown while the reminder is still pending. */
+  onEdit?: (r: ReminderRecord) => void;
 }) {
   const forMe = r.forId === meId;
   const byMe = r.byId === meId;
@@ -19,6 +21,7 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
   const isReview = r.state === 'review';
   const showReviewActions = isReview && byMe;
   const showWaiting = r.state === 'pending' && byMe && !forMe;
+  const canEdit = !!onEdit && byMe && r.state === 'pending';
 
   const accent = isPersonal ? '#D6336C' : (biz?.color || colors.primary);
   // The stored label ("Today · 5:00 PM") freezes at creation and goes wrong as days pass —
@@ -29,7 +32,9 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
   const stripe = overdue ? colors.danger : accent;
 
   return (
-    <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 12, overflow: 'hidden' }}>
+    // Long-pressing the card is the creator's shortcut to edit (same action as the pencil).
+    <Pressable onLongPress={canEdit ? () => onEdit!(r) : undefined}
+      style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 12, overflow: 'hidden' }}>
       <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: stripe }} />
       <View className="flex-row items-start gap-3">
         {forMe && r.state === 'pending' ? (
@@ -49,7 +54,15 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
         )}
 
         <View className="flex-1">
-          <Text numberOfLines={3} style={{ color: colors.ink, fontSize: 15, fontWeight: '500', lineHeight: 21 }}>{r.text}</Text>
+          <View className="flex-row items-start" style={{ gap: 8 }}>
+            <Text numberOfLines={3} style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '500', lineHeight: 21 }}>{r.text}</Text>
+            {canEdit ? (
+              <Pressable onPress={() => onEdit!(r)} accessibilityLabel="Edit reminder" hitSlop={8}
+                style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+                <Pencil size={13} color={colors.coolText} />
+              </Pressable>
+            ) : null}
+          </View>
           <View className="flex-row items-center gap-1.5" style={{ marginTop: 6 }}>
             {when ? <Text style={{ color: overdue ? colors.danger : colors.coolText, fontSize: 12, fontWeight: overdue ? '700' : '600' }}>{overdue ? `${when} · Overdue` : when}</Text> : null}
             {when ? <Text style={{ color: colors.coolText3, fontSize: 11 }}>•</Text> : null}
@@ -80,7 +93,7 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign }: {
           ) : null}
         </View>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 

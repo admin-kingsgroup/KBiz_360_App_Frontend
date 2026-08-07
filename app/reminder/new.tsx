@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Modal, FlatList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { X, CalendarClock, ChevronDown, Search as SearchIcon, Check } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { FormField, SheetSave, DateTimeSheet } from '../../src/components/forms';
 import { colors } from '../../src/theme';
-import { createReminder } from '../../src/api/reminders';
+import { createReminder, updateReminder } from '../../src/api/reminders';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
 import { mediaUrl } from '../../src/api/media';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { scheduleLocal } from '../../src/services/notifications';
-import { rememberReminderLocal } from '../../src/services/notifications/reminderLocal';
+import { rememberReminderLocal, cancelReminderLocal } from '../../src/services/notifications/reminderLocal';
 import { useUiStore } from '../../src/store/uiStore';
 import { WHEN_PRESETS, presetDue, formatWhenLabel, secondsUntil, parseWhen, type WhenPresetKey } from '../../src/logic/reminderWhen';
 import { activeMention, applyMention, rankMentionMatches } from '../../src/logic/mentions';
@@ -33,13 +33,24 @@ export default function NewReminder() {
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
   const me = useAccessStore((s) => s.user);
 
+  // Edit mode (creator only — the card only offers it to the creator, and the server enforces it):
+  // the same composer opens prefilled; assignees are locked because changing WHO it's for is the
+  // separate re-assign flow with its own state reset + notification.
+  const { editId, editText, editDueAt, editForId } = useLocalSearchParams<{ editId?: string; editText?: string; editDueAt?: string; editForId?: string }>();
+  const editing = !!editId;
+  const editInitialDue = useMemo(() => {
+    if (!editDueAt) return null;
+    const d = new Date(editDueAt);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }, [editDueAt]);
+
   const myself: Person = { id: meId, name: 'Myself', initials: initialsOf(me?.name ?? 'Me'), color: colors.primary, avatar: me?.avatar ?? null };
   const [people, setPeople] = useState<Person[]>([myself]);
   const [peopleError, setPeopleError] = useState(false);
   const [forIds, setForIds] = useState<string[]>(meId ? [meId] : []);
-  const [text, setText] = useState('');
-  const [preset, setPreset] = useState<WhenPresetKey | 'custom'>('today_evening');
-  const [customDue, setCustomDue] = useState<Date | null>(null);
+  const [text, setText] = useState(editing ? (editText ?? '') : '');
+  const [preset, setPreset] = useState<WhenPresetKey | 'custom'>(editing ? 'custom' : 'today_evening');
+  const [customDue, setCustomDue] = useState<Date | null>(editInitialDue);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
@@ -75,7 +86,7 @@ export default function NewReminder() {
   // "call the agent tomorrow 5pm" pre-selects Tomorrow 5:00 PM. It only ever fills a slot the
   // user hasn't set themselves: touching any preset or the date picker pins the choice and stops
   // the text from moving it again.
-  const [whenTouched, setWhenTouched] = useState(false);
+  const [whenTouched, setWhenTouched] = useState(editing); // editing pins the loaded time — typing must not move it
   const detectedWhen = useMemo(() => parseWhen(text), [text]);
   useEffect(() => {
     if (whenTouched) return;
@@ -123,7 +134,7 @@ export default function NewReminder() {
 
   const save = async () => {
     if (!text.trim()) { showToast('Add reminder text'); return; }
-    if (!forIds.length) { showToast('Choose at least one person'); return; }
+    if (!editing && !forIds.length) { showToast('Choose at least one person'); return; }
     // Recompute at press time — the memoized dueAt goes stale while the form sits open, so a
     // reminder could otherwise be created already-due and fire its local notification instantly.
     const due = preset === 'custom' ? customDue : presetDue(preset);
@@ -132,6 +143,25 @@ export default function NewReminder() {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
+    if (editing) {
+      try {
+        const label = formatWhenLabel(due);
+        await updateReminder(editId!, { text: text.trim(), when: label, dueAt: due.toISOString() });
+        // A self-reminder's local notification is pinned to the OLD time — re-arm it at the new one.
+        if (editForId && editForId === meId) {
+          await cancelReminderLocal(editId!);
+          void scheduleLocal('⏰ Reminder', text.trim(), { type: 'reminder', id: editId! }, secondsUntil(due))
+            .then((notifId) => rememberReminderLocal(editId!, notifId));
+        }
+        showToast(`Reminder updated · ${label}`);
+        router.back();
+      } catch {
+        showToast('Could not update reminder');
+        savingRef.current = false;
+        setSaving(false);
+      }
+      return;
+    }
     try {
       const label = formatWhenLabel(due);
       const recs = await createReminder({ text: text.trim(), forIds, when: label, dueAt: due.toISOString(), section: 'today' });
@@ -155,11 +185,11 @@ export default function NewReminder() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center justify-between px-5 pt-3 pb-3">
-        <Text style={{ color: colors.ink, fontSize: 19, fontWeight: '700' }}>New reminder</Text>
+        <Text style={{ color: colors.ink, fontSize: 19, fontWeight: '700' }}>{editing ? 'Edit reminder' : 'New reminder'}</Text>
         <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={16} color={colors.coolText} /></Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <FormField label="Reminder" required hint="Type @ to mention someone — it assigns the reminder to them.">
+        <FormField label="Reminder" required hint={editing ? 'Editing what and when — use Re-assign on the card to change who.' : 'Type @ to mention someone — it assigns the reminder to them.'}>
           <TextInput value={text} onChangeText={setText} placeholder="What needs doing? Type @ to assign" placeholderTextColor={colors.coolText3} multiline
             selection={sel}
             onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
@@ -181,7 +211,9 @@ export default function NewReminder() {
           ) : null}
         </FormField>
 
-        {/* Assignees — current picks + tap to open the searchable multi-select sheet */}
+        {/* Assignees — current picks + tap to open the searchable multi-select sheet.
+            Hidden while editing: changing WHO a reminder is for is the re-assign flow, not an edit. */}
+        {editing ? null : (
         <FormField label="For" hint={peopleError ? 'Could not load your team — pull down to retry, or save it for yourself.' : 'You can pick more than one person — each gets their own copy.'}>
           <Pressable onPress={() => { setPersonQuery(''); setAssigneeOpen(true); }} className="flex-row items-center gap-2.5"
             style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 }}>
@@ -193,6 +225,7 @@ export default function NewReminder() {
             <ChevronDown size={18} color={colors.coolText} />
           </Pressable>
         </FormField>
+        )}
 
         {/* Due time — presets plus a real date+time picker */}
         <FormField label="When" required>
@@ -221,7 +254,7 @@ export default function NewReminder() {
           {dueAt ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Will remind {forIds.length === 1 && forIds[0] === meId ? 'you' : forLabel} · {formatWhenLabel(dueAt)}</Text> : null}
         </FormField>
 
-        <SheetSave label={saving ? 'Saving…' : 'Set reminder'} disabled={!text.trim() || !dueAt || saving} onPress={save} />
+        <SheetSave label={saving ? 'Saving…' : editing ? 'Save changes' : 'Set reminder'} disabled={!text.trim() || !dueAt || saving} onPress={save} />
       </ScrollView>
 
       {/* Custom date & time picker */}
