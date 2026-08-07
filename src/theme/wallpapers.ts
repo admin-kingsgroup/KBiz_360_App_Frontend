@@ -16,6 +16,3 @@ export const WALLPAPERS: Wallpaper[] = [
 
 export const wallpaperFor = (key: string | undefined): Wallpaper =>
   WALLPAPERS.find((w) => w.key === key) ?? WALLPAPERS[0];
-
-// Text-status card colours (WhatsApp cycles a similar set) — saturated enough for white type.
-export const STATUS_BACKGROUNDS = ['#0F4B44', '#2E5AAC', '#8A3D6B', '#B05A1E', '#3F6B2E', '#5A3E8A', '#A03A3A'];

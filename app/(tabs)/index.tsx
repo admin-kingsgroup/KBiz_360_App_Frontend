@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, Plus, MessageCircle, Mic, Archive, CircleDashed, ChevronRight } from 'lucide-react-native';
+import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader } from '../../src/components/home';
 import { colors } from '../../src/theme';
@@ -113,14 +113,6 @@ export default function Home() {
 
       {/* Chats — flat full-width white rows on the cool canvas (mockup list), flush under the chips */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
-        {/* Status — 24-hour updates from colleagues (WhatsApp's Status tab, as a row here). */}
-        <Pressable onPress={() => router.push('/chat/status')} android_ripple={{ color: colors.coolMuted }}
-          className="flex-row items-center gap-3 px-4" style={{ minHeight: 56, backgroundColor: colors.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.coolDivider }}>
-          <CircleDashed size={20} color={colors.primary} />
-          <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Status</Text>
-          <ChevronRight size={18} color={colors.coolText3} />
-        </Pressable>
-
         {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
         {hasArchived ? (
           <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: colors.coolMuted }}

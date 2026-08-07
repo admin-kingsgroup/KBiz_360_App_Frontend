@@ -164,27 +164,5 @@ export const addGroupMembers = (id: string, memberIds: string[]): Promise<ChatCo
 export const removeGroupMember = (id: string, memberId: string): Promise<{ ok: boolean }> => apiFetch(`/api/groups/${id}/members/${memberId}`, { method: 'DELETE' });
 export const promoteGroupAdmin = (id: string, memberId: string): Promise<{ ok: boolean }> => apiFetch(`/api/groups/${id}/admins`, { method: 'POST', body: { memberId } });
 
-// ── status (24-hour stories) ──
-// Audience is fixed when posted: the colleagues you already share a conversation with, minus blocks.
-export interface StatusItem {
-  id: string;
-  userId: string;
-  type: 'image' | 'video' | 'text';
-  caption: string;
-  attachment: ChatAttachment | null;
-  backgroundColor: string | null;
-  createdAt: string;
-  expiresAt: string;
-  viewed: boolean;
-  viewers: { userId: string; at: string }[]; // populated for your OWN status only
-  viewCount: number;
-}
-export interface StatusEntry {
-  userId: string; name: string; avatar: string | null;
-  items: StatusItem[]; lastAt: string; allViewed: boolean; mine: boolean;
-}
-export const listStatus = (): Promise<StatusEntry[]> => apiFetch('/api/status');
-export const postStatus = (input: { type: 'image' | 'video' | 'text'; caption?: string; attachment?: ChatAttachment; backgroundColor?: string }): Promise<StatusItem> =>
-  apiFetch('/api/status', { method: 'POST', body: input });
-export const viewStatus = (id: string): Promise<{ ok: boolean }> => apiFetch(`/api/status/${id}/view`, { method: 'POST' });
-export const deleteStatus = (id: string): Promise<{ ok: boolean }> => apiFetch(`/api/status/${id}`, { method: 'DELETE' });
+// (24-hour "Status" stories were removed on purpose — this is an office chat app. The backend
+// /api/status routes still exist but have no client; drop them server-side whenever convenient.)
