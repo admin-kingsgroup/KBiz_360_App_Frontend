@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, Image, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Image, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
 import { Download, FileText, Play } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { useUiStore } from '../../store/uiStore';
@@ -12,7 +12,14 @@ import { downloadedUri, downloadAttachment, saveMediaToDevice, attachmentMime, e
 // button showing the size; tapping downloads to the app's media dir — photos & videos are ALSO
 // saved to the device gallery — and only then does tapping open the file. The sender's own
 // attachments are never gated (they sent the file), but still open from the local copy once cached.
-const TILE_W = 210;
+// Media tiles size off the SCREEN, never a fixed pixel width. The bubble around them is capped at
+// 80% of the row and also gives up a lane to the quick-forward arrow plus its own padding, so on a
+// narrow display (a foldable's cover screen, a small phone) a rigid tile ends up wider than the card
+// containing it and spills over the rounded edge. 52% of the window sits inside the bubble's content
+// box on every size we support; the cap keeps tiles from ballooning on tablets and unfolded screens.
+const TILE_MAX = 210;
+const TILE_MIN = 150;
+const tileWidth = (screenW: number): number => Math.max(TILE_MIN, Math.min(TILE_MAX, Math.round(screenW * 0.52)));
 const OVERLAY = 'rgba(15,20,24,0.45)';
 
 export function AttachmentTile({ att, type, mine, onOpenImage, onOpenFile, onLongPress }: {
@@ -24,6 +31,8 @@ export function AttachmentTile({ att, type, mine, onOpenImage, onOpenFile, onLon
   onLongPress?: () => void;
 }) {
   const showToast = useUiStore((s) => s.showToast);
+  const { width: screenW } = useWindowDimensions();
+  const TILE_W = tileWidth(screenW);
   const remote = mediaUrl(att.url);
   // undefined = still checking the disk; null = not downloaded; string = local file:// URI.
   const [local, setLocal] = useState<string | null | undefined>(undefined);
@@ -142,7 +151,7 @@ export function AttachmentTile({ att, type, mine, onOpenImage, onOpenFile, onLon
   };
   return (
     <Pressable onPress={onDocPress} onLongPress={onLongPress} className="flex-row items-center gap-2.5"
-      style={{ width: 224, maxWidth: '100%', borderRadius: 12, backgroundColor: mine ? '#E4F0EC' : '#F3F5F7', paddingHorizontal: 10, paddingVertical: 11, marginBottom: 4 }}>
+      style={{ width: Math.max(TILE_W, TILE_MIN), maxWidth: '100%', borderRadius: 12, backgroundColor: mine ? '#E4F0EC' : '#F3F5F7', paddingHorizontal: 10, paddingVertical: 11, marginBottom: 4 }}>
       <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
         <FileText size={20} color={iconColor} />
       </View>
