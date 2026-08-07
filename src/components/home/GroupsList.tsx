@@ -1,18 +1,21 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
-import { Clock, Lock, MessageCircle } from 'lucide-react-native';
+import { View, Text, Pressable, ScrollView, Modal } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ArrowUpDown, ChevronDown, ChevronUp, Clock, Lock, MessageCircle, Pin, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { colorForId } from '../../logic/directory';
+import { applyBranchOrder, moveCode } from '../../logic/branchOrder';
+import { useBranchOrderStore } from '../../store/branchOrderStore';
 import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch } from '../../types';
 
 // A real group conversation the user belongs to (manual "New group" groups are filed under a branch).
-export interface GroupConv { id: string; name: string; branchId?: string | null; deptKey?: string | null; unread?: number; preview?: string }
+export interface GroupConv { id: string; name: string; branchId?: string | null; deptKey?: string | null; unread?: number; preview?: string; pinned?: boolean }
 export interface GroupOpen { id: string; name: string; bizId: string; branchId: string; branchCode?: string; convId?: string }
-interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; bizId: string; branchId: string; branchCode?: string; convId?: string; }
+interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; pinned?: boolean; bizId: string; branchId: string; branchCode?: string; convId?: string; }
 
 const initialsOf = (name: string): string => ((name.match(/\b\w/g) ?? []).slice(0, 2).join('') || name.slice(0, 2)).toUpperCase();
 interface Sub { code: string; city: string; color: string; time: string; flag: string; items: GItem[]; }
@@ -42,6 +45,9 @@ export function GroupsList({
   const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
   // Selected branch chip per business (defaults to the first branch that has groups).
   const [selBranch, setSelBranch] = useState<Record<string, string>>({});
+  // Personal chip arrangement (device-local, per business) + the business whose arrange sheet is open.
+  const chipOrder = useBranchOrderStore((s) => s.order);
+  const [arrangeFor, setArrangeFor] = useState<string | null>(null);
 
   // The Groups tab lists the real group chats the user belongs to (created under a branch's
   // department), grouped by branch — opened directly by conversation id. Browsing/creating groups by
@@ -49,7 +55,7 @@ export function GroupsList({
   const myConvsByBranch = new Map<string, GItem[]>();
   groupConversations.filter((c) => c.branchId).forEach((c) => {
     const arr = myConvsByBranch.get(c.branchId as string) ?? [];
-    arr.push({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, bizId: '', branchId: c.branchId as string, branchCode: undefined });
+    arr.push({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId as string, branchCode: undefined });
     myConvsByBranch.set(c.branchId as string, arr);
   });
 
@@ -57,9 +63,12 @@ export function GroupsList({
   const blocks: Block[] = bizBase.map((b) => {
     const subs = branchesForBiz(b.id).filter((br) => brOK(br.code)).map((br) => {
       const items = (myConvsByBranch.get(br.id) ?? []).map((m) => ({ ...m, bizId: b.id, branchCode: br.code }));
+      // Pinned groups float to the top of their branch (stable sort keeps the rest in recency order).
+      items.sort((a, z) => Number(!!z.pinned) - Number(!!a.pinned));
       return { code: br.code, city: br.city, color: br.color, time: tzTime(br.tz), flag: br.flag, items };
     }).filter((s) => s.items.length > 0);
-    return { id: b.id, label: b.name, color: b.color, subs };
+    // The user's own chip arrangement (long-press a chip, or the ⇅ button, to change it).
+    return { id: b.id, label: b.name, color: b.color, subs: applyBranchOrder(subs, chipOrder[b.id]) };
   });
   const allItems = blocks.flatMap((bl) => bl.subs.flatMap((s) => s.items));
 
@@ -76,7 +85,10 @@ export function GroupsList({
         <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{g.icon}</Text>
       </View>
       <View className="flex-1">
-        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{g.name}</Text>
+        <View className="flex-row items-center" style={{ gap: 5 }}>
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{g.name}</Text>
+          {g.pinned ? <Pin size={13} color={colors.coolText3} style={{ transform: [{ rotate: '45deg' }] }} /> : null}
+        </View>
         <View className="flex-row justify-between items-center gap-2" style={{ marginTop: 2 }}>
           <Text numberOfLines={1} style={{ flex: 1, color: g.preview ? colors.coolText : colors.coolText3, fontSize: 13, fontStyle: g.preview ? 'normal' : 'italic' }}>{g.preview || 'No recent messages · tap to start'}</Text>
           {g.unread ? <Unread n={g.unread} /> : null}
@@ -112,7 +124,7 @@ export function GroupsList({
                 const on = s.code === active.code;
                 const unread = s.items.reduce((n, g) => n + (g.unread || 0), 0);
                 return (
-                  <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [bl.id]: s.code }))} className="flex-row items-center"
+                  <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [bl.id]: s.code }))} onLongPress={() => setArrangeFor(bl.id)} className="flex-row items-center"
                     style={{ height: 36, paddingHorizontal: 14, borderRadius: 999, gap: 7, backgroundColor: on ? colors.primary : colors.coolMuted }}>
                     <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 13, fontWeight: '600' }}>{s.code}</Text>
                     {unread > 0 ? (
@@ -123,6 +135,13 @@ export function GroupsList({
                   </Pressable>
                 );
               })}
+              {/* Arrange — reorder the chips to taste (long-pressing any chip opens the same sheet). */}
+              {subs.length > 1 ? (
+                <Pressable onPress={() => setArrangeFor(bl.id)} accessibilityLabel="Arrange branches"
+                  style={{ height: 36, width: 36, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+                  <ArrowUpDown size={15} color={colors.coolText} />
+                </Pressable>
+              ) : null}
             </ScrollView>
 
             {/* Selected branch's local time */}
@@ -140,7 +159,59 @@ export function GroupsList({
           </View>
         );
       })}
+
+      <ArrangeBranchesSheet
+        block={blocks.find((bl) => bl.id === arrangeFor) ?? null}
+        onClose={() => setArrangeFor(null)}
+      />
     </View>
+  );
+}
+
+// Bottom sheet: put the branch chips in YOUR order (per business, this device only). Up/down moves
+// a branch one slot; the row list is the live chip order, so changes show through immediately.
+function ArrangeBranchesSheet({ block, onClose }: { block: Block | null; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const setOrder = useBranchOrderStore((s) => s.setOrder);
+  const resetOrder = useBranchOrderStore((s) => s.resetOrder);
+  if (!block) return null;
+  const codes = block.subs.map((s) => s.code); // already in the applied (personal) order
+  const move = (code: string, delta: -1 | 1): void => setOrder(block.id, moveCode(codes, code, delta));
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+        <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16) }}>
+          <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
+          <View className="flex-row items-center justify-between px-5 pb-2">
+            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Arrange branches</Text>
+            <Pressable onPress={onClose} hitSlop={9} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
+          </View>
+          <Text style={{ color: colors.textMuted, fontSize: 12.5, paddingHorizontal: 20, paddingBottom: 10 }}>The first branch opens by default. This order is yours alone — it doesn't change anyone else's app.</Text>
+          <ScrollView style={{ flexGrow: 0, maxHeight: 420 }}>
+            {block.subs.map((s, i) => (
+              <View key={s.code} className="flex-row items-center" style={{ gap: 10, paddingHorizontal: 20, paddingVertical: 9, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
+                <Text style={{ width: 22, color: colors.textMuted2, fontSize: 12.5, fontWeight: '700' }}>{i + 1}</Text>
+                <Text style={{ flex: 1, color: colors.ink, fontSize: 14.5, fontWeight: '700' }}>
+                  {s.code}
+                  {s.city ? <Text style={{ color: colors.textMuted, fontWeight: '500' }}>  ·  {s.flag} {s.city}</Text> : null}
+                </Text>
+                <Pressable disabled={i === 0} onPress={() => move(s.code, -1)} hitSlop={6}
+                  style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: i === 0 ? 0.35 : 1 }}>
+                  <ChevronUp size={17} color={colors.ink} />
+                </Pressable>
+                <Pressable disabled={i === block.subs.length - 1} onPress={() => move(s.code, 1)} hitSlop={6}
+                  style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: i === block.subs.length - 1 ? 0.35 : 1 }}>
+                  <ChevronDown size={17} color={colors.ink} />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+          <Pressable onPress={() => resetOrder(block.id)} style={{ alignSelf: 'flex-start', marginLeft: 20, marginTop: 12, paddingHorizontal: 14, height: 34, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
+            <Text style={{ color: colors.coolText, fontSize: 13, fontWeight: '600' }}>Reset to default order</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 

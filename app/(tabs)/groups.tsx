@@ -91,6 +91,7 @@ export default function Groups() {
   const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => ({
     id: c.id, name: c.name, branchId: c.branchId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
     preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : undefined,
+    pinned: !!c.pinned, // pinned groups float to the top of their branch's list
   }));
 
   // Unread badges on the segment tabs — number of unread items per segment (NOT the total count).
