@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -12,7 +12,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { WebView } from 'react-native-webview';
 import { Avatar } from '../../src/components/ui';
-import { VoiceMessage, LinkedText, AttachmentTile, LinkPreviewCard } from '../../src/components/chat';
+import { VoiceMessage, LinkedText, AttachmentTile, LinkPreviewCard, ZoomableImage } from '../../src/components/chat';
 import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
@@ -1019,15 +1019,18 @@ export default function ChatDetail() {
         </Pressable>
       </Modal>
 
-      {/* Full-screen image viewer */}
+      {/* Full-screen image viewer — pinch to zoom, drag to pan, double-tap to zoom in/out, tap to
+          close (ZoomableImage). The Modal gets its own GestureHandlerRootView: RN modals render in a
+          separate native window, outside the app root's gesture root, so without it the pinch/pan
+          gestures never fire (a well-known RNGH gotcha). */}
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
-        <Pressable onPress={() => setViewer(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' }}>
-          {viewer ? <Image source={{ uri: viewer }} style={{ width: '100%', height: '80%' }} resizeMode="contain" /> : null}
-          <Pressable onPress={() => setViewer(null)} style={{ position: 'absolute', top: insets.top + 12, right: 18 }}><X size={26} color="#fff" /></Pressable>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)' }}>
+          {viewer ? <ZoomableImage key={viewer} uri={viewer} onSingleTap={() => setViewer(null)} /> : null}
+          <Pressable onPress={() => setViewer(null)} hitSlop={10} style={{ position: 'absolute', top: insets.top + 12, right: 18 }}><X size={26} color="#fff" /></Pressable>
           <Pressable onPress={() => void downloadViewerImage()} hitSlop={10} style={{ position: 'absolute', top: insets.top + 12, left: 18 }}>
             {savingImage ? <ActivityIndicator color="#fff" /> : <Download size={24} color="#fff" />}
           </Pressable>
-        </Pressable>
+        </GestureHandlerRootView>
       </Modal>
 
       {/* In-app file viewer (iOS) — the downloaded PDF/video/doc renders inside the app like
