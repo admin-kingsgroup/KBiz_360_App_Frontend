@@ -55,6 +55,8 @@ export interface DirectoryRole {
 // show and re-enable them.
 export const listUsers = (opts?: { includeDisabled?: boolean }): Promise<DirectoryUser[]> =>
   apiFetch(`/api/users${opts?.includeDisabled ? '?includeDisabled=1' : ''}`);
+// One user by id — returned even when deactivated (the edit form needs the record to re-enable).
+export const getUser = (id: string): Promise<DirectoryUser> => apiFetch(`/api/users/${encodeURIComponent(id)}`);
 export const listCompanies = (): Promise<DirectoryCompany[]> => apiFetch('/api/companies');
 export const listBranches = (): Promise<DirectoryBranch[]> => apiFetch('/api/branches');
 export const listDepartments = (branchId?: string): Promise<DirectoryDepartment[]> =>

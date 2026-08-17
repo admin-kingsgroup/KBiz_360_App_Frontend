@@ -9,7 +9,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import {
-  listUsers, toUser, listRoles, listBranches, createUser, updateUser, humanizeRole,
+  getUser, toUser, listRoles, listBranches, createUser, updateUser, humanizeRole,
   type DirectoryRole, type DirectoryBranch,
 } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
@@ -22,12 +22,16 @@ export default function UserForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const users = useAccessStore((s) => s.users);
   const showToast = useUiStore((s) => s.showToast);
-  // Edit target: the cached directory row shows instantly, then the AUTHORITATIVE record is fetched
-  // from the server (includeDisabled — deactivated users are hidden from the shared directory, and
-  // without this fetch editing one silently opened the "Invite" form instead).
+  // EDIT vs CREATE is decided by the route param ALONE. The record itself is loaded separately:
+  // the cached directory row (if any) prefills instantly, then the authoritative record comes from
+  // GET /api/users/:id — which also returns DEACTIVATED users, who are hidden from the shared
+  // directory. (Deciding the mode by "was a record found" made editing a deactivated user open the
+  // "Invite new user" form and then fail with "already exists".)
+  const isEdit = !!id;
   const cachedUser = id ? users.find((u) => u.id === id) : undefined;
   const [freshUser, setFreshUser] = useState<User | undefined>();
-  const editUser = id ? (freshUser ?? cachedUser) : undefined;
+  const [loadError, setLoadError] = useState(false);
+  const editUser = isEdit ? (freshUser ?? cachedUser) : undefined;
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -40,14 +44,18 @@ export default function UserForm() {
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
   const [saving, setSaving] = useState(false);
 
+  const loadTarget = (): void => {
+    if (!id) return;
+    setLoadError(false);
+    getUser(id)
+      .then((du) => setFreshUser(toUser(du)))
+      .catch(() => setLoadError(true)); // a cached row (if any) still prefills; otherwise show Retry
+  };
   useEffect(() => {
     listRoles().then(setRoles).catch(() => undefined);
     listBranches().then(setBranches).catch(() => undefined);
-    if (id) {
-      listUsers({ includeDisabled: true })
-        .then((list) => { const du = list.find((u) => u.id === id); if (du) setFreshUser(toUser(du)); })
-        .catch(() => undefined); // offline — keep the cached row
-    }
+    loadTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // Prefill from the edit target. The cached row lands first and the server record a moment later;
@@ -69,8 +77,10 @@ export default function UserForm() {
   const toggleBranch = (bid: string): void => { touched.current = true; setBranchIds((s) => (s.includes(bid) ? s.filter((x) => x !== bid) : [...s, bid])); };
   const edit = <T,>(set: (v: T) => void) => (v: T): void => { touched.current = true; set(v); };
 
-  const valid = name.trim() && email.trim() && roleId && (editUser || password.length >= 6);
-  const missing = [!name.trim() && 'name', !email.trim() && 'email', !roleId && 'role', !editUser && password.length < 6 && 'password (6+ chars)'].filter(Boolean).join(' · ');
+  // In edit mode the record MUST be loaded before saving (else a blank prefill would overwrite the user).
+  const targetReady = !isEdit || !!editUser;
+  const valid = targetReady && name.trim() && email.trim() && roleId && (isEdit || password.length >= 6);
+  const missing = [!name.trim() && 'name', !email.trim() && 'email', !roleId && 'role', !isEdit && password.length < 6 && 'password (6+ chars)'].filter(Boolean).join(' · ');
 
   // After a save, re-pull the shared user directory so every people list (Team & Users, pickers,
   // group info, search) shows the change immediately.
@@ -83,10 +93,10 @@ export default function UserForm() {
     const lastName = parts.slice(1).join(' ');
     setSaving(true);
     try {
-      if (editUser) {
+      if (id) { // edit mode (isEdit === !!id)
         const patch: Parameters<typeof updateUser>[1] = { firstName, lastName, phone: phone.trim() || null, roleId, branchIds, status: active ? 'active' : 'inactive' };
         if (password.length >= 6) patch.password = password;
-        await updateUser(editUser.id, patch);
+        await updateUser(id, patch);
         showToast(`${name.trim()} updated`);
       } else {
         await createUser({ email: email.trim(), password, firstName, lastName, phone: phone.trim() || null, roleId, branchIds });
@@ -103,24 +113,37 @@ export default function UserForm() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center justify-between px-5 pt-3 pb-3">
-        <Text style={{ color: colors.ink, fontSize: 19, fontWeight: '700', letterSpacing: -0.3 }}>{editUser ? `Edit · ${editUser.name}` : 'Invite new user'}</Text>
+        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 19, fontWeight: '700', letterSpacing: -0.3, paddingRight: 8 }}>{isEdit ? (editUser ? `Edit · ${editUser.name}` : 'Edit user') : 'Invite new user'}</Text>
         <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={17} color={colors.coolText} /></Pressable>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 20 }}>
+        {isEdit && !editUser ? (
+          loadError ? (
+            <Pressable onPress={loadTarget} className="flex-row items-center gap-2" style={{ paddingVertical: 10, marginBottom: 8 }}>
+              <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '600' }}>Couldn't load this user.</Text>
+              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>Retry</Text>
+            </Pressable>
+          ) : (
+            <View className="flex-row items-center gap-2" style={{ paddingVertical: 10, marginBottom: 8 }}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={{ color: colors.coolText, fontSize: 13 }}>Loading user…</Text>
+            </View>
+          )
+        ) : null}
         <FormField label="Full name" required>
           <TextInput value={name} onChangeText={edit(setName)} placeholder="e.g. Anjali Sharma" placeholderTextColor={colors.coolText3}
             style={input} />
         </FormField>
         <FormField label="Email" required>
-          <TextInput value={email} onChangeText={edit(setEmail)} editable={!editUser} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.coolText3}
-            style={[input, editUser ? { opacity: 0.6 } : null]} />
+          <TextInput value={email} onChangeText={edit(setEmail)} editable={!isEdit} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.coolText3}
+            style={[input, isEdit ? { opacity: 0.6 } : null]} />
         </FormField>
         <FormField label="Phone">
           <TextInput value={phone} onChangeText={edit(setPhone)} placeholder="Optional" keyboardType="phone-pad" placeholderTextColor={colors.coolText3} style={input} />
         </FormField>
-        <FormField label={editUser ? 'Password (leave blank to keep)' : 'Password'} required={!editUser}>
-          <TextInput value={password} onChangeText={edit(setPassword)} placeholder={editUser ? '••••••••' : 'At least 6 characters'} secureTextEntry autoCapitalize="none" placeholderTextColor={colors.coolText3} style={input} />
+        <FormField label={isEdit ? 'Password (leave blank to keep)' : 'Password'} required={!isEdit}>
+          <TextInput value={password} onChangeText={edit(setPassword)} placeholder={isEdit ? '••••••••' : 'At least 6 characters'} secureTextEntry autoCapitalize="none" placeholderTextColor={colors.coolText3} style={input} />
         </FormField>
 
         <FormField label="Role" required>
@@ -158,7 +181,7 @@ export default function UserForm() {
           <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>Branches determine what this user can see (with their role). Leave empty for company-wide roles.</Text>
         </FormField>
 
-        {editUser ? (
+        {isEdit ? (
           <FormField label="Status">
             <Pressable onPress={() => { touched.current = true; setActive((a) => !a); }} className="flex-row items-center justify-between px-3 py-3" style={{ borderWidth: 1, borderRadius: 12, borderColor: colors.coolDivider, backgroundColor: colors.card }}>
               <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{active ? 'Active' : 'Inactive (cannot log in)'}</Text>
@@ -170,7 +193,7 @@ export default function UserForm() {
         ) : null}
 
         {!valid ? <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '600', marginBottom: 8 }}>Required: {missing}</Text> : null}
-        <SheetSave label={saving ? 'Saving…' : editUser ? 'Save changes' : 'Create user'} disabled={!valid || saving} onPress={save} />
+        <SheetSave label={saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create user'} disabled={!valid || saving} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );
