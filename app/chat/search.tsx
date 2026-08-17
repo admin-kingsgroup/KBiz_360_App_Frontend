@@ -10,7 +10,7 @@ import { useMessagingStore } from '../../src/store/messagingStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { searchMessages, getOrCreateDirect, type ChatMessage } from '../../src/api/chat';
 import { search as searchLocal } from '../../src/services/chatDb';
-import { listUsers, toUser } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { startVoiceSearch, stopVoiceSearch } from '../../src/services/speech';
 
 const hhmm = (iso: string): string => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; };
@@ -33,7 +33,7 @@ export default function ChatSearch() {
   const showToast = useUiStore((s) => s.showToast);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined); }, [users.length]);
+  useEffect(() => { void refreshDirectoryUsers(); }, []); // throttled — people list stays current
 
   const convName = (id: string): string => conversations.find((c) => c.id === id)?.name ?? 'Conversation';
   const userName = (id: string): string => users.find((u) => u.id === id)?.name ?? 'Member';

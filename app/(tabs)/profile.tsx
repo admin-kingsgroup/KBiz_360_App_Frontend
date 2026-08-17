@@ -10,7 +10,8 @@ import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { ROLE_DEFS } from '../../src/constants/roles';
 import { useUiStore } from '../../src/store/uiStore';
-import { listCompanies, listUsers, listBranches, listRoles, updateMyProfile, setMyAvatar, changeMyPassword, humanizeRole, toUser } from '../../src/api/directory';
+import { listCompanies, listUsers, listBranches, listRoles, updateMyProfile, setMyAvatar, changeMyPassword, humanizeRole } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { uploadFile, mediaUrl } from '../../src/api/media';
 import { ApiError } from '../../src/api/client';
 import { authApi } from '../../src/api';
@@ -51,7 +52,7 @@ export default function Profile() {
       // Sync authStore + the persisted session so the photo survives an app restart.
       void authApi.refreshMe();
       // Refresh the directory so the new photo also shows in member lists / Team & Users.
-      listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
+      void refreshDirectoryUsers({ force: true });
       showToast('Profile picture updated');
     } catch (e) { showToast(e instanceof ApiError ? e.message : 'Could not update picture'); } finally { setPicking(false); }
   };
@@ -79,6 +80,8 @@ export default function Profile() {
         if (user) useAccessStore.getState().setUser({ ...user, name: full, initials });
         // Sync authStore + the persisted session so the new name survives an app restart.
         void authApi.refreshMe();
+        // Refresh the directory so the new name/phone shows in member lists / Team & Users now.
+        void refreshDirectoryUsers({ force: true });
         showToast('Profile updated');
         setEditing(false);
       })

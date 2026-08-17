@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, Modal, ActivityIndicator, ScrollView, Alert, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -9,7 +9,8 @@ import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { getConversation, updateGroup, addGroupMembers, removeGroupMember, promoteGroupAdmin, deleteGroup, type ChatConversation } from '../../src/api/chat';
-import { listUsers, toUser } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 
 export default function GroupInfo() {
   const router = useRouter();
@@ -30,11 +31,12 @@ export default function GroupInfo() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const refresh = (): void => { getConversation(convId).then(setConv).catch(() => undefined); };
-  useEffect(() => {
+  // Reload on every focus (not just mount), and keep the shared user directory fresh so member
+  // names / titles / photos edited elsewhere show here without an app restart.
+  useRefreshOnFocus(() => {
     getConversation(convId).then(setConv).catch(() => undefined).finally(() => setLoading(false));
-    if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convId]);
+    void refreshDirectoryUsers();
+  });
 
   const nameOf = useMemo(() => { const m = new Map(users.map((u) => [u.id, u.name])); return (uid: string): string => m.get(uid) ?? 'Member'; }, [users]);
   const positionOf = useMemo(() => { const m = new Map(users.map((u) => [u.id, u.position ?? null])); return (uid: string): string | null => m.get(uid) ?? null; }, [users]);

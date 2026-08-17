@@ -7,7 +7,7 @@ import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { starredMessages, type ChatMessage } from '../../src/api/chat';
-import { listUsers, toUser } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 
 const hhmm = (iso: string): string => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; };
 
@@ -20,9 +20,9 @@ export default function StarredMessages() {
   const users = useAccessStore((s) => s.users);
 
   useEffect(() => {
-    if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
+    void refreshDirectoryUsers(); // throttled — names stay current without an app restart
     starredMessages().then(setItems).catch(() => setItems([])).finally(() => setLoading(false));
-  }, [users.length]);
+  }, []);
 
   const convName = (id: string): string => conversations.find((c) => c.id === id)?.name ?? 'Conversation';
   const userName = (id: string): string => users.find((u) => u.id === id)?.name ?? 'Member';

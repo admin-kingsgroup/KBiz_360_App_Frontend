@@ -8,7 +8,7 @@ import { colors } from '../../src/theme';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { listUsers, toUser } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 
 // Chat privacy — WhatsApp's Privacy screen: who can see when you were last online, whether you send
 // read receipts, and the list of people you have blocked.
@@ -22,8 +22,8 @@ export default function ChatPrivacy() {
 
   useFocusEffect(useCallback(() => {
     void useMessagingStore.getState().loadPrivacy();
-    if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
-  }, [users.length]));
+    void refreshDirectoryUsers(); // throttled — names stay current without an app restart
+  }, []));
 
   const set = async (patch: { readReceipts?: boolean; lastSeen?: 'everyone' | 'nobody' }): Promise<void> => {
     setBusy(true);

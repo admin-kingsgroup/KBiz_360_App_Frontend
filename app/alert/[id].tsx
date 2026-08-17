@@ -15,6 +15,7 @@ import { useUiStore } from '../../src/store/uiStore';
 import { apiFetch } from '../../src/api/client';
 import { mediaUrl } from '../../src/api/media';
 import { dateStamp } from '../../src/utils/time';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 
 // Alert detail — port of source PulseChannelScreen. Opening the channel marks ALL its events read
 // (Home's unread badge clears, like a chat thread); the events that were unread on entry keep their
@@ -52,6 +53,9 @@ export default function AlertDetail() {
   // Reading a group marks every branch it currently shows — one call per real backend channel.
   const markShownRead = (): void => shownIds.forEach(markChannelRead);
   const showToast = useUiStore((s) => s.showToast);
+  // Pull the latest feed every time this screen is shown (a deep link / cold start can land here
+  // before the store has today's events; a newly sent announcement shows without going back).
+  useRefreshOnFocus(() => { void usePulseStore.getState().refresh(); });
 
   // Mark read once the channel's events are actually loaded (a deep link can land here before the
   // first /api/alerts fetch resolves); later events arriving mid-visit stay unread until tapped.

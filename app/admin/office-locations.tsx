@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator, Modal, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,7 +12,8 @@ import {
   getAdminOffices, getOfficeAssignments, createOffice, updateOffice, deleteOffice, setDefaultOffice, assignUserOffice,
   type AdminBranchOffices, type AdminOfficeEntry,
 } from '../../src/api/attendance';
-import { listUsers, toUser } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 import { syncAttendanceGeofencing } from '../../src/services/backgroundAttendance';
 import { ApiError } from '../../src/api/client';
 
@@ -40,11 +41,9 @@ export default function OfficeLocations() {
     Promise.all([getAdminOffices().then(setRows), getOfficeAssignments().then(setAssignments)])
       .catch(() => undefined).finally(() => setLoading(false));
   };
-  useEffect(() => {
-    load();
-    if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Reload on every focus (not just mount), and keep the shared user directory fresh for the
+  // "Assign staff" picker (new / renamed users show without an app restart).
+  useRefreshOnFocus(() => { load(); void refreshDirectoryUsers(); });
 
   const startNew = (branchId: string): void => setForm({ officeId: null, branchId, label: '', lat: '', lng: '', radius: '100', address: '', wifiSsid: '' });
   const startEdit = (o: AdminOfficeEntry, branchId: string): void =>
@@ -118,7 +117,9 @@ export default function OfficeLocations() {
     const isOn = assignments[userId] === officeId;
     const next = isOn ? null : officeId;
     setAssignments((a) => { const n = { ...a }; if (next) n[userId] = next; else delete n[userId]; return n; });
-    assignUserOffice(userId, next).then(() => void syncAttendanceGeofencing()).catch(() => { showToast('Could not update'); load(); });
+    assignUserOffice(userId, next)
+      .then(() => { void syncAttendanceGeofencing(); getOfficeAssignments().then(setAssignments).catch(() => undefined); }) // re-sync from the server
+      .catch(() => { showToast('Could not update'); load(); });
   };
 
   const assignCandidates = assignFor

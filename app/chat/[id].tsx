@@ -26,7 +26,7 @@ import { DateJumpSheet } from '../../src/components/chat/DateJumpSheet';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
 import { WALLPAPERS } from '../../src/theme/wallpapers';
-import { listUsers, toUser } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
@@ -209,7 +209,7 @@ export default function ChatDetail() {
       .finally(() => { setFetched(true); void store.markRead(convId); emitRead(convId); });
     setPinIdx(0); setPendingJump(null); setHighlightId(null);
     getPinned(convId).then(setPinned).catch(() => setPinned([]));
-    if (users.length === 0) listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
+    void refreshDirectoryUsers(); // throttled — member names/photos stay current
     return () => { leaveConversation(convId); useMessagingStore.getState().setActive(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId]);

@@ -10,7 +10,8 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { createGroup } from '../../src/api/chat';
 import { canCreateGroups } from '../../src/logic/groupCreate';
-import { listUsers, toUser, listCompanies, listBranches, listDepartments, type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment } from '../../src/api/directory';
+import { listCompanies, listBranches, listDepartments, type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment } from '../../src/api/directory';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 
 // Company-wide leadership is not tied to any branch but can join any group.
 const COMPANY_WIDE = new Set(['SUPER_ADMIN', 'DIRECTOR']);
@@ -66,13 +67,9 @@ export default function NewGroup() {
     // Load USERS independently and gate only the member list on them (see usersLoading below), so
     // members appear the moment the directory users arrive — the member area no longer waits on the
     // companies/branches/departments fetches. Those populate their own chips as each resolves.
-    if (users.length === 0) {
-      setUsersLoading(true);
-      listUsers()
-        .then((l) => useAccessStore.getState().setUsers(l.map(toUser)))
-        .catch(() => undefined)
-        .finally(() => setUsersLoading(false));
-    }
+    // Always re-pull (throttled): a user invited a moment ago must be pickable here right away.
+    if (users.length === 0) setUsersLoading(true);
+    void refreshDirectoryUsers().finally(() => setUsersLoading(false));
     listCompanies().then(setCompanies).catch(() => undefined);
     listBranches().then(setBranches).catch(() => undefined);
     listDepartments().then(setAllDepts).catch(() => undefined);

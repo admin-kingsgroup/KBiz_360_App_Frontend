@@ -12,6 +12,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
 import { listReminders, completeReminder, approveReminder, reassignReminder, type ReminderTab, type ReminderListResponse } from '../../src/api/reminders';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 import { cancelReminderLocal } from '../../src/services/notifications/reminderLocal';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
 import type { ReminderRecord } from '../../src/data/reminders';
@@ -52,7 +53,9 @@ export default function Reminders() {
   const current = data && data.tab === TABS[f] ? data : null;
 
   // Directory for the reassign picker.
-  useEffect(() => { listUsers().then(setPeople).catch(() => undefined); }, []);
+  // People for the Re-assign picker — refetched on focus (the tab stays mounted all session, so a
+  // mount-only load never showed users invited later).
+  useRefreshOnFocus(() => { listUsers().then(setPeople).catch(() => undefined); });
 
   // If the role drops mid-session (logout/login, "View as") while All is selected, snap back.
   useEffect(() => { if (!isSuper && f >= filters.length) setF(0); }, [isSuper, f, filters.length]);

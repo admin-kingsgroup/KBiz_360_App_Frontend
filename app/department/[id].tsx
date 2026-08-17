@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { useEffect } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -10,6 +9,7 @@ import { DEPT_DESCRIPTIONS } from '../../src/constants/departments';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 
 // Department detail — Branch → Department → many GROUPS. For this department, shows each branch's groups
 // (a department can hold several) and a "+ New group" per branch. Branches are access-scoped by the
@@ -21,10 +21,12 @@ export default function DepartmentDetail() {
   const dir = useDirectoryStore();
   const conversations = useMessagingStore((s) => s.conversations);
 
-  useEffect(() => {
-    if (!dir.loaded && !dir.loading) void useDirectoryStore.getState().load();
+  // Reload on every focus (not just mount): a group created/renamed/deleted, or a department edited
+  // from the "⋮" admin screen on top of this one, shows the moment the user comes back.
+  useRefreshOnFocus(() => {
+    void useDirectoryStore.getState().load();
     void useMessagingStore.getState().loadConversations();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  });
 
   const usingReal = dir.businesses.length > 0;
   const biz = (usingReal ? dir.businesses : mockBusinesses).find((b) => b.id === bizId);

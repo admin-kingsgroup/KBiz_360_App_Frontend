@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -6,6 +6,7 @@ import { ChevronLeft, Check, Archive as ArchiveIcon } from 'lucide-react-native'
 import { colors } from '../../src/theme';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { listReminders } from '../../src/api/reminders';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 import type { ReminderRecord } from '../../src/data/reminders';
 
 // Reminder archive — approved reminders the user is part of, from the Mongo reminders API.
@@ -16,14 +17,15 @@ export default function ReminderArchive() {
   const [archived, setArchived] = useState<ReminderRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  // Reload on every focus (not just mount) so newly approved reminders appear on return.
+  useRefreshOnFocus(() => {
     let active = true;
     listReminders('archive')
       .then((r) => { if (active) setArchived(r.visible); })
       .catch(() => undefined)
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  });
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { listRoles, listUsers, setRolePermissions, humanizeRole, type DirectoryRole } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 
 // Roles & Permissions — real CRM roles. Super-admins can edit a role's permission list (writes to the
 // CRM). The permission catalog is the union of permissions already used across roles, so only real
@@ -34,7 +35,8 @@ export default function Roles() {
       .catch(() => undefined)
       .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); }, []);
+  // Reload on every focus (not just mount): user counts change when users are edited elsewhere.
+  useRefreshOnFocus(load);
 
   const catalog = useMemo(() => [...new Set(roles.flatMap((r) => r.permissions ?? []))].sort(), [roles]);
   const sorted = useMemo(() => [...roles].sort((a, b) => a.level - b.level), [roles]);

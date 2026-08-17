@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,6 +12,8 @@ import { listUsers, toUser, deleteUser } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
 import { authApi, adminApi } from '../../src/api';
 import { useMessagingStore } from '../../src/store/messagingStore';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 import type { User } from '../../src/types/user';
 
 // Users tab — reads canonical accessStore.users. Tapping a row opens a 1:1 chat; super-admins get
@@ -42,24 +44,29 @@ export default function Users() {
     .map((c) => ({ grant: `${c.branch}-${c.module}`, name: c.name, icon: c.icon }));
 
   // Hydrate the full user list (incl. deactivated) from the CRM directory into LOCAL state only.
-  useEffect(() => {
+  // Re-pulled after every mutation on this screen AND every time the screen regains focus, so a
+  // user edited in the (pushed) user editor shows the new name/role the moment you come back —
+  // not only after closing and reopening Team & Users.
+  const reloadUsers = (): Promise<void> =>
+    listUsers({ includeDisabled: true })
+      .then((list) => setUsers(list.map(toUser)))
+      .catch(() => { /* keep any cached users */ });
+  // Super-admin: each user's app-access / attendance-tracking / alert-channel state for the toggles.
+  const reloadAdminState = (): void => {
+    if (!isSuper) return;
+    adminApi.getUserAccess().then(setAppAccess).catch(() => undefined);
+    adminApi.getAttendanceTracking().then(setTracking).catch(() => undefined);
+    adminApi.getAlertVisibility().then(setAlertGrants).catch(() => undefined);
+  };
+  useRefreshOnFocus(() => {
     let active = true;
     listUsers({ includeDisabled: true })
       .then((list) => { if (active) setUsers(list.map(toUser)); })
       .catch(() => { /* keep any cached users */ })
       .finally(() => { if (active) setLoading(false); });
+    reloadAdminState();
     return () => { active = false; };
-  }, []);
-
-  // Super-admin: load each user's app-access state for the per-user toggles.
-  useEffect(() => {
-    if (!isSuper) return;
-    let active = true;
-    adminApi.getUserAccess().then((s) => { if (active) setAppAccess(s); }).catch(() => undefined);
-    adminApi.getAttendanceTracking().then((s) => { if (active) setTracking(s); }).catch(() => undefined);
-    adminApi.getAlertVisibility().then((s) => { if (active) setAlertGrants(s); }).catch(() => undefined);
-    return () => { active = false; };
-  }, [isSuper]);
+  });
 
   // Toggle one alert-channel grant for a user. Saves immediately (the server live-pushes
   // 'alert:visibility' to that user, so their Home feed updates without a re-login).
@@ -68,7 +75,7 @@ export default function Users() {
     const next = on ? [...new Set([...current, grant])] : current.filter((g) => g !== grant);
     setAlertGrants((s) => ({ ...s, [userId]: next })); // optimistic
     adminApi.setAlertVisibility(userId, next)
-      .then((r) => setAlertGrants((s) => ({ ...s, [userId]: r.alerts ?? next })))
+      .then((r) => setAlertGrants((s) => ({ ...s, [userId]: r.alerts ?? next }))) // server's list is authoritative
       .catch(() => { setAlertGrants((s) => ({ ...s, [userId]: current })); showToast('Could not update alert access'); });
   };
 
@@ -76,7 +83,12 @@ export default function Users() {
   const toggleTracking = (id: string, on: boolean) => {
     setTracking((s) => ({ ...s, [id]: on })); // optimistic
     adminApi.setAttendanceTracking(id, on)
-      .then(() => showToast(on ? 'Attendance tracking on' : 'Attendance not taken for this user'))
+      .then(() => {
+        showToast(on ? 'Attendance tracking on' : 'Attendance not taken for this user');
+        // Re-sync THIS user's flag from the server (merge one key — a whole-map replace could
+        // briefly revert another switch flipped a moment later).
+        adminApi.getAttendanceTracking().then((m) => setTracking((s) => ({ ...s, [id]: m[id] !== false }))).catch(() => undefined);
+      })
       .catch(() => { setTracking((s) => ({ ...s, [id]: !on })); showToast('Could not update'); });
   };
 
@@ -84,7 +96,13 @@ export default function Users() {
   const toggleAccess = (id: string, enabled: boolean) => {
     setAppAccess((s) => ({ ...s, [id]: enabled })); // optimistic
     adminApi.setUserAccess(id, enabled)
-      .then(() => showToast(enabled ? 'App access enabled' : 'App access disabled — user signed out'))
+      .then(() => {
+        showToast(enabled ? 'App access enabled' : 'App access disabled — user signed out');
+        adminApi.getUserAccess().then((m) => setAppAccess((s) => ({ ...s, [id]: m[id] !== false }))).catch(() => undefined); // re-sync this key
+        // Deactivated users drop out of every picker/list app-wide (server hides them) — refresh
+        // the shared directory now so those screens don't keep showing them until a restart.
+        void refreshDirectoryUsers({ force: true });
+      })
       .catch(() => { setAppAccess((s) => ({ ...s, [id]: !enabled })); showToast('Could not update access'); });
   };
 
@@ -96,7 +114,12 @@ export default function Users() {
       text: 'Delete', style: 'destructive',
       onPress: () => {
         deleteUser(u.id)
-          .then(() => { setUsers((prev) => prev.filter((x) => x.id !== u.id)); showToast('User deleted'); })
+          .then(() => {
+            setUsers((prev) => prev.filter((x) => x.id !== u.id)); // instant…
+            showToast('User deleted');
+            void reloadUsers(); // …then authoritative
+            void refreshDirectoryUsers({ force: true }); // and out of every picker app-wide
+          })
           .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete user'));
       },
     },
@@ -115,8 +138,10 @@ export default function Users() {
         setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, position: position || null } : u)));
         showToast(position ? 'Position updated' : 'Position cleared');
         setEditing(null);
-        // …then re-sync from the server so it stays put across reloads (authoritative).
-        listUsers({ includeDisabled: true }).then((list) => setUsers(list.map(toUser))).catch(() => undefined);
+        // …then re-sync from the server so it stays put across reloads (authoritative), and push
+        // the new title into the shared directory (group info, pickers) right away.
+        void reloadUsers();
+        void refreshDirectoryUsers({ force: true });
       })
       .catch(() => showToast('Could not save position'))
       .finally(() => setSavingPos(false));

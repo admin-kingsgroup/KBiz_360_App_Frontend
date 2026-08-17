@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -7,11 +7,13 @@ import { colors } from '../../src/theme';
 import { FormField, SheetSave } from '../../src/components/forms';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
+import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import {
   listUsers, toUser, listRoles, listBranches, createUser, updateUser, humanizeRole,
   type DirectoryRole, type DirectoryBranch,
 } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
+import type { User } from '../../src/types';
 
 // Create / edit a user. Writes to the CRM users collection so the account can log in normally.
 // Fields map 1:1 to the CRM user: name, email, password, phone, role, branches, status.
@@ -20,7 +22,12 @@ export default function UserForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const users = useAccessStore((s) => s.users);
   const showToast = useUiStore((s) => s.showToast);
-  const editUser = id ? users.find((u) => u.id === id) : undefined;
+  // Edit target: the cached directory row shows instantly, then the AUTHORITATIVE record is fetched
+  // from the server (includeDisabled — deactivated users are hidden from the shared directory, and
+  // without this fetch editing one silently opened the "Invite" form instead).
+  const cachedUser = id ? users.find((u) => u.id === id) : undefined;
+  const [freshUser, setFreshUser] = useState<User | undefined>();
+  const editUser = id ? (freshUser ?? cachedUser) : undefined;
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,10 +43,18 @@ export default function UserForm() {
   useEffect(() => {
     listRoles().then(setRoles).catch(() => undefined);
     listBranches().then(setBranches).catch(() => undefined);
-  }, []);
+    if (id) {
+      listUsers({ includeDisabled: true })
+        .then((list) => { const du = list.find((u) => u.id === id); if (du) setFreshUser(toUser(du)); })
+        .catch(() => undefined); // offline — keep the cached row
+    }
+  }, [id]);
 
+  // Prefill from the edit target. The cached row lands first and the server record a moment later;
+  // once the admin has started typing we never overwrite their input with the late arrival.
+  const touched = useRef(false);
   useEffect(() => {
-    if (editUser) {
+    if (editUser && !touched.current) {
       setName(editUser.name);
       setEmail(editUser.email || '');
       setPhone(editUser.phone ?? '');
@@ -51,12 +66,15 @@ export default function UserForm() {
 
   const branchLabel = (b: DirectoryBranch): string => b.code || b.name || b.city || 'Branch';
   const roleList = useMemo(() => [...roles].sort((a, b) => a.level - b.level), [roles]);
-  const toggleBranch = (bid: string): void => setBranchIds((s) => (s.includes(bid) ? s.filter((x) => x !== bid) : [...s, bid]));
+  const toggleBranch = (bid: string): void => { touched.current = true; setBranchIds((s) => (s.includes(bid) ? s.filter((x) => x !== bid) : [...s, bid])); };
+  const edit = <T,>(set: (v: T) => void) => (v: T): void => { touched.current = true; set(v); };
 
   const valid = name.trim() && email.trim() && roleId && (editUser || password.length >= 6);
   const missing = [!name.trim() && 'name', !email.trim() && 'email', !roleId && 'role', !editUser && password.length < 6 && 'password (6+ chars)'].filter(Boolean).join(' · ');
 
-  const refreshUsers = () => listUsers().then((l) => useAccessStore.getState().setUsers(l.map(toUser))).catch(() => undefined);
+  // After a save, re-pull the shared user directory so every people list (Team & Users, pickers,
+  // group info, search) shows the change immediately.
+  const refreshUsers = () => refreshDirectoryUsers({ force: true });
 
   const save = async (): Promise<void> => {
     if (!valid || !roleId) return;
@@ -91,18 +109,18 @@ export default function UserForm() {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 20 }}>
         <FormField label="Full name" required>
-          <TextInput value={name} onChangeText={setName} placeholder="e.g. Anjali Sharma" placeholderTextColor={colors.coolText3}
+          <TextInput value={name} onChangeText={edit(setName)} placeholder="e.g. Anjali Sharma" placeholderTextColor={colors.coolText3}
             style={input} />
         </FormField>
         <FormField label="Email" required>
-          <TextInput value={email} onChangeText={setEmail} editable={!editUser} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.coolText3}
+          <TextInput value={email} onChangeText={edit(setEmail)} editable={!editUser} placeholder="name@company.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.coolText3}
             style={[input, editUser ? { opacity: 0.6 } : null]} />
         </FormField>
         <FormField label="Phone">
-          <TextInput value={phone} onChangeText={setPhone} placeholder="Optional" keyboardType="phone-pad" placeholderTextColor={colors.coolText3} style={input} />
+          <TextInput value={phone} onChangeText={edit(setPhone)} placeholder="Optional" keyboardType="phone-pad" placeholderTextColor={colors.coolText3} style={input} />
         </FormField>
         <FormField label={editUser ? 'Password (leave blank to keep)' : 'Password'} required={!editUser}>
-          <TextInput value={password} onChangeText={setPassword} placeholder={editUser ? '••••••••' : 'At least 6 characters'} secureTextEntry autoCapitalize="none" placeholderTextColor={colors.coolText3} style={input} />
+          <TextInput value={password} onChangeText={edit(setPassword)} placeholder={editUser ? '••••••••' : 'At least 6 characters'} secureTextEntry autoCapitalize="none" placeholderTextColor={colors.coolText3} style={input} />
         </FormField>
 
         <FormField label="Role" required>
@@ -111,7 +129,7 @@ export default function UserForm() {
               {roleList.map((r) => {
                 const on = roleId === r.id;
                 return (
-                  <Pressable key={r.id} onPress={() => setRoleId(r.id)} className="flex-row items-center gap-2.5 px-3 py-3"
+                  <Pressable key={r.id} onPress={() => edit(setRoleId)(r.id)} className="flex-row items-center gap-2.5 px-3 py-3"
                     style={{ borderWidth: 1, borderRadius: 12, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primarySoft : colors.card }}>
                     <View className="flex-1">
                       <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{humanizeRole(r.name)}</Text>
@@ -142,7 +160,7 @@ export default function UserForm() {
 
         {editUser ? (
           <FormField label="Status">
-            <Pressable onPress={() => setActive((a) => !a)} className="flex-row items-center justify-between px-3 py-3" style={{ borderWidth: 1, borderRadius: 12, borderColor: colors.coolDivider, backgroundColor: colors.card }}>
+            <Pressable onPress={() => { touched.current = true; setActive((a) => !a); }} className="flex-row items-center justify-between px-3 py-3" style={{ borderWidth: 1, borderRadius: 12, borderColor: colors.coolDivider, backgroundColor: colors.card }}>
               <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{active ? 'Active' : 'Inactive (cannot log in)'}</Text>
               <View style={{ width: 46, height: 28, borderRadius: 999, backgroundColor: active ? colors.primary : colors.coolDivider, padding: 3, alignItems: active ? 'flex-end' : 'flex-start' }}>
                 <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' }} />

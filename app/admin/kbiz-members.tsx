@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { getKbizMembership, setKbizMembership, humanizeRole, toUser, type KbizMembership } from '../../src/api/directory';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 
 // Super-admin: who belongs to the KBiz360 business (its single BOM branch). Every tenant user is
 // listed with a toggle — ON adds the BOM branch to their branch_ids, OFF removes it. The backend
@@ -20,18 +21,22 @@ export default function KbizMembers() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
-  useEffect(() => {
+  // Post-toggle re-sync: adopt the server's roster; a failed re-sync keeps the optimistic state.
+  const load = (): Promise<void> =>
+    getKbizMembership().then((d) => { setData(d); setError(null); }).catch(() => undefined);
+  // Reload on every focus (not just mount) so users added / renamed elsewhere appear here.
+  useRefreshOnFocus(() => {
     let active = true;
     getKbizMembership()
-      .then((d) => { if (active) setData(d); })
+      .then((d) => { if (active) { setData(d); setError(null); } })
       .catch((e) => { if (active) setError(e instanceof Error ? e.message : 'Could not load members'); });
     return () => { active = false; };
-  }, []);
+  });
 
   const toggle = (userId: string, member: boolean) => {
     setData((d) => d && { ...d, users: d.users.map((u) => (u.id === userId ? { ...u, member } : u)) }); // optimistic
     setKbizMembership(userId, member)
-      .then(() => showToast(member ? 'Added to KBiz360 · BOM' : 'Removed from KBiz360 · BOM'))
+      .then(() => { showToast(member ? 'Added to KBiz360 · BOM' : 'Removed from KBiz360 · BOM'); void load(); }) // …then re-sync
       .catch(() => {
         setData((d) => d && { ...d, users: d.users.map((u) => (u.id === userId ? { ...u, member: !member } : u)) }); // revert
         showToast('Could not update membership');

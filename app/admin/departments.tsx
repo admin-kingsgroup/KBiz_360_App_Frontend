@@ -11,6 +11,7 @@ import {
   type AppDepartment, type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment,
 } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
+import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 
 const SWATCHES = ['#4F8BFF', '#37B6A4', '#9A6CF0', '#E8A13A', '#E3674E', '#2E9E6B', '#C0497B', '#0C0E14'];
 type Form = { id: string | null; name: string; companyId: string | null; branchId: string | null; color: string };
@@ -47,11 +48,13 @@ export default function ManageDepartments() {
     }).catch(() => undefined);
   };
   const loadAndBroadcast = (): void => { load(); void useDirectoryStore.getState().load(); };
-  useEffect(() => {
+  // Reload on every focus (not just mount): companies/branches/departments may have been created
+  // or deleted from another screen since this one was last shown.
+  useRefreshOnFocus(() => {
     load();
     listCompanies().then(setCompanies).catch(() => undefined);
     listBranches().then(setBranches).catch(() => undefined);
-  }, []);
+  });
 
   const companyName = useMemo(() => { const m = new Map(companies.map((c) => [c.id, c.name])); return (id: string | null) => (id ? m.get(id) ?? 'Company' : 'All companies'); }, [companies]);
   const branchLabel = (b: DirectoryBranch): string => b.code || b.name || b.city || 'Branch';
