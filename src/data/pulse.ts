@@ -24,32 +24,15 @@ export const crmAlertChannels: PulseChannel[] = [
   { id: 'tk_crm_bom', bizId: 'tk', module: 'crm', branch: 'BOM', name: 'CRM - BOM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Mumbai branch', members: [] },
   { id: 'tk_crm_amd', bizId: 'tk', module: 'crm', branch: 'AMD', name: 'CRM - AMD', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Ahmedabad branch', members: [] },
 ];
-// Sales Invoice — the ERP pushes each approved sale invoice (with its PDF) into the branch's
-// channel. One channel per live Books branch — all 5, unlike Finance/CRM which are BOM/AMD only.
-// Ids and grants ("BOM-sales"…) match the backend's alertChannels definitions.
-export const salesInvoiceAlertChannels: PulseChannel[] = [
-  { id: 'tk_si_bom', bizId: 'tk', module: 'sales', branch: 'BOM', name: 'Sales Invoice - BOM', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Mumbai branch', members: [] },
-  { id: 'tk_si_amd', bizId: 'tk', module: 'sales', branch: 'AMD', name: 'Sales Invoice - AMD', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Ahmedabad branch', members: [] },
-  { id: 'tk_si_nbo', bizId: 'tk', module: 'sales', branch: 'NBO', name: 'Sales Invoice - NBO', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Nairobi branch', members: [] },
-  { id: 'tk_si_dar', bizId: 'tk', module: 'sales', branch: 'DAR', name: 'Sales Invoice - DAR', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Dar es Salaam branch', members: [] },
-  { id: 'tk_si_fbm', bizId: 'tk', module: 'sales', branch: 'FBM', name: 'Sales Invoice - FBM', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · DR Congo branch', members: [] },
-];
-// SO/PO/GP / INB — deal summary (sale · purchase · GP · Link No · voucher numbers) pushed by
-// the ERP on every booking approval and INB deal approval, per branch.
-export const bookingsAlertChannels: PulseChannel[] = [
-  { id: 'tk_bkg_bom', bizId: 'tk', module: 'bookings', branch: 'BOM', name: 'SO/PO/GP / INB - BOM', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Mumbai branch', members: [] },
-  { id: 'tk_bkg_amd', bizId: 'tk', module: 'bookings', branch: 'AMD', name: 'SO/PO/GP / INB - AMD', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Ahmedabad branch', members: [] },
-  { id: 'tk_bkg_nbo', bizId: 'tk', module: 'bookings', branch: 'NBO', name: 'SO/PO/GP / INB - NBO', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Nairobi branch', members: [] },
-  { id: 'tk_bkg_dar', bizId: 'tk', module: 'bookings', branch: 'DAR', name: 'SO/PO/GP / INB - DAR', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Dar es Salaam branch', members: [] },
-  { id: 'tk_bkg_fbm', bizId: 'tk', module: 'bookings', branch: 'FBM', name: 'SO/PO/GP / INB - FBM', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · DR Congo branch', members: [] },
-];
 
-// RETIRED 2026-08-19 — "Clients Receivables", "Supplier Payables", "Bank & Cash" (15 channels),
-// "Attendance" (BOM/AMD + Directors, 3) and "Accounts" (5). All of them post into branch GROUP
-// CHATS now: the daily reports and the day-close attendance summary into "HQ - <BR> Finance"
-// (10pm branch-local for attendance — every branch, not just the two that had a channel), and the
-// per-voucher money-movement feed into "<BR> - Branch Accounts". A puncher still gets their own
-// "You checked in" in My Alerts.
+// RETIRED 2026-08-19 — every branch-fed alert family. They all post into branch GROUP CHATS now:
+//   daily finance reports + the day-close attendance summary → "HQ - <BR> Finance"
+//   per-voucher money movements                              → "<BR> - Branch Accounts"
+//   approved invoices + SO/PO/GP deals                       → "<BR> - Ticketing" (flights)
+//                                                              "<BR> - Holidays" (everything else)
+//   inter-branch deals                                       → "INB <desk> <A>/<B>"
+// What is left here is the legacy Finance/CRM pair (hidden) and the personal My Alerts channel,
+// which still carries a puncher's own "You checked in".
 // Those daily reports are not alerts any more: the ERP posts them into the branch Finance group
 // chats ("HQ - BOM Finance", …), where they can be replied to and forwarded. The backend channels,
 // their event history and their PDFs were deleted with the same release — re-adding cards here
@@ -76,7 +59,7 @@ export const userAlertsChannel: PulseChannel = {
 
 // Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
 // "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
-// (Sales Invoice, SO/PO/GP) stays live.
+// (nothing but the personal My Alerts channel) stays live.
 // The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
 // true restores that family's cards/grants with zero data loss.
 export const FINANCE_ALERTS_ENABLED = false;
@@ -91,8 +74,6 @@ export const pulseChannels: PulseChannel[] = [
   ...(ANNOUNCEMENTS_ENABLED ? [announcementsChannel] : []),
   ...(CRM_ALERTS_ENABLED ? crmAlertChannels : []),
   ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
-  ...salesInvoiceAlertChannels,
-  ...bookingsAlertChannels,
 ];
 
 // Can this channel's events reach the user through the alerts UI? The server keeps sending events
@@ -109,8 +90,6 @@ const allChannels: PulseChannel[] = [
   announcementsChannel,
   ...crmAlertChannels,
   ...financeAlertChannels,
-  ...salesInvoiceAlertChannels,
-  ...bookingsAlertChannels,
 ];
 
 // ── channel groups ──
@@ -135,13 +114,11 @@ const crmGroup: PulseChannelGroup =
 export const pulseGroups: PulseChannelGroup[] = [
   ...(CRM_ALERTS_ENABLED ? [crmGroup] : []),
   ...(FINANCE_ALERTS_ENABLED ? [financeGroup] : []),
-  { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
-  { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
 ];
 
 export const groupById = (id: string): PulseChannelGroup | undefined => pulseGroups.find((g) => g.id === id);
 // The group a backend channel belongs to — resolves legacy deep links (push payloads carry the
-// real channelId, e.g. 'tk_si_bom') onto the grouped screen with that branch preselected.
+// real channelId, e.g. 'tk_fin_bom') onto the grouped screen with that branch preselected.
 export const groupForChannel = (channelId: string): PulseChannelGroup | undefined =>
   pulseGroups.find((g) => g.channels.some((c) => c.id === channelId));
 

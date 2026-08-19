@@ -1,13 +1,9 @@
 export type ModuleKey =
-  | 'crm' | 'accounts' | 'pl' | 'hr' | 'payables' | 'receivables' | 'inventory'
-  // System-alert-only modules (no MODULES card of their own — they exist for alert
-  // channels/grants): 'sales' = ERP-approved sale invoices ("BOM-sales"),
-  // 'bookings' = SO/PO/GP + INB approval GP summaries ("BOM-bookings").
-  // ('bankcash' and 'acct' lived here for the Bank & Cash and Accounts alert channels, both
-  // retired 2026-08-19 when those reports moved into the branch group chats — Accounts into
-  // "<BR> - Branch Accounts". 'payables'/'receivables' stay — they are ordinary business
-  // modules, older than the alert families that borrowed their names.)
-  | 'sales' | 'bookings';
+  | 'crm' | 'accounts' | 'pl' | 'hr' | 'payables' | 'receivables' | 'inventory';
+  // ('bankcash', 'acct', 'sales' and 'bookings' lived here for the alert channels of the same
+  // names, all retired 2026-08-19 when those reports moved into the branch group chats.
+  // 'payables'/'receivables' stay — they are ordinary business modules, older than the alert
+  // families that borrowed their names.)
 
 export type BizStatus = 'active' | 'setup';
 
