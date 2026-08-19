@@ -43,20 +43,13 @@ export const bookingsAlertChannels: PulseChannel[] = [
   { id: 'tk_bkg_dar', bizId: 'tk', module: 'bookings', branch: 'DAR', name: 'SO/PO/GP / INB - DAR', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · Dar es Salaam branch', members: [] },
   { id: 'tk_bkg_fbm', bizId: 'tk', module: 'bookings', branch: 'FBM', name: 'SO/PO/GP / INB - FBM', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & GP by Link No · DR Congo branch', members: [] },
 ];
-// Accounts — every posted finance voucher (receipts, payments, contra, journal, notes,
-// refunds, memos): how much was received or sent, per branch.
-export const acctAlertChannels: PulseChannel[] = [
-  { id: 'tk_acc_bom', bizId: 'tk', module: 'acct', branch: 'BOM', name: 'Accounts - BOM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Mumbai branch', members: [] },
-  { id: 'tk_acc_amd', bizId: 'tk', module: 'acct', branch: 'AMD', name: 'Accounts - AMD', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Ahmedabad branch', members: [] },
-  { id: 'tk_acc_nbo', bizId: 'tk', module: 'acct', branch: 'NBO', name: 'Accounts - NBO', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Nairobi branch', members: [] },
-  { id: 'tk_acc_dar', bizId: 'tk', module: 'acct', branch: 'DAR', name: 'Accounts - DAR', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Dar es Salaam branch', members: [] },
-  { id: 'tk_acc_fbm', bizId: 'tk', module: 'acct', branch: 'FBM', name: 'Accounts - FBM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · DR Congo branch', members: [] },
-];
 
-// RETIRED 2026-08-19 — "Clients Receivables", "Supplier Payables", "Bank & Cash" (15 channels) and
-// "Attendance" (BOM/AMD + Directors, 3 channels). Attendance is now ONE day-close summary per
-// branch, posted at 10pm branch-local into that branch's group chat — every branch, not just the
-// two that had a channel. A puncher still gets their own "You checked in" in My Alerts.
+// RETIRED 2026-08-19 — "Clients Receivables", "Supplier Payables", "Bank & Cash" (15 channels),
+// "Attendance" (BOM/AMD + Directors, 3) and "Accounts" (5). All of them post into branch GROUP
+// CHATS now: the daily reports and the day-close attendance summary into "HQ - <BR> Finance"
+// (10pm branch-local for attendance — every branch, not just the two that had a channel), and the
+// per-voucher money-movement feed into "<BR> - Branch Accounts". A puncher still gets their own
+// "You checked in" in My Alerts.
 // Those daily reports are not alerts any more: the ERP posts them into the branch Finance group
 // chats ("HQ - BOM Finance", …), where they can be replied to and forwarded. The backend channels,
 // their event history and their PDFs were deleted with the same release — re-adding cards here
@@ -83,7 +76,7 @@ export const userAlertsChannel: PulseChannel = {
 
 // Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
 // "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
-// (Sales Invoice, SO/PO/GP, Accounts) stays live.
+// (Sales Invoice, SO/PO/GP) stays live.
 // The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
 // true restores that family's cards/grants with zero data loss.
 export const FINANCE_ALERTS_ENABLED = false;
@@ -100,7 +93,6 @@ export const pulseChannels: PulseChannel[] = [
   ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
   ...salesInvoiceAlertChannels,
   ...bookingsAlertChannels,
-  ...acctAlertChannels,
 ];
 
 // Can this channel's events reach the user through the alerts UI? The server keeps sending events
@@ -119,7 +111,6 @@ const allChannels: PulseChannel[] = [
   ...financeAlertChannels,
   ...salesInvoiceAlertChannels,
   ...bookingsAlertChannels,
-  ...acctAlertChannels,
 ];
 
 // ── channel groups ──
@@ -146,7 +137,6 @@ export const pulseGroups: PulseChannelGroup[] = [
   ...(FINANCE_ALERTS_ENABLED ? [financeGroup] : []),
   { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
   { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
-  { id: 'grp_acct', module: 'acct', name: 'Accounts', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction, branch-wise', channels: acctAlertChannels },
 ];
 
 export const groupById = (id: string): PulseChannelGroup | undefined => pulseGroups.find((g) => g.id === id);
