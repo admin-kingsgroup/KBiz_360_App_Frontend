@@ -4,9 +4,11 @@ export type ModuleKey =
   // channels/grants): 'sales' = ERP-approved sale invoices ("BOM-sales"),
   // 'bookings' = SO/PO/GP + INB approval GP summaries ("BOM-bookings"),
   // 'acct' = Accounts, the finance-voucher transaction feed ("BOM-acct" — distinct
-  // from 'accounts', which the Finance BOM/AMD channels own),
-  // 'bankcash' = Bank & Cash, the 11:00 IST balance snapshot ("BOM-bankcash").
-  | 'sales' | 'bookings' | 'acct' | 'bankcash';
+  // from 'accounts', which the Finance BOM/AMD channels own).
+  // ('bankcash' lived here for the Bank & Cash alert channels, retired 2026-08-19 when that
+  // report moved into the branch Finance group chats. 'payables'/'receivables' stay — they are
+  // ordinary business modules, older than the alert families that borrowed their names.)
+  | 'sales' | 'bookings' | 'acct';
 
 export type BizStatus = 'active' | 'setup';
 

@@ -44,23 +44,6 @@ export const salesInvoiceAlertChannels: PulseChannel[] = [
   { id: 'tk_si_dar', bizId: 'tk', module: 'sales', branch: 'DAR', name: 'Sales Invoice - DAR', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · Dar es Salaam branch', members: [] },
   { id: 'tk_si_fbm', bizId: 'tk', module: 'sales', branch: 'FBM', name: 'Sales Invoice - FBM', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books · DR Congo branch', members: [] },
 ];
-// Clients Receivables / Onboarding — the ERP's daily 11:00 IST Receivables "Ageing & Settlement"
-// PDF (and the weekly overdue nudge) per branch. Module palette: receivables 📥.
-export const receivablesAlertChannels: PulseChannel[] = [
-  { id: 'tk_ar_bom', bizId: 'tk', module: 'receivables', branch: 'BOM', name: 'Clients Receivables - BOM', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Mumbai branch', members: [] },
-  { id: 'tk_ar_amd', bizId: 'tk', module: 'receivables', branch: 'AMD', name: 'Clients Receivables - AMD', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Ahmedabad branch', members: [] },
-  { id: 'tk_ar_nbo', bizId: 'tk', module: 'receivables', branch: 'NBO', name: 'Clients Receivables - NBO', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Nairobi branch', members: [] },
-  { id: 'tk_ar_dar', bizId: 'tk', module: 'receivables', branch: 'DAR', name: 'Clients Receivables - DAR', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · Dar es Salaam branch', members: [] },
-  { id: 'tk_ar_fbm', bizId: 'tk', module: 'receivables', branch: 'FBM', name: 'Clients Receivables - FBM', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & client onboarding · DR Congo branch', members: [] },
-];
-// Supplier Payables / Onboarding — the ERP's daily Payables "Ageing & Settlement" PDF per branch.
-export const payablesAlertChannels: PulseChannel[] = [
-  { id: 'tk_ap_bom', bizId: 'tk', module: 'payables', branch: 'BOM', name: 'Supplier Payables - BOM', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Mumbai branch', members: [] },
-  { id: 'tk_ap_amd', bizId: 'tk', module: 'payables', branch: 'AMD', name: 'Supplier Payables - AMD', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Ahmedabad branch', members: [] },
-  { id: 'tk_ap_nbo', bizId: 'tk', module: 'payables', branch: 'NBO', name: 'Supplier Payables - NBO', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Nairobi branch', members: [] },
-  { id: 'tk_ap_dar', bizId: 'tk', module: 'payables', branch: 'DAR', name: 'Supplier Payables - DAR', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · Dar es Salaam branch', members: [] },
-  { id: 'tk_ap_fbm', bizId: 'tk', module: 'payables', branch: 'FBM', name: 'Supplier Payables - FBM', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & supplier onboarding · DR Congo branch', members: [] },
-];
 // SO/PO/GP / INB — deal summary (sale · purchase · GP · Link No · voucher numbers) pushed by
 // the ERP on every booking approval and INB deal approval, per branch.
 export const bookingsAlertChannels: PulseChannel[] = [
@@ -79,14 +62,12 @@ export const acctAlertChannels: PulseChannel[] = [
   { id: 'tk_acc_dar', bizId: 'tk', module: 'acct', branch: 'DAR', name: 'Accounts - DAR', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · Dar es Salaam branch', members: [] },
   { id: 'tk_acc_fbm', bizId: 'tk', module: 'acct', branch: 'FBM', name: 'Accounts - FBM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · DR Congo branch', members: [] },
 ];
-// Bank & Cash — the ERP's 11:00 IST snapshot of every bank + cash ledger balance, per branch.
-export const bankCashAlertChannels: PulseChannel[] = [
-  { id: 'tk_bc_bom', bizId: 'tk', module: 'bankcash', branch: 'BOM', name: 'Bank & Cash - BOM', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Mumbai branch', members: [] },
-  { id: 'tk_bc_amd', bizId: 'tk', module: 'bankcash', branch: 'AMD', name: 'Bank & Cash - AMD', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Ahmedabad branch', members: [] },
-  { id: 'tk_bc_nbo', bizId: 'tk', module: 'bankcash', branch: 'NBO', name: 'Bank & Cash - NBO', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Nairobi branch', members: [] },
-  { id: 'tk_bc_dar', bizId: 'tk', module: 'bankcash', branch: 'DAR', name: 'Bank & Cash - DAR', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · Dar es Salaam branch', members: [] },
-  { id: 'tk_bc_fbm', bizId: 'tk', module: 'bankcash', branch: 'FBM', name: 'Bank & Cash - FBM', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning bank & cash balances · DR Congo branch', members: [] },
-];
+
+// RETIRED 2026-08-19 — "Clients Receivables", "Supplier Payables" and "Bank & Cash" (15 channels).
+// Those daily reports are not alerts any more: the ERP posts them into the branch Finance group
+// chats ("HQ - BOM Finance", …), where they can be replied to and forwarded. The backend channels,
+// their event history and their PDFs were deleted with the same release — re-adding cards here
+// would render three permanently empty groups.
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -109,7 +90,7 @@ export const userAlertsChannel: PulseChannel = {
 
 // Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
 // "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
-// (Sales Invoice, Receivables, Payables, SO/PO/GP, Accounts, Bank & Cash, Attendance) stays live.
+// (Sales Invoice, SO/PO/GP, Accounts, Attendance) stays live.
 // The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
 // true restores that family's cards/grants with zero data loss.
 export const FINANCE_ALERTS_ENABLED = false;
@@ -125,11 +106,8 @@ export const pulseChannels: PulseChannel[] = [
   ...(CRM_ALERTS_ENABLED ? crmAlertChannels : []),
   ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
   ...salesInvoiceAlertChannels,
-  ...receivablesAlertChannels,
-  ...payablesAlertChannels,
   ...bookingsAlertChannels,
   ...acctAlertChannels,
-  ...bankCashAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -148,11 +126,8 @@ const allChannels: PulseChannel[] = [
   ...crmAlertChannels,
   ...financeAlertChannels,
   ...salesInvoiceAlertChannels,
-  ...receivablesAlertChannels,
-  ...payablesAlertChannels,
   ...bookingsAlertChannels,
   ...acctAlertChannels,
-  ...bankCashAlertChannels,
   ...attendanceAlertChannels,
 ];
 
@@ -179,11 +154,8 @@ export const pulseGroups: PulseChannelGroup[] = [
   ...(CRM_ALERTS_ENABLED ? [crmGroup] : []),
   ...(FINANCE_ALERTS_ENABLED ? [financeGroup] : []),
   { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
-  { id: 'grp_receivables', module: 'receivables', name: 'Clients Receivables / Onboarding', icon: '📥', color: '#0E9CBD', tint: '#DBF2F7', description: 'Daily receivables ageing & settlement PDFs, client onboarding', channels: receivablesAlertChannels },
-  { id: 'grp_payables', module: 'payables', name: 'Supplier Payables / Onboarding', icon: '📤', color: '#D6568D', tint: '#FBE6F0', description: 'Daily payables ageing & settlement PDFs, supplier onboarding', channels: payablesAlertChannels },
   { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
   { id: 'grp_acct', module: 'acct', name: 'Accounts', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction, branch-wise', channels: acctAlertChannels },
-  { id: 'grp_bankcash', module: 'bankcash', name: 'Bank & Cash', icon: '💰', color: '#0F8A5F', tint: '#DFF3EA', description: 'Morning 11:00 snapshot of bank & cash balances, branch-wise', channels: bankCashAlertChannels },
   { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 
