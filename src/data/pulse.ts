@@ -12,16 +12,6 @@ export interface PulseEvent {
   attachment?: { name: string; url: string }; // e.g. the ERP's invoice PDF; url may be server-relative
 }
 
-// Real, backend-fed attendance channels — one per tracked Travkings branch. Ids and grants
-// ("BOM-hr"/"AMD-hr") match the backend's alertChannels definitions; events arrive via /api/alerts.
-export const attendanceAlertChannels: PulseChannel[] = [
-  { id: 'tk_att_bom', bizId: 'tk', module: 'hr', branch: 'BOM', name: 'BOM Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs · Mumbai branch', members: [] },
-  { id: 'tk_att_amd', bizId: 'tk', module: 'hr', branch: 'AMD', name: 'AMD Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs · Ahmedabad branch', members: [] },
-  // Directors' hidden-attendance day summary. branch 'DIR' is not a real branch: the grant
-  // 'DIR-hr' is never assigned, so only super-admins (who see every channel) get this card.
-  { id: 'tk_att_dir', bizId: 'tk', module: 'hr', branch: 'DIR', name: 'Directors Attendance', icon: '👔', color: '#9A6CF0', tint: '#EBE2FC', description: 'Daily directors in/out summary · super admins only', members: [] },
-];
-
 // Real, backend-fed Finance + CRM channels — events are pushed live by the KBiz Books ERP and CRM
 // backends through the backend's POST /api/alerts/ingest. Ids and grants ("BOM-accounts"/"BOM-crm"…)
 // match the backend's alertChannels definitions. Colors follow the module palette (accounts 📒 amber,
@@ -63,7 +53,10 @@ export const acctAlertChannels: PulseChannel[] = [
   { id: 'tk_acc_fbm', bizId: 'tk', module: 'acct', branch: 'FBM', name: 'Accounts - FBM', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction · DR Congo branch', members: [] },
 ];
 
-// RETIRED 2026-08-19 — "Clients Receivables", "Supplier Payables" and "Bank & Cash" (15 channels).
+// RETIRED 2026-08-19 — "Clients Receivables", "Supplier Payables", "Bank & Cash" (15 channels) and
+// "Attendance" (BOM/AMD + Directors, 3 channels). Attendance is now ONE day-close summary per
+// branch, posted at 10pm branch-local into that branch's group chat — every branch, not just the
+// two that had a channel. A puncher still gets their own "You checked in" in My Alerts.
 // Those daily reports are not alerts any more: the ERP posts them into the branch Finance group
 // chats ("HQ - BOM Finance", …), where they can be replied to and forwarded. The backend channels,
 // their event history and their PDFs were deleted with the same release — re-adding cards here
@@ -90,7 +83,7 @@ export const userAlertsChannel: PulseChannel = {
 
 // Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
 // "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
-// (Sales Invoice, SO/PO/GP, Accounts, Attendance) stays live.
+// (Sales Invoice, SO/PO/GP, Accounts) stays live.
 // The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
 // true restores that family's cards/grants with zero data loss.
 export const FINANCE_ALERTS_ENABLED = false;
@@ -108,7 +101,6 @@ export const pulseChannels: PulseChannel[] = [
   ...salesInvoiceAlertChannels,
   ...bookingsAlertChannels,
   ...acctAlertChannels,
-  ...attendanceAlertChannels,
 ];
 
 // Can this channel's events reach the user through the alerts UI? The server keeps sending events
@@ -128,7 +120,6 @@ const allChannels: PulseChannel[] = [
   ...salesInvoiceAlertChannels,
   ...bookingsAlertChannels,
   ...acctAlertChannels,
-  ...attendanceAlertChannels,
 ];
 
 // ── channel groups ──
@@ -156,12 +147,11 @@ export const pulseGroups: PulseChannelGroup[] = [
   { id: 'grp_sales', module: 'sales', name: 'Sales Invoice', icon: '🧾', color: '#2FB36B', tint: '#DCF5E8', description: 'Approved sale invoices from KBiz Books, with PDF', channels: salesInvoiceAlertChannels },
   { id: 'grp_bookings', module: 'bookings', name: 'SO/PO/GP / INB', icon: '🔗', color: '#E3674E', tint: '#FBE2DC', description: 'Approved deals: sale, purchase & gross profit by Link No', channels: bookingsAlertChannels },
   { id: 'grp_acct', module: 'acct', name: 'Accounts', icon: '🏦', color: '#37B6A4', tint: '#DCF2EE', description: 'Money received & sent — every posted transaction, branch-wise', channels: acctAlertChannels },
-  { id: 'grp_hr', module: 'hr', name: 'Attendance', icon: '🕘', color: '#9A6CF0', tint: '#EBE2FC', description: 'Check-ins & check-outs across branches', channels: attendanceAlertChannels },
 ];
 
 export const groupById = (id: string): PulseChannelGroup | undefined => pulseGroups.find((g) => g.id === id);
 // The group a backend channel belongs to — resolves legacy deep links (push payloads carry the
-// real channelId, e.g. 'tk_att_bom') onto the grouped screen with that branch preselected.
+// real channelId, e.g. 'tk_si_bom') onto the grouped screen with that branch preselected.
 export const groupForChannel = (channelId: string): PulseChannelGroup | undefined =>
   pulseGroups.find((g) => g.channels.some((c) => c.id === channelId));
 
