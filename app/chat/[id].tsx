@@ -1035,16 +1035,26 @@ export default function ChatDetail() {
 
       {/* In-app file viewer (iOS) — the downloaded PDF/video/doc renders inside the app like
           WhatsApp, instead of bouncing out to Safari. Android never reaches this modal (files go
-          to the system viewer app via intent). */}
-      <Modal visible={!!fileViewer} animationType="slide" onRequestClose={() => setFileViewer(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top', 'bottom']}>
+          to the system viewer app via intent).
+
+          The top/bottom padding comes from the screen-scope `insets`, NOT from <SafeAreaView>: the
+          native RNCSafeAreaView resolves its insets by walking `reactSuperview` up to the
+          RNCSafeAreaProvider, and an RN <Modal> is a SEPARATE native view tree — the walk never
+          reaches the root provider, so it silently applies ZERO padding. That dropped this header
+          under the status bar, where the back chevron overlapped the clock and was unreachable;
+          with no swipe-to-dismiss on a fullScreen iOS modal, force-quitting the app was the only
+          way out of the viewer. Same class of trap as the ZoomableImage modal needing its own
+          GestureHandlerRootView — root-level providers do not reach inside a Modal. */}
+      <Modal visible={!!fileViewer} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setFileViewer(null)}>
+        <View style={{ flex: 1, backgroundColor: colors.card, paddingTop: insets.top, paddingBottom: insets.bottom }}>
           <View className="flex-row items-center gap-2 px-2" style={{ height: 54, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-            <Pressable onPress={() => setFileViewer(null)} hitSlop={8} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <Pressable onPress={() => setFileViewer(null)} hitSlop={12} accessibilityLabel="Back"
+              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
               <ChevronLeft size={24} color={colors.ink} />
             </Pressable>
             <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 15.5, fontWeight: '700' }}>{fileViewer?.name}</Text>
-            <Pressable onPress={() => { if (fileViewer) void shareFile(fileViewer.uri, fileViewer.mime); }} hitSlop={8} accessibilityLabel="Share"
-              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <Pressable onPress={() => { if (fileViewer) void shareFile(fileViewer.uri, fileViewer.mime); }} hitSlop={12} accessibilityLabel="Share"
+              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
               <ForwardIcon size={20} color={colors.ink} />
             </Pressable>
           </View>
@@ -1053,7 +1063,7 @@ export default function ChatDetail() {
               allowsInlineMediaPlayback style={{ flex: 1, backgroundColor: colors.coolBg }}
               startInLoadingState renderLoading={() => <ActivityIndicator style={StyleSheet.absoluteFill} color={colors.primary} />} />
           ) : null}
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Contact info (direct chats) */}
