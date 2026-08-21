@@ -41,6 +41,7 @@ const syncSince = chatApi.syncSince as jest.MockedFunction<typeof chatApi.syncSi
 const readRecent = chatDb.readRecent as jest.MockedFunction<typeof chatDb.readRecent>;
 const readOlder = chatDb.readOlder as jest.MockedFunction<typeof chatDb.readOlder>;
 const dbUpsert = chatDb.upsert as jest.MockedFunction<typeof chatDb.upsert>;
+const dbRemove = chatDb.removeMessages as jest.MockedFunction<typeof chatDb.removeMessages>;
 const ids = (cid: string): string[] => (useMessagingStore.getState().messages[cid] ?? []).map((m) => m.id);
 
 beforeEach(() => {
@@ -204,6 +205,42 @@ describe('delta sync — only what happened since', () => {
 
     expect(ids('c1')).toEqual(['m1', 'm2', 'draft']);
     expect(dbUpsert).not.toHaveBeenCalledWith('c1', expect.arrayContaining([expect.objectContaining({ id: 'draft' })]));
+  });
+});
+
+describe('messages deleted on the server', () => {
+  // A page is a contiguous slice, so a gap in it is the ONLY way the server can tell a local-first
+  // device that something is gone — the catch-up feed carries changes, never absences.
+  it('drops a message the newest page no longer carries, on screen and on disk', async () => {
+    useMessagingStore.setState({ messages: { c1: [msg('m1', 1), msg('m3', 3), msg('m5', 5), msg('m9', 9)] } });
+    getMessages.mockResolvedValue([msg('m1', 1), msg('m5', 5), msg('m9', 9)] as ChatMessage[]);
+
+    await useMessagingStore.getState().syncMessages('c1');
+
+    expect(ids('c1')).toEqual(['m1', 'm5', 'm9']);
+    expect(dbRemove).toHaveBeenCalledWith('c1', ['m3']);
+  });
+
+  it('leaves alone what the page never covered — older history, and arrivals behind it', async () => {
+    useMessagingStore.setState({ messages: { c1: [msg('m0', 0), msg('m1', 1), msg('m5', 5), msg('m9', 9)] } });
+    getMessages.mockResolvedValue([msg('m1', 1), msg('m5', 5)] as ChatMessage[]); // m0 is below it, m9 landed after it
+
+    await useMessagingStore.getState().syncMessages('c1');
+
+    expect(ids('c1')).toEqual(['m0', 'm1', 'm5', 'm9']);
+    expect(dbRemove).not.toHaveBeenCalled();
+  });
+
+  it('never prunes an unsent message sitting inside the page range', async () => {
+    useMessagingStore.setState({
+      messages: { c1: [msg('m1', 1), msg('m5-unsent', 5, { pending: true, clientId: 'c-1' }), msg('m9', 9)] },
+    });
+    getMessages.mockResolvedValue([msg('m1', 1), msg('m9', 9)] as ChatMessage[]);
+
+    await useMessagingStore.getState().syncMessages('c1');
+
+    expect(ids('c1')).toEqual(['m1', 'm9', 'm5-unsent']); // unsent stays pinned to the bottom
+    expect(dbRemove).not.toHaveBeenCalled();
   });
 });
 

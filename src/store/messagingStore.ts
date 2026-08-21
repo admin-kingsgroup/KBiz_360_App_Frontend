@@ -92,6 +92,7 @@ interface MessagingState {
 
   _upsert: (conversationId: string, msg: StoredMessage) => void;
   _ingest: (conversationId: string, msgs: StoredMessage[]) => void;
+  _prune: (conversationId: string, page: StoredMessage[]) => void;
   _persistIds: (conversationId: string, ids: string[]) => void;
   _flush: (clientId: string) => Promise<void>;
 }
@@ -243,7 +244,8 @@ export const useMessagingStore = create<MessagingState>()(
       },
 
       // Delta sync. Asks for the newest page (which also refreshes edits/deletes/reaction/tick changes
-      // on recent messages), then — only if there is a hole between that page and what we already had —
+      // on recent messages, and prunes anything the server dropped inside it), then — only if there
+      // is a hole between that page and what we already had —
       // walks FORWARD from our newest local message until the gap is closed. A device that is up to
       // date transfers one small page; a device that was offline for a week fills the whole gap once
       // and then never re-downloads it.
@@ -252,12 +254,14 @@ export const useMessagingStore = create<MessagingState>()(
         try {
           const head = (await chatApi.getMessages(conversationId, { limit: 40 })) as StoredMessage[];
           get()._ingest(conversationId, head);
+          get()._prune(conversationId, head);
           if (!newestLocal || !head.length || head.some((m) => m.id === newestLocal.id)) return;
           let after = newestLocal.id;
           for (let hops = 0; hops < 20; hops++) { // bounded: ~2000 messages of catch-up per open
             const page = (await chatApi.getMessages(conversationId, { after, limit: 100 })) as StoredMessage[];
             if (!page.length) break;
             get()._ingest(conversationId, page);
+            get()._prune(conversationId, page);
             after = page[page.length - 1].id;
             if (page.length < 100) break;
           }
@@ -565,6 +569,27 @@ export const useMessagingStore = create<MessagingState>()(
           return { messages: { ...s.messages, [conversationId]: [...[...byId.values()].sort(byTime), ...stillPending] } };
         });
         void chatDb.upsert(conversationId, msgs);
+      },
+
+      // A server page is a CONTIGUOUS slice of the thread, so a message we hold INSIDE that page's
+      // id range which the page does not carry no longer exists for this reader — deleted outright
+      // on the server, or deleted-for-me from another device. The catch-up sync can only ever say
+      // "this changed"; nothing in it can say "this is gone", so absence from a page is the only
+      // signal there is. Strictly bounded to the page's own range: anything that landed after the
+      // page was built (a socket arrival) sits beyond its last id and is never touched, and
+      // optimistic sends — which have no server id yet — are skipped outright.
+      _prune: (conversationId, page) => {
+        if (page.length < 2) return; // a one-message range can only contain itself
+        const first = page[0].id;
+        const last = page[page.length - 1].id;
+        const held = new Set(page.map((m) => m.id));
+        const gone = (get().messages[conversationId] ?? [])
+          .filter((m) => !m.pending && !m.failed && m.id >= first && m.id <= last && !held.has(m.id))
+          .map((m) => m.id);
+        if (!gone.length) return;
+        const doomed = new Set(gone);
+        set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).filter((m) => !doomed.has(m.id)) } }));
+        void chatDb.removeMessages(conversationId, gone); // off this device for good, like the server
       },
 
       // Persist messages that were changed in place (edits, reactions, ticks, star/pin) so the change
