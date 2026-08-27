@@ -42,4 +42,5 @@ export interface TeamAttendanceEntry {
   via?: PunchMethod;
   inPhoto?: string | null;  // face photo captured at check-in (admin verification)
   outPhoto?: string | null; // face photo captured at check-out
+  adjusted?: boolean;       // an admin set or moved this day's times
 }

@@ -3,9 +3,10 @@ import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator, Image }
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
+import { DayTimesSheet, type DayTimesTarget } from '../src/components/attendance/DayTimesSheet';
 import { colors } from '../src/theme';
 import { useGeoFence } from '../src/hooks/useGeoFence';
 import { useEventCallback } from '../src/hooks/useEventCallback';
@@ -14,7 +15,7 @@ import { useAccessStore } from '../src/store/accessStore';
 import { useUiStore } from '../src/store/uiStore';
 import { distanceMeters } from '../src/logic/geo';
 import { saveConsent } from '../src/services/storage';
-import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
+import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, adminSetAttendanceTimes, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { uploadFile } from '../src/api/media';
 import { disarmAttendanceGeofencing } from '../src/services/backgroundAttendance';
 import { clearPendingExit } from '../src/services/pendingExit';
@@ -60,6 +61,8 @@ export default function Attendance() {
   const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
   const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
   const [photoView, setPhotoView] = useState<string | null>(null); // full-screen face-photo viewer
+  const [dayEdit, setDayEdit] = useState<DayTimesTarget | null>(null); // super-admin time editor (a row of the member modal's history)
+  const [savingTimes, setSavingTimes] = useState(false);
   // Exempt is TRI-STATE: null = not known yet — don't flash the punch UI before the server says
   // whether this account is tracked (super admins are always untracked server-side).
   const [exempt, setExempt] = useState<boolean | null>(null);
@@ -201,6 +204,33 @@ export default function Attendance() {
       .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not update the day'));
   });
 
+  // Super-admin: open the time editor for one of the selected teammate's days. An absent day
+  // opens at the 10:00–19:00 defaults (what one-tap "mark present" used to write) so the real
+  // times can be set; a recorded punch opens at its own times.
+  const editMemberDay = useCallback((e: AttendanceHistoryEntry): void =>
+    setDayEdit({ date: e.date, inTime: e.inTime, outTime: e.outTime, via: e.via }), []);
+  // Save the edited times. The server keeps the punch's own evidence (method, face photos, fix)
+  // and stamps the day as edited; both lists that show the day are refreshed.
+  const saveMemberTimes = useEventCallback((body: { checkInAt: string; checkOutAt: string | null }): void => {
+    if (!reassign || !dayEdit) return;
+    const { date } = dayEdit;
+    setSavingTimes(true);
+    adminSetAttendanceTimes({ userId: reassign.id, date, ...body })
+      .then(() => {
+        showToast('Times updated');
+        setDayEdit(null);
+        getUserAttendanceHistory(reassign.id, 14).then(setUserHistory).catch(() => undefined);
+        if (date === teamDate) { // the day shown on the team tab changed — refresh it and the open modal's entry
+          getTeamAttendance(teamDate === todayKey() ? undefined : teamDate).then((list) => {
+            setTeam(list);
+            setReassign((cur) => (cur ? list.find((t) => t.id === cur.id) ?? cur : null));
+          }).catch(() => undefined);
+        }
+      })
+      .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not update the times'))
+      .finally(() => setSavingTimes(false));
+  });
+
   // Persist a punch to the backend and adopt the server's record. Failures are NEVER silent: the
   // server is the record of truth, so on rejection we re-adopt its state (the optimistic local
   // punch would otherwise show "checked in" all day while the server has nothing — the person
@@ -227,7 +257,7 @@ export default function Attendance() {
 
   const agree = useCallback((): void => { useAttendanceStore.getState().setConsent(true); void saveConsent(true); }, []);
   const onBack = useCallback((): void => router.back(), [router]);
-  const closeReassign = useCallback((): void => setReassign(null), []);
+  const closeReassign = useCallback((): void => { setReassign(null); setDayEdit(null); }, []);
 
   // Punch flow (owner rules): gate on the 100 m geofence, then FRONT CAMERA face capture →
   // upload → punch. The server re-verifies the distance and refuses a punch without the photo.
@@ -333,8 +363,12 @@ export default function Attendance() {
         onPickBranch={reassignBranchTo}
         onPickOffice={reassignTo}
         onSetDay={setMemberDay}
+        onEditDay={editMemberDay}
         onViewPhoto={setPhotoView}
       />
+
+      {/* Super-admin time editor for one of the selected teammate's days (sits above the modal). */}
+      <DayTimesSheet target={dayEdit} name={reassign?.name ?? ''} dateLabel={dayEdit ? dateLabel(dayEdit.date) : ''} saving={savingTimes} onClose={() => setDayEdit(null)} onSave={saveMemberTimes} />
 
       {/* Full-screen punch-photo viewer */}
       <Modal visible={!!photoView} transparent animationType="fade" onRequestClose={() => setPhotoView(null)}>
@@ -599,7 +633,7 @@ const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper,
                     {/* Branch is the section header now, so the row line stays about the punch. */}
                     {absent
                       ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent</Text>
-                      : <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {t.in}{t.out ? ' · Out ' + t.out : ''} · {t.via}</Text>}
+                      : <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {t.in}{t.out ? ' · Out ' + t.out : ''} · {t.via}{t.adjusted ? ' · edited' : ''}</Text>}
                     {/* Office the person reports at — super-admin taps the row to reassign. */}
                     <View className="flex-row items-center gap-1" style={{ marginTop: 2 }}>
                       <Building2 size={11} color={colors.primary} />
@@ -634,7 +668,7 @@ const TeamView = memo(function TeamView({ team, teamDate, branchFilter, isSuper,
 
 // Super-admin: set a teammate's working branch + office. Always mounted (Modal visibility flag);
 // memo keeps it inert while closed — parent presence/GPS ticks don't re-diff it.
-const ReassignModal = memo(function ReassignModal({ reassign, userHistory, adminOffices, onClose, onPickBranch, onPickOffice, onSetDay, onViewPhoto }: {
+const ReassignModal = memo(function ReassignModal({ reassign, userHistory, adminOffices, onClose, onPickBranch, onPickOffice, onSetDay, onEditDay, onViewPhoto }: {
   reassign: TeamAttendanceEntry | null;
   userHistory: AttendanceHistoryEntry[] | null;
   adminOffices: AdminBranchOffices[];
@@ -642,6 +676,7 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
   onPickBranch: (userId: string, branchId: string | null) => void;
   onPickOffice: (userId: string, officeId: string | null) => void;
   onSetDay: (date: string, present: boolean) => void;
+  onEditDay: (entry: AttendanceHistoryEntry) => void; // open the check-in/check-out time editor
   onViewPhoto: (url: string) => void;
 }) {
   const reassignBranchOffices = useMemo(
@@ -693,22 +728,31 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
                   <View className="flex-1">
                     <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
                     {e.inTime
-                      ? <Text style={{ color: colors.coolText, fontSize: 11.5 }}>In {fmt(new Date(e.inTime))} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>
+                      ? <Text style={{ color: colors.coolText, fontSize: 11.5 }}>In {fmt(new Date(e.inTime))} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}{e.adjusted ? ' · edited' : ''}</Text>
                       : <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '700' }}>Absent</Text>}
                   </View>
                   {/* Punch face photos for that day — tap to view. */}
                   {e.inPhoto ? <PunchThumb uri={e.inPhoto} label="IN" size={30} onPress={onViewPhoto} /> : null}
                   {e.outPhoto ? <PunchThumb uri={e.outPhoto} label="OUT" size={30} onPress={onViewPhoto} /> : null}
-                  {/* Corrections: fix a missed punch; only Manual days can be reverted to absent. */}
+                  {/* Corrections: an absent day is marked present through the time editor (opens at
+                      10:00–19:00 so the real times can be set); a recorded day's times are edited in
+                      place via the pencil, keeping the punch's evidence. Only Manual days revert to absent. */}
                   {!e.inTime ? (
-                    <Pressable onPress={() => onSetDay(e.date, true)} hitSlop={6} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+                    <Pressable onPress={() => onEditDay(e)} hitSlop={6} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
                       <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700' }}>MARK PRESENT</Text>
                     </Pressable>
-                  ) : e.via === 'Manual' ? (
-                    <Pressable onPress={() => onSetDay(e.date, false)} hitSlop={6} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.danger + '12' }}>
-                      <Text style={{ color: colors.danger, fontSize: 10, fontWeight: '700' }}>MARK ABSENT</Text>
-                    </Pressable>
-                  ) : null}
+                  ) : (
+                    <>
+                      {e.via === 'Manual' ? (
+                        <Pressable onPress={() => onSetDay(e.date, false)} hitSlop={6} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.danger + '12' }}>
+                          <Text style={{ color: colors.danger, fontSize: 10, fontWeight: '700' }}>MARK ABSENT</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable onPress={() => onEditDay(e)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Edit check-in and check-out" style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }}>
+                        <Pencil size={14} color={colors.primary} />
+                      </Pressable>
+                    </>
+                  )}
                 </View>
               ))
             )}

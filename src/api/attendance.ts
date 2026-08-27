@@ -52,6 +52,7 @@ export interface AttendanceHistoryEntry {
   distanceMeters: number | null;
   inPhoto?: string | null;  // face photos captured at punch time (admin verification)
   outPhoto?: string | null;
+  adjusted?: boolean;       // an admin set or moved this day's times
 }
 
 // Admin: one office geofence within a branch.
@@ -88,6 +89,11 @@ export const getUserAttendanceHistory = (userId: string, days = 30): Promise<Att
 // Stored as method 'Manual' with an audit stamp of the admin who changed it.
 export const adminSetAttendanceDay = (body: { userId: string; date: string; present: boolean; inTime?: string; outTime?: string }): Promise<MyAttendance> =>
   apiFetch('/api/attendance/admin/day', { method: 'POST', body });
+// Manager-only: move one day's check-in/check-out to the given instants (ISO, this device's
+// clock). The punch's own evidence (method, face photos, fix) is kept and the day is stamped as
+// edited; checkOutAt null leaves TODAY open ("still in").
+export const adminSetAttendanceTimes = (body: { userId: string; date: string; checkInAt: string; checkOutAt: string | null }): Promise<MyAttendance> =>
+  apiFetch('/api/attendance/admin/day/times', { method: 'PUT', body });
 
 // Office geofences the caller may punch at (drives the office picker + geofence presence).
 export const getOffices = (): Promise<AttendanceOffice[]> => apiFetch('/api/attendance/offices');
