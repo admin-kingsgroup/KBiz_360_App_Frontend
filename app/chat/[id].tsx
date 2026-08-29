@@ -14,6 +14,9 @@ import { WebView } from 'react-native-webview';
 import { Avatar } from '../../src/components/ui';
 import { VoiceMessage, LinkedText, AttachmentTile, LinkPreviewCard, ZoomableImage } from '../../src/components/chat';
 import { oneLine } from '../../src/logic/text';
+import { FormatToolbar } from '../../src/components/chat/FormatToolbar';
+import { applyFormat } from '../../src/logic/formatting';
+import type { FormatAction } from '../../src/logic/formatting';
 import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
@@ -111,6 +114,7 @@ export default function ChatDetail() {
   // reminder composer): `sel` is set once after a pick to park the caret, then released.
   const [cursor, setCursor] = useState(0);
   const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
+  const [selRange, setSelRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 }); // live selection — shows the formatting strip while text is selected
   const [active, setActive] = useState<StoredMessage | null>(null);
   const [reactionsFor, setReactionsFor] = useState<string | null>(null); // message id → reactions sheet
   const [reactPickerOpen, setReactPickerOpen] = useState<string | null>(null); // message id → full emoji picker
@@ -289,6 +293,16 @@ export default function ChatDetail() {
   // Smiley toggles the panel (dismissing the keyboard); focusing the input brings the keyboard
   // back and hides the panel. Insertions go to the tracked cursor, exactly like mention picks.
   useEffect(() => { if (keyboardVisible) setEmojiOpen(false); }, [keyboardVisible]);
+  // WhatsApp formatting strip: wrap / prefix the selection (logic/formatting.ts) and keep the styled
+  // text selected so styles can be stacked. Goes through onChangeText so the draft + typing state follow.
+  const applyFormatting = (action: FormatAction): void => {
+    const next = applyFormat(text, selRange, action);
+    onChangeText(next.text);
+    setCursor(next.selection.start);
+    setSelRange(next.selection);
+    setSel(next.selection);
+  };
+
   const toggleEmoji = (): void => {
     if (!emojiOpen) { Keyboard.dismiss(); setAttachOpen(false); }
     setEmojiOpen((v) => !v);
@@ -912,6 +926,10 @@ export default function ChatDetail() {
           </View>
         ) : null}
 
+        {/* Formatting strip — WhatsApp's selection menu (bold / italic / strikethrough / mono / lists /
+            quote), shown while text is selected in the composer. */}
+        {selRange.end > selRange.start && selRange.end <= text.length && !isRecording && !isBlocked ? <FormatToolbar onApply={applyFormatting} /> : null}
+
         {/* Blocked: the composer is replaced by the way out, exactly like WhatsApp. */}
         {isBlocked ? (
           <Pressable onPress={toggleBlock} style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 18, paddingBottom: insets.bottom + 18, alignItems: 'center' }}>
@@ -936,7 +954,7 @@ export default function ChatDetail() {
               </Pressable>
               <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
                 selection={sel}
-                onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
+                onSelectionChange={(e) => { const r = e.nativeEvent.selection; setCursor(r.start); setSelRange({ start: r.start, end: r.end }); if (sel) setSel(undefined); }}
                 style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: colors.ink, maxHeight: 110 }} />
               <Pressable onPress={() => void takePhoto()} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Camera size={21} color={colors.coolText} />

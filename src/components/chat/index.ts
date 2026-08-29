@@ -5,3 +5,4 @@ export { AttachmentTile } from './AttachmentTile';
 export { ChatActionsSheet } from './ChatActionsSheet';
 export { LinkPreviewCard } from './LinkPreviewCard';
 export { ZoomableImage } from './ZoomableImage';
+export { FormatToolbar } from './FormatToolbar';

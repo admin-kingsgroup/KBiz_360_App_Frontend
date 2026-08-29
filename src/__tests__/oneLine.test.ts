@@ -10,6 +10,10 @@ describe('oneLine — single-line preview of a multi-line message', () => {
     expect(oneLine('Windows\r\nline endings')).toBe('Windows line endings');
   });
 
+  it('strips WhatsApp markup so previews show the words, not the markers', () => {
+    expect(oneLine('*Urgent*: _read_ this\n- one\n- two')).toBe('Urgent: read this • one • two');
+  });
+
   it('drops leading/trailing breaks and leaves single-line text untouched', () => {
     expect(oneLine('\nhello\n')).toBe('hello');
     expect(oneLine('already one line')).toBe('already one line');
