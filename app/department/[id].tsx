@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, MoreVertical, ChevronRight, MessageCircle } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
+import { oneLine } from '../../src/logic/text';
 import { businesses as mockBusinesses } from '../../src/data/businesses';
 import { DEPT_DESCRIPTIONS } from '../../src/constants/departments';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -50,7 +51,7 @@ export default function DepartmentDetail() {
         })
         .map((c) => ({
           id: c.id, name: c.name, unread: c.unread ?? 0,
-          preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : null,
+          preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : null,
         }));
       return {
         branchId: br.id, deptId: g.id,

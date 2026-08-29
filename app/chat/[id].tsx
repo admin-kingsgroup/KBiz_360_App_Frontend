@@ -13,6 +13,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { WebView } from 'react-native-webview';
 import { Avatar } from '../../src/components/ui';
 import { VoiceMessage, LinkedText, AttachmentTile, LinkPreviewCard, ZoomableImage } from '../../src/components/chat';
+import { oneLine } from '../../src/logic/text';
 import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
@@ -933,7 +934,7 @@ export default function ChatDetail() {
               <Pressable onPress={toggleEmoji} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Smile size={22} color={emojiOpen ? colors.primary : colors.coolText} />
               </Pressable>
-              <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} onSubmitEditing={submitText} placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
+              <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
                 selection={sel}
                 onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
                 style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: colors.ink, maxHeight: 110 }} />
@@ -1495,7 +1496,7 @@ function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenIma
         {m.replyTo ? (
           <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
             <Text numberOfLines={1} style={{ color: colors.primary, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
-            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{m.replyTo.preview}</Text>
+            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{oneLine(m.replyTo.preview)}</Text>
           </Pressable>
         ) : null}
         {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} /> : null}

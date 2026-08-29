@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { ChevronLeft, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { colors } from '../../src/theme';
+import { oneLine } from '../../src/logic/text';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { mediaUrl } from '../../src/api/media';
 import type { ChatConversation } from '../../src/api/chat';
@@ -55,7 +56,7 @@ export default function ArchivedChats() {
               name: c.name,
               initials: (c.name[0] ?? '?').toUpperCase(),
               color: c.type === 'group' ? colors.purple : colors.blue,
-              preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : 'No messages yet',
+              preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : 'No messages yet',
               time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
               ts: c.lastActivityAt ? new Date(c.lastActivityAt).getTime() : 0,
               unread: c.unread,

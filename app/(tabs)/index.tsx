@@ -10,6 +10,7 @@ import { useAuthStore } from '../../src/store/authStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
+import { oneLine } from '../../src/logic/text';
 import type { PresenceInfo } from '../../src/store/messagingStore';
 
 // Map a real conversation → the row shape ChatListItem renders.
@@ -30,7 +31,7 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
     name: c.name,
     initials: (c.name[0] ?? '?').toUpperCase(),
     color: c.type === 'group' ? colors.purple : colors.blue,
-    preview: last ? (last.type === 'text' ? last.text : `[${last.type}]`) : 'No messages yet',
+    preview: last ? (last.type === 'text' ? oneLine(last.text) : `[${last.type}]`) : 'No messages yet',
     time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
     ts: c.lastActivityAt ? new Date(c.lastActivityAt).getTime() : 0,
     unread: c.unread,
@@ -40,7 +41,7 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
     lastStatus: last && myUserId && last.senderId === myUserId ? last.status ?? null : null,
     muted: !!c.muted,
     pinned: !!c.pinned,
-    draft: draft ?? null,
+    draft: draft ? oneLine(draft) : null,
   };
 }
 

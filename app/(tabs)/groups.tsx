@@ -6,6 +6,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Skeleton, SkeletonList } from '../../src/components/ui';
 import { GroupsList, DepartmentsList, SystemAlertsList, HomeHeader } from '../../src/components/home';
 import { colors } from '../../src/theme';
+import { oneLine } from '../../src/logic/text';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
@@ -90,7 +91,7 @@ export default function Groups() {
   }, []));
   const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => ({
     id: c.id, name: c.name, branchId: c.branchId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
-    preview: c.lastMessage ? (c.lastMessage.type === 'text' ? c.lastMessage.text : `[${c.lastMessage.type}]`) : undefined,
+    preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : undefined,
     pinned: !!c.pinned, // pinned groups float to the top of their branch's list
   }));
 
