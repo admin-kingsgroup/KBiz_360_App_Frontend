@@ -8,12 +8,13 @@ import { businesses as mockBusinesses, branches as mockBranches } from '../../da
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { colorForId } from '../../logic/directory';
 import { applyBranchOrder, moveCode } from '../../logic/branchOrder';
+import { OTHER_CHIP, splitUnfiledGroups } from '../../logic/groupFiling';
 import { useBranchOrderStore } from '../../store/branchOrderStore';
 import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch } from '../../types';
 
 // A real group conversation the user belongs to (manual "New group" groups are filed under a branch).
-export interface GroupConv { id: string; name: string; branchId?: string | null; deptKey?: string | null; unread?: number; preview?: string; pinned?: boolean }
+export interface GroupConv { id: string; name: string; branchId?: string | null; companyId?: string | null; deptKey?: string | null; unread?: number; preview?: string; pinned?: boolean }
 export interface GroupOpen { id: string; name: string; bizId: string; branchId: string; branchCode?: string; convId?: string }
 interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; pinned?: boolean; bizId: string; branchId: string; branchCode?: string; convId?: string; }
 
@@ -52,23 +53,35 @@ export function GroupsList({
   // The Groups tab lists the real group chats the user belongs to (created under a branch's
   // department), grouped by branch — opened directly by conversation id. Browsing/creating groups by
   // department lives in the Departments tab; new groups are created via the "+" New group action.
+  const toItem = (c: GroupConv): GItem => ({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId ?? '', branchCode: undefined });
+  // Pinned groups float to the top of their chip (stable sort keeps the rest in recency order).
+  const pinnedFirst = (items: GItem[]): GItem[] => items.sort((a, z) => Number(!!z.pinned) - Number(!!a.pinned));
+  // A group whose branch the directory does not return (row deleted or retired in the shared
+  // branches collection, or not synced yet) has no chip to live under. It used to vanish without a
+  // trace — 21 INB groups did on 2026-09-01. It is filed under an "Other" chip instead.
+  const { filed, unfiled } = splitUnfiledGroups(groupConversations, branches.map((br) => br.id));
   const myConvsByBranch = new Map<string, GItem[]>();
-  groupConversations.filter((c) => c.branchId).forEach((c) => {
+  filed.forEach((c) => {
     const arr = myConvsByBranch.get(c.branchId as string) ?? [];
-    arr.push({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId as string, branchCode: undefined });
+    arr.push(toItem(c));
     myConvsByBranch.set(c.branchId as string, arr);
   });
 
   const bizBase = (activeBizId === 'all' ? businesses : businesses.filter((b) => b.id === activeBizId)).filter((b) => bizOK(b.id));
   const blocks: Block[] = bizBase.map((b) => {
     const subs = branchesForBiz(b.id).filter((br) => brOK(br.code)).map((br) => {
-      const items = (myConvsByBranch.get(br.id) ?? []).map((m) => ({ ...m, bizId: b.id, branchCode: br.code }));
-      // Pinned groups float to the top of their branch (stable sort keeps the rest in recency order).
-      items.sort((a, z) => Number(!!z.pinned) - Number(!!a.pinned));
+      const items = pinnedFirst((myConvsByBranch.get(br.id) ?? []).map((m) => ({ ...m, bizId: b.id, branchCode: br.code })));
       return { code: br.code, city: br.city, color: br.color, time: tzTime(br.tz), flag: br.flag, items };
     }).filter((s) => s.items.length > 0);
     // The user's own chip arrangement (long-press a chip, or the ⇅ button, to change it).
-    return { id: b.id, label: b.name, color: b.color, subs: applyBranchOrder(subs, chipOrder[b.id]) };
+    const ordered = applyBranchOrder(subs, chipOrder[b.id]);
+    // Unfiled groups go to their own business; one with no business at all goes to the first shown.
+    const orphans = unfiled.filter((c) => (c.companyId ?? bizBase[0].id) === b.id);
+    if (orphans.length) {
+      const items = pinnedFirst(orphans.map((c) => ({ ...toItem(c), bizId: b.id })));
+      ordered.push({ code: OTHER_CHIP, city: 'Branch not in directory', color: colors.coolText3, time: '', flag: '', items });
+    }
+    return { id: b.id, label: b.name, color: b.color, subs: ordered };
   });
   const allItems = blocks.flatMap((bl) => bl.subs.flatMap((s) => s.items));
 

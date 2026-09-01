@@ -90,7 +90,7 @@ export default function Groups() {
     void useMessagingStore.getState().loadConversations().then(() => useMessagingStore.getState().prefetchMessages());
   }, []));
   const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => ({
-    id: c.id, name: c.name, branchId: c.branchId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
+    id: c.id, name: c.name, branchId: c.branchId ?? null, companyId: c.companyId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
     preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : undefined,
     pinned: !!c.pinned, // pinned groups float to the top of their branch's list
   }));
