@@ -35,10 +35,13 @@ function ProfileTabIcon({ focused }: { focused: boolean }) {
 }
 
 export default function TabsLayout() {
-  // Chats badge counts DIRECT conversations only; group unread rolls into the Groups tab badge
-  // together with unread system-alert events (same visible-channel gate as the Alerts pane).
-  const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'direct' ? c.unread || 0 : 0), 0));
-  const groupUnread = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'group' ? c.unread || 0 : 0), 0));
+  // Tab badges count CHATS with unread, not unread messages — the same unit as the segment badges
+  // inside the Groups tab and the app-icon badge (chatNotifications.ts), so all three always agree.
+  // Chats = direct conversations, Groups = group conversations + unread system-alert events (same
+  // visible-channel gate as the Alerts pane). Archived conversations are hidden from the lists, so
+  // they don't count here either.
+  const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'direct' && !c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
+  const groupUnread = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'group' && !c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
   const alertUnread = usePulseStore((s) => s.events.reduce((n, e) => n + (!e.read && isVisibleAlertChannel(e.channelId) ? 1 : 0), 0));
   const groupsBadge = groupUnread + alertUnread;
   const reminderBadge = useReminderBadgeStore((s) => s.count);

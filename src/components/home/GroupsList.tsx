@@ -128,14 +128,15 @@ export function GroupsList({
               <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {total} groups</Text>
             </View>
 
-            {/* Branch chips — the badge is the branch's UNREAD count (hidden when there are none). */}
+            {/* Branch chips — the badge is the number of the branch's GROUPS with unread (chats,
+                not messages — same unit as the segment tab and bottom-bar badges). */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}
               onTouchStart={() => onChipRowTouch?.(true)}
               onTouchEnd={() => onChipRowTouch?.(false)}
               onTouchCancel={() => onChipRowTouch?.(false)}>
               {subs.map((s) => {
                 const on = s.code === active.code;
-                const unread = s.items.reduce((n, g) => n + (g.unread || 0), 0);
+                const unread = s.items.reduce((n, g) => n + ((g.unread || 0) > 0 ? 1 : 0), 0);
                 return (
                   <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [bl.id]: s.code }))} onLongPress={() => setArrangeFor(bl.id)} className="flex-row items-center"
                     style={{ height: 36, paddingHorizontal: 14, borderRadius: 999, gap: 7, backgroundColor: on ? colors.primary : colors.coolMuted }}>
