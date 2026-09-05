@@ -1,7 +1,8 @@
 import { Tabs } from 'expo-router';
-import { View, Text, Image, type ColorValue } from 'react-native';
+import { View, Text, Image, Pressable, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, Users, Bell, Mail, type LucideIcon } from 'lucide-react-native';
+import { MessageCircle, Users, Bell, Mail, RefreshCw, type LucideIcon } from 'lucide-react-native';
+import { useOtaUpdate } from '../../src/hooks/useOtaUpdate';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useEmailStore } from '../../src/store/emailStore';
@@ -50,7 +51,11 @@ export default function TabsLayout() {
   // it. We set the height explicitly, which disables React Navigation's auto safe-area, so we add
   // insets.bottom back into both the height and the bottom padding ourselves.
   const insets = useSafeAreaInsets();
+  // OTA updates: check on launch + every foreground, then offer a one-tap in-place restart. Without
+  // this, updates only land on a cold start — which Android may not do for days.
+  const { updateReady, applyUpdate } = useOtaUpdate();
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -76,5 +81,14 @@ export default function TabsLayout() {
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused }) => <ProfileTabIcon focused={focused} /> }} />
     </Tabs>
+    {/* Floating "update ready" pill above the tab bar — tapping swaps to the new version in place. */}
+    {updateReady ? (
+      <Pressable onPress={applyUpdate} className="flex-row items-center"
+        style={{ position: 'absolute', alignSelf: 'center', bottom: 62 + insets.bottom + 14, height: 40, paddingHorizontal: 18, borderRadius: 999, gap: 8, backgroundColor: colors.ink, shadowColor: '#0b1220', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 }}>
+        <RefreshCw size={15} color="#fff" strokeWidth={2.4} />
+        <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>Update ready — tap to restart</Text>
+      </Pressable>
+    ) : null}
+    </View>
   );
 }
