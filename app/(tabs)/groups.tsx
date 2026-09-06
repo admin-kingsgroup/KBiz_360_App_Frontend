@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, useAnimatedRef, interpolate, Extrapolation, runOnJS } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedRef, runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Skeleton, SkeletonList } from '../../src/components/ui';
@@ -33,31 +33,18 @@ export default function Groups() {
   const [pagerH, setPagerH] = useState(0);
   // Pager paging pauses while a nested horizontal row (branch chips) is being touched.
   const [pagerScrollEnabled, setPagerScrollEnabled] = useState(true);
-  // Live underline driven entirely on the UI thread (Reanimated): scrollX mirrors the pager's offset
-  // so the indicator slides + resizes to each tab's measured width with zero JS-bridge work per frame.
-  const scrollX = useSharedValue(0);
   const lastIdx = useSharedValue(0);
-  const [tabLayouts, setTabLayouts] = useState<({ x: number; width: number } | undefined)[]>([]);
   const goToSeg = (k: Segment): void => {
     setSeg(k);
     pagerRef.current?.scrollTo({ x: SEGMENTS.findIndex((s) => s.k === k) * width, animated: true });
   };
-  // Flip the bold/active tab only when the midpoint between panes is actually crossed — keeps React
+  // Flip the active chip only when the midpoint between panes is actually crossed — keeps React
   // re-renders to ≤1 per swipe instead of one per frame.
   const setSegByIndex = useCallback((i: number): void => { const k = SEGMENTS[i]?.k; if (k) setSeg(k); }, []);
   const onPagerScroll = useAnimatedScrollHandler((e) => {
-    scrollX.value = e.contentOffset.x;
     const idx = Math.round(e.contentOffset.x / width);
     if (idx !== lastIdx.value) { lastIdx.value = idx; runOnJS(setSegByIndex)(idx); }
   }, [width]);
-  const tabsReady = tabLayouts.filter(Boolean).length === SEGMENTS.length;
-  const underlineInput = SEGMENTS.map((_, i) => i * width);
-  const tabXs = SEGMENTS.map((_, i) => tabLayouts[i]?.x ?? 0);
-  const tabWs = SEGMENTS.map((_, i) => tabLayouts[i]?.width ?? 0);
-  const underlineStyle = useAnimatedStyle(() => ({
-    width: interpolate(scrollX.value, underlineInput, tabWs, Extrapolation.CLAMP),
-    transform: [{ translateX: interpolate(scrollX.value, underlineInput, tabXs, Extrapolation.CLAMP) }],
-  }), [tabXs, tabWs, underlineInput]);
   const access = useAccessStore((s) => s.access());
   const activeBizId = useUiStore((s) => s.activeBizId);
   const setBiz = useUiStore((s) => s.setBiz);
@@ -111,6 +98,26 @@ export default function Groups() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
       <HomeHeader />
 
+      {/* Segment chips — Groups / Departments / Alerts, styled exactly like the Chats tab's
+          All / Unread / Groups row so the two pages read as one design. Tap to switch (the panes
+          below still swipe); the count bubble matches the home chips' badge. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
+        {SEGMENTS.map((s) => {
+          const on = s.k === seg;
+          const unread = tabUnread[s.k];
+          return (
+            <Pressable key={s.k} onPress={() => goToSeg(s.k)} className="flex-row items-center" style={[chip, { gap: 6, backgroundColor: on ? colors.primary : colors.coolMuted }]}>
+              <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{s.l}</Text>
+              {unread > 0 ? (
+                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? '#fff' : colors.primary }}>
+                  <Text style={{ color: on ? colors.primary : '#fff', fontSize: 10.5, fontWeight: '700' }}>{unread > 99 ? '99+' : unread}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       {/* Business pills that filter the Groups/Departments panes (access-filtered, View-As-aware).
           Hidden on System Alerts. */}
       {seg !== 'pulse' ? (
@@ -129,52 +136,6 @@ export default function Groups() {
           )}
         </ScrollView>
       ) : null}
-
-      {/* Segment tabs — tap to switch; the underline slides live as you swipe the panes below */}
-      <View style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 14, alignItems: 'flex-end' }}
-        >
-          {SEGMENTS.map((s, i) => {
-            const on = s.k === seg;
-            const unread = tabUnread[s.k];
-            return (
-              <Pressable
-                key={s.k}
-                onPress={() => goToSeg(s.k)}
-                className="flex-row items-center"
-                style={{ gap: 6, height: 44 }}
-                onLayout={(e) => {
-                  const { x, width: w } = e.nativeEvent.layout;
-                  setTabLayouts((prev) => {
-                    if (prev[i] && prev[i]!.x === x && prev[i]!.width === w) return prev;
-                    const n = prev.slice();
-                    n[i] = { x, width: w };
-                    return n;
-                  });
-                }}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '600', color: on ? colors.primary : colors.coolText }}>{s.l}</Text>
-                {unread > 0 ? (
-                  <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{unread > 99 ? '99+' : unread}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-          {tabsReady ? (
-            <Animated.View
-              style={[
-                { position: 'absolute', left: 0, bottom: 0, height: 3, borderRadius: 3, backgroundColor: colors.primary },
-                underlineStyle,
-              ]}
-            />
-          ) : null}
-        </ScrollView>
-      </View>
 
       {/* Swipeable content — swipe left/right to move between Groups · Departments · System Alerts */}
       <View style={{ flex: 1 }} onLayout={(e) => setPagerH(e.nativeEvent.layout.height)}>
