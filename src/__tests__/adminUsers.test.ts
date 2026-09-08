@@ -4,7 +4,7 @@ import type { User } from '../types';
 
 const mk = (id: string, name: string): User => ({
   id, name, initials: 'XX', color: '#000', role: 'EMPLOYEE', email: 'x@y.com',
-  bizId: 'tk', branches: ['AMD'], accessGroups: ['AMD-Accounts'], accessDepts: ['AMD-Accounts'], accessAlerts: ['AMD-accounts'],
+  bizId: 'tk', branches: ['AMD'], accessGroups: ['AMD-Accounts'], accessAlerts: ['AMD-accounts'],
 });
 
 describe('Admin — user create/edit via accessStore.upsertUser', () => {

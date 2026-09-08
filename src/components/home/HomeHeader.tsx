@@ -18,7 +18,7 @@ const hhmm = (iso: string): string => {
 };
 
 // Shared brand bar for the Chats and Groups tabs: logo + title, the single "+" create hub, today's
-// attendance chip, and the View-As banner. Extracted from Home when Groups/Departments/Alerts moved
+// attendance chip, and the View-As banner. Extracted from Home when Groups/Alerts moved
 // to their own bottom tab so both screens keep the identical header.
 export function HomeHeader() {
   const router = useRouter();
@@ -55,7 +55,7 @@ export function HomeHeader() {
           </View>
         </View>
         <View className="flex-row items-center" style={{ gap: 6 }}>
-          {/* Single "+" create hub — group / user / department / business / alert. Super-Admin only;
+          {/* Single "+" create hub — group / user / business / branch. Super-Admin only;
               every individual "New …" button was removed in favour of this menu. */}
           {(isSuper || mayCreateGroup) ? <Pressable onPress={() => setCreateOpen(true)} style={ibtn}><Plus size={24} color={colors.ink} strokeWidth={2.4} /></Pressable> : null}
           {/* Today's attendance at a glance — green Present / red Absent; tap to open Attendance.

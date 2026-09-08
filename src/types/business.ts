@@ -44,13 +44,6 @@ export interface Branch {
   groups: Group[];
 }
 
-export interface Department {
-  id: string;
-  name: string;
-  icon: string;
-  color: string;
-}
-
 export interface Business {
   id: string;            // e.g. 'tk'
   code: string;          // e.g. 'TK'

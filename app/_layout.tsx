@@ -19,6 +19,7 @@ import { reconcileHiddenAttendance } from '../src/services/hiddenAttendance';
 import { installGlobalCrashHandler, flushStoredCrash } from '../src/services/crashReporter';
 import { registerFcmToken, useCallNotifications } from '../src/services/callForeground';
 import { registerForegroundChatPush, syncChatNotifications } from '../src/services/chatNotifications';
+import { initWidgetSync, clearWidgetSnapshot } from '../src/services/widget';
 import { registerPushToken, ensureNotificationChannels } from '../src/services/notifications';
 import { maybePromptBatteryOptimization } from '../src/services/batteryOptimization';
 import { useEmailStore } from '../src/store/emailStore';
@@ -63,7 +64,7 @@ function GateController() {
   // promptly so incoming calls/messages reliably fall back to push (instead of a stale "online").
   const signedIn = useAuthStore((s) => s.status === 'signedIn');
   useEffect(() => {
-    if (!signedIn) { disconnectChatSocket(); return; }
+    if (!signedIn) { disconnectChatSocket(); clearWidgetSnapshot(); return; }
     void enforceBgLocation();
     connectChatSocket();
     void registerPushToken(); // Expo push token → background message/reminder notifications (every launch, so returning users stay registered)
@@ -86,6 +87,9 @@ function GateController() {
       if (badgeTimer) clearTimeout(badgeTimer);
       badgeTimer = setTimeout(() => void syncChatNotifications(s.conversations), 400);
     });
+    // iOS home-screen widget: shared-App-Group snapshot of unread chats / reminders / today's
+    // punch, refreshed on store changes and flushed when the app backgrounds.
+    const unsubWidget = initWidgetSync();
     // Light heartbeat for hidden (director) attendance while the app stays open — catches leaving
     // the office with the app foregrounded. No-op (a single cheap /me) for everyone else.
     const hiddenTick = setInterval(() => void reconcileHiddenAttendance(), 5 * 60_000);
@@ -108,6 +112,7 @@ function GateController() {
       sub.remove();
       unsubChatPush();
       unsubBadge();
+      unsubWidget();
       if (badgeTimer) clearTimeout(badgeTimer);
       clearInterval(hiddenTick);
     };
@@ -145,11 +150,13 @@ function GateController() {
       <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="share" options={{ presentation: 'modal' }} />
       <Stack.Screen name="attendance" />
+      <Stack.Screen name="hr/leave" />
+      <Stack.Screen name="hr/month" />
+      <Stack.Screen name="hr/payslip" />
       <Stack.Screen name="storage" />
       <Stack.Screen name="admin" />
       <Stack.Screen name="view-as" options={{ presentation: 'modal' }} />
       <Stack.Screen name="business/[id]" />
-      <Stack.Screen name="department/[id]" />
       <Stack.Screen name="alert/[id]" />
       <Stack.Screen name="alert/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="reminder/new" options={{ presentation: 'modal' }} />

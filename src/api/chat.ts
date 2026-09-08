@@ -22,10 +22,8 @@ export interface ChatConversation {
   description?: string | null;
   createdBy?: string;
   members?: { userId: string; role: 'admin' | 'member' }[];
-  deptKey?: string | null; // "<branchId>:<departmentId>" lookup key (non-unique)
   companyId?: string | null; // the business this group belongs to
   branchId?: string | null; // the branch this group belongs to (member picker scopes to it)
-  departmentId?: string | null; // the department this group belongs to
 }
 export interface ChatReaction { userId: string; emoji: string }
 export interface ChatReplyTo { messageId: string; senderId: string; preview: string; type: string }
@@ -152,11 +150,8 @@ export const getPresence = (userIds: string[]): Promise<Record<string, { status:
   apiFetch(`/api/chat/presence?userIds=${encodeURIComponent(userIds.join(','))}`);
 
 // ── groups ──
-export const createGroup = (input: { name: string; memberIds: string[]; description?: string; image?: string; companyId?: string; branchId?: string; departmentId?: string }): Promise<ChatConversation> =>
+export const createGroup = (input: { name: string; memberIds: string[]; description?: string; image?: string; companyId?: string; branchId?: string }): Promise<ChatConversation> =>
   apiFetch('/api/groups', { method: 'POST', body: input });
-// Get-or-create the auto group chat for a (branch, department) and open it (members = the branch).
-export const getOrCreateDepartmentGroup = (branchId: string, departmentId: string, name: string): Promise<ChatConversation> =>
-  apiFetch('/api/groups/department', { method: 'POST', body: { branchId, departmentId, name } });
 export const updateGroup = (id: string, patch: { name?: string; description?: string; image?: string }): Promise<ChatConversation> =>
   apiFetch(`/api/groups/${id}`, { method: 'PUT', body: patch });
 export const deleteGroup = (id: string): Promise<{ ok: boolean }> => apiFetch(`/api/groups/${id}`, { method: 'DELETE' });

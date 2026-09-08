@@ -14,7 +14,7 @@ import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch } from '../../types';
 
 // A real group conversation the user belongs to (manual "New group" groups are filed under a branch).
-export interface GroupConv { id: string; name: string; branchId?: string | null; companyId?: string | null; deptKey?: string | null; unread?: number; preview?: string; pinned?: boolean }
+export interface GroupConv { id: string; name: string; branchId?: string | null; companyId?: string | null; unread?: number; preview?: string; pinned?: boolean }
 export interface GroupOpen { id: string; name: string; bizId: string; branchId: string; branchCode?: string; convId?: string }
 interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; pinned?: boolean; bizId: string; branchId: string; branchCode?: string; convId?: string; }
 
@@ -30,7 +30,7 @@ export function GroupsList({
   businesses = mockBusinesses, branches = mockBranches, serverFiltered = false, groupConversations = [],
 }: {
   activeBizId: string; access: AccessControl | null; onOpen: (g: GroupOpen) => void;
-  /** Long-press a real group row → the mute/pin/archive sheet (departments have no conversation). */
+  /** Long-press a group row → the mute/pin/archive sheet. */
   onLongPressGroup?: (conversationId: string) => void;
   // Fires true while a finger is on the branch-chip row, false on release. The Home pager uses it
   // to pause its own horizontal paging so the nested chip row can actually scroll (Android: the
@@ -50,9 +50,8 @@ export function GroupsList({
   const chipOrder = useBranchOrderStore((s) => s.order);
   const [arrangeFor, setArrangeFor] = useState<string | null>(null);
 
-  // The Groups tab lists the real group chats the user belongs to (created under a branch's
-  // department), grouped by branch — opened directly by conversation id. Browsing/creating groups by
-  // department lives in the Departments tab; new groups are created via the "+" New group action.
+  // The Groups tab lists the real group chats the user belongs to, grouped by branch — opened
+  // directly by conversation id. New groups are created via the "+" New group action.
   const toItem = (c: GroupConv): GItem => ({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId ?? '', branchCode: undefined });
   // Pinned groups float to the top of their chip (stable sort keeps the rest in recency order).
   const pinnedFirst = (items: GItem[]): GItem[] => items.sort((a, z) => Number(!!z.pinned) - Number(!!a.pinned));

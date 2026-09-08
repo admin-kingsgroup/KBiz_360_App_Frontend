@@ -78,7 +78,6 @@ function toFrontendUser(bu: BackendUser, access: BackendAccess): User {
     bizId: isSuper ? null : 'tk', // display scope; real branch grants are resolved server-side
     branches: bu.branchIds ?? bu.branches ?? [],
     accessGroups: [],
-    accessDepts: [],
     accessAlerts: access.alerts ?? [], // → deriveAccess → alertOK gates the System Alerts channels
     scopeLine: access.roleName ?? bu.role,
     avatar: bu.avatar ? mediaUrl(bu.avatar) : null,

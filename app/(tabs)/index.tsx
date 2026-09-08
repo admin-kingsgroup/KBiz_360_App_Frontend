@@ -46,15 +46,16 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
 }
 
 // Home — Chats tab: one WhatsApp-style list of direct chats AND groups. The Groups tab still hosts
-// the branch-organised Groups/Departments/Alerts panes; here groups simply ride the recency list.
+// the branch-organised Groups/Alerts panes; here groups simply ride the recency list.
 // The DM list is NOT access-filtered and not affected by View-As — faithful to source (see Phase 5
 // report); groups come from the same store, which the backend already membership-scopes.
 type ChatFilter = 'all' | 'unread' | 'groups';
 
 export default function Home() {
   const router = useRouter();
-  // Filter chips (client-side): All / Unread / Groups — WhatsApp's chip row. Groups floats unread
-  // groups to the top so the chip doubles as "show me the unread group messages".
+  // Filter chips (client-side): All / Unread / Groups — WhatsApp's chip row. Groups shows ONLY the
+  // groups with unread messages ("show me the unread group messages") — the full group list lives
+  // on the Groups tab, so listing every group here again was just noise.
   const [filter, setFilter] = useState<ChatFilter>('all');
   const realUser = useAuthStore((s) => s.user);
 
@@ -87,16 +88,14 @@ export default function Home() {
   const unreadGroupChats = active.filter((c) => c.type === 'group' && c.unread > 0).length;
   // Pinned chats sit above everything else, in their own recency order — the list is already sorted
   // by activity, so a stable partition is all that is needed.
-  const filtered = filter === 'groups' ? active.filter((c) => c.type === 'group')
-    : filter === 'unread' ? active.filter((c) => c.unread > 0)
+  // Unread = unread DIRECT chats only; Groups = groups with unread. The two chips split the unread
+  // backlog by kind, so nothing shows up under both.
+  const filtered = filter === 'groups' ? active.filter((c) => c.type === 'group' && c.unread > 0)
+    : filter === 'unread' ? active.filter((c) => c.type === 'direct' && c.unread > 0)
     : active;
   const pinnedFirst = [...filtered.filter((c) => c.pinned), ...filtered.filter((c) => !c.pinned)];
-  // Groups chip: unread groups float above read ones (each side keeps its pinned-first order).
-  const ordered = filter === 'groups'
-    ? [...pinnedFirst.filter((c) => c.unread > 0), ...pinnedFirst.filter((c) => c.unread === 0)]
-    : pinnedFirst;
   void realUser;
-  const visible = ordered.map((c) => convToItem(c, presence, myUserId, drafts[c.id]));
+  const visible = pinnedFirst.map((c) => convToItem(c, presence, myUserId, drafts[c.id]));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
@@ -115,7 +114,7 @@ export default function Home() {
       </View>
 
       {/* Filter chips — All / Unread / Groups (WhatsApp's chip row; business pills live on the
-          Groups tab). The Groups chip carries the count of groups with unread. */}
+          Groups tab). The Groups chip filters to groups WITH unread and carries their count. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
         {([['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']] as const).map(([k, label]) => {
           const on = filter === k;
@@ -148,8 +147,8 @@ export default function Home() {
             <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
               <MessageCircle size={50} color={colors.primary} />
             </View>
-            <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'groups' ? 'No groups' : 'No conversations'}</Text>
-            <Text style={{ color: colors.coolText, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>Your conversations will appear here.</Text>
+            <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'groups' ? 'No unread group messages' : 'No conversations'}</Text>
+            <Text style={{ color: colors.coolText, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'groups' ? 'All groups live on the Groups tab.' : 'Your conversations will appear here.'}</Text>
             <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: colors.primary }}>
               <Plus size={20} color="#fff" />
               <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Start new chat</Text>

@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, FolderKanban, HardDrive, Lock } from 'lucide-react-native';
+import { ChevronRight, Users, Shield, LogOut, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palmtree, ClipboardCheck, CalendarDays, ReceiptIndianRupee } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -170,6 +170,9 @@ export default function Profile() {
             title: 'Account',
             rows: [
               { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, tint: colors.primary, onPress: () => router.navigate('/attendance') },
+              { key: 'leave', label: 'Paid leave', sub: 'Balance & leave applications', Icon: Palmtree, tint: colors.teal, onPress: () => router.push('/hr/leave') },
+              { key: 'my-month', label: 'My Attendance', sub: 'Month calendar & holiday list', Icon: CalendarDays, tint: colors.blue, onPress: () => router.push('/hr/month') },
+              { key: 'payslip', label: 'My Payslip', sub: 'Monthly earnings & deductions', Icon: ReceiptIndianRupee, tint: colors.purple, onPress: () => router.push('/hr/payslip') },
               { key: 'password', label: 'Change password', sub: 'Update your sign-in password', Icon: KeyRound, tint: colors.orange, onPress: () => setPwOpen(true) },
               { key: 'storage', label: 'Storage', sub: 'Chats and downloads kept on this phone', Icon: HardDrive, tint: colors.teal, onPress: () => router.push('/storage') },
               { key: 'chat-privacy', label: 'Chat privacy', sub: 'Last seen, read receipts, blocked contacts', Icon: Lock, tint: colors.blue, onPress: () => router.push('/chat/privacy') },
@@ -180,10 +183,10 @@ export default function Profile() {
             title: 'Administration',
             rows: [
               { key: 'office-locations', label: 'Office locations', sub: 'Set branch geofences for attendance', Icon: MapPin, tint: colors.coral, onPress: () => router.push('/admin/office-locations') },
+              { key: 'regularizations', label: 'Regularisations', sub: 'Attendance correction requests', Icon: ClipboardCheck, tint: colors.orange, onPress: () => router.push('/admin/regularizations') },
               { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, tint: colors.blue, onPress: () => router.push('/admin/businesses') },
               { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, tint: colors.purple, onPress: () => router.push('/admin/users') },
               { key: 'roles', label: 'Roles & Permissions', sub: loaded ? `${counts.roles}-tier access hierarchy` : 'Access hierarchy', Icon: Shield, tint: colors.teal, onPress: () => router.push('/admin/roles') },
-              { key: 'departments', label: 'Departments', sub: 'Create departments for a business or branch', Icon: FolderKanban, tint: colors.orange, onPress: () => router.push('/admin/departments') },
               { key: 'kbiz-members', label: 'KBiz360 Members', sub: 'Toggle who belongs to KBiz360 · BOM', Icon: Building2, tint: colors.primary, onPress: () => router.push('/admin/kbiz-members') },
               { key: 'chat-analytics', label: 'Chat Analytics', sub: 'Messaging insights & activity', Icon: Activity, tint: colors.blue, onPress: () => router.push('/admin/chat-analytics') },
             ],

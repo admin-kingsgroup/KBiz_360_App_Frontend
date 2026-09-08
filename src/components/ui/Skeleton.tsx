@@ -13,7 +13,7 @@ export function Skeleton({ w, h, r = 8, style }: { w?: DimensionValue; h: number
   return <Animated.View style={[{ width: w, height: h, borderRadius: r, backgroundColor: colors.cardEdge }, anim, style]} />;
 }
 
-// A card-shaped placeholder row: avatar + two text lines (mimics a group/department/chat item).
+// A card-shaped placeholder row: avatar + two text lines (mimics a group/chat item).
 export function SkeletonRow() {
   return (
     <View className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderColor: colors.cardEdge, borderWidth: 1, borderRadius: 16 }}>

@@ -8,6 +8,7 @@ export * as usersApi from './users';
 export * as businessesApi from './businesses';
 export * as remindersApi from './reminders';
 export * as attendanceApi from './attendance';
+export * as hrApi from './hr';
 export * as chatsApi from './chats';
 export * as emailApi from './email';
 export * as pushApi from './push';

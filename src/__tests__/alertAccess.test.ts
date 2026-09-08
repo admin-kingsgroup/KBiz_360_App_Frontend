@@ -3,7 +3,7 @@ import { financeAlertChannels, crmAlertChannels, pulseChannels, pulseGroups, gro
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
-  isSuper: false, role: 'EMPLOYEE', name: 'Test', bizIds: ['tk'], branches, groups: [], depts: [], alerts, canManage: false,
+  isSuper: false, role: 'EMPLOYEE', name: 'Test', bizIds: ['tk'], branches, groups: [], alerts, canManage: false,
 });
 
 describe('system-alert access — branch channels', () => {

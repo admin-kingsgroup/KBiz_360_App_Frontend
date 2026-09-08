@@ -82,12 +82,23 @@
         }
       ],
       "./plugins/withVoipPush",
-      "./plugins/withNotifeeRepo"
+      "./plugins/withNotifeeRepo",
+      [
+        "@bacons/apple-targets",
+        {
+          "appleTeamId": "9GPR588XWH"
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.kingsgroup.kbiz360",
       "googleServicesFile": "./GoogleService-Info.plist",
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.kingsgroup.kbiz360"
+        ]
+      },
       "infoPlist": {
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true,

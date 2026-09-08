@@ -1,7 +1,7 @@
 import type { AccessControl } from '../types';
 
-// Visibility predicates used by Groups / Departments / System-Alerts / business pills.
-// Extracted verbatim from GroupsList, DepartmentsList, PulseInline, BusinessSelectorSheet.
+// Visibility predicates used by Groups / System-Alerts / business pills.
+// Extracted verbatim from GroupsList, PulseInline, BusinessSelectorSheet.
 // `access` null/undefined is treated as Super (matches `isSuper = !access || access.isSuper`).
 export function makeAccessFilters(access: AccessControl | null | undefined) {
   const isSuper = !access || access.isSuper;
@@ -12,8 +12,6 @@ export function makeAccessFilters(access: AccessControl | null | undefined) {
     brOK: (code: string): boolean => isSuper || (a.branches || []).includes(code),
     grpOK: (code: string, name: string): boolean =>
       isSuper || (a.groups || []).includes(`${code}-${name}`),
-    deptOK: (code: string, name: string): boolean =>
-      isSuper || (a.depts || []).includes(`${code}-${name}`) || (a.depts || []).includes(name),
     alertOK: (code: string | null, mod: string): boolean =>
       isSuper || (!!code && (a.alerts || []).includes(`${code}-${mod}`)) || (a.alerts || []).includes(mod),
     // Branch sections in the System Alerts pane: a branch shows if the user holds the branch itself

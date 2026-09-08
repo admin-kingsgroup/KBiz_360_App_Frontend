@@ -70,7 +70,9 @@ interface MessagingState {
   setActive: (conversationId: string | null) => void;
   loadPresence: (userIds: string[]) => Promise<void>;
   send: (conversationId: string, text: string, replyToId?: string, mentions?: string[]) => Promise<void>;
-  sendMedia: (conversationId: string, input: { type: ChatMessage['type']; attachments: ChatAttachment[]; text?: string }) => Promise<void>;
+  // `mentions` rides along with a caption — the API takes it whatever the message type, and the
+  // recipient gets the "X mentioned you: 📷 Photo" push.
+  sendMedia: (conversationId: string, input: { type: ChatMessage['type']; attachments: ChatAttachment[]; text?: string; mentions?: string[] }) => Promise<void>;
   forward: (messageId: string, conversationIds: string[]) => Promise<number>;
   retry: (clientId: string) => Promise<void>;
   flushOutbox: () => Promise<void>;
@@ -435,7 +437,7 @@ export const useMessagingStore = create<MessagingState>()(
 
       sendMedia: async (conversationId, input) => {
         // Media requires connectivity to upload; the chat screen handles upload + offline errors.
-        const saved = await chatApi.sendMessage({ conversationId, type: input.type, text: input.text, attachments: input.attachments });
+        const saved = await chatApi.sendMessage({ conversationId, type: input.type, text: input.text, attachments: input.attachments, mentions: input.mentions });
         get()._upsert(conversationId, { ...saved, pending: false });
         set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
       },

@@ -291,7 +291,7 @@ export default function Users() {
               value={posInput}
               onChangeText={setPosInput}
               autoFocus
-              placeholder="e.g. Senior Finance Manager"
+              placeholder="e.g. Finance Manager"
               placeholderTextColor={colors.coolText3}
               style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: colors.ink, fontWeight: '500' }}
               onSubmitEditing={savePosition}

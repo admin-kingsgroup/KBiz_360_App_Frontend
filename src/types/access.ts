@@ -9,7 +9,6 @@ export interface AccessControl {
   bizIds: string[] | null;
   branches: string[] | null;   // branch codes
   groups: GrantId[] | null;
-  depts: GrantId[] | null;
   alerts: GrantId[] | null;
   canManage: boolean;
 }

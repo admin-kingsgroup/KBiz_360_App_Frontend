@@ -1,13 +1,13 @@
-import type { Business, Branch, Department, Group, BizStatus } from '../types';
-import type { DirectoryCompany, DirectoryBranch, DirectoryDepartment } from '../api/directory';
+import type { Business, Branch, BizStatus } from '../types';
+import type { DirectoryCompany, DirectoryBranch } from '../api/directory';
 
-// Pure adapters: turn the access-scoped CRM directory (companies / branches / departments) into the
+// Pure adapters: turn the access-scoped CRM directory (companies / branches) into the
 // display shapes the Home segments already render. The CRM has no per-org colour/icon/flag, so we
 // derive them deterministically. Tested in src/__tests__/directory.test.ts.
 
 const PALETTE = ['#9A6CF0', '#37B6A4', '#4F8BFF', '#E8A13A', '#E3674E', '#2FB36B', '#DB2777', '#0C0E14'];
 export const colorForIndex = (i: number): string => PALETTE[((i % PALETTE.length) + PALETTE.length) % PALETTE.length];
-// Stable colour from an id (so a given company/branch/department keeps the same colour regardless of
+// Stable colour from an id (so a given company/branch keeps the same colour regardless of
 // list position or filtering — positional index drifts as the access-scoped set changes).
 export function colorForId(id: string): string {
   let h = 0;
@@ -60,19 +60,15 @@ const coerceStatus = (s: string | null): BizStatus => (s === 'setup' ? 'setup' :
 export interface Directory {
   businesses: Business[];
   branches: Branch[]; // each carries companyId so segments can group by business
-  businessDepts: Record<string, Department[]>; // departments per company id
 }
 
 export function buildDirectory(
   companies: DirectoryCompany[],
   branches: DirectoryBranch[],
-  departments: DirectoryDepartment[],
 ): Directory {
-  const branchCompany = new Map<string, string>();
   const branchCountByCompany = new Map<string, number>();
   branches.forEach((b) => {
     if (!b.companyId) return;
-    branchCompany.set(b.id, b.companyId);
     branchCountByCompany.set(b.companyId, (branchCountByCompany.get(b.companyId) ?? 0) + 1);
   });
 
@@ -87,23 +83,8 @@ export function buildDirectory(
     active: true,
   }));
 
-  // departments grouped by their branch → become the branch's "groups"
-  const deptsByBranch = new Map<string, DirectoryDepartment[]>();
-  departments.forEach((d) => {
-    if (!d.branchId) return;
-    const arr = deptsByBranch.get(d.branchId) ?? [];
-    arr.push(d);
-    deptsByBranch.set(d.branchId, arr);
-  });
-
   const outBranches: Branch[] = branches.map((b) => {
     const info = countryInfo(b.country);
-    const groups: Group[] = (deptsByBranch.get(b.id) ?? []).map((d) => ({
-      id: d.id,
-      name: d.name ?? d.code ?? 'Department',
-      icon: d.icon || iconForName(d.name ?? d.code ?? '•'),
-      color: d.color || colorForId(d.id),
-    }));
     return {
       id: b.id,
       companyId: b.companyId ?? undefined,
@@ -117,25 +98,9 @@ export function buildDirectory(
       radius: 150,
       wifi: '',
       color: colorForId(b.id),
-      groups,
+      groups: [],
     };
   });
 
-  // departments per company (via branch→company), de-duplicated by name within a company
-  const businessDepts: Record<string, Department[]> = {};
-  companies.forEach((c) => { businessDepts[c.id] = []; });
-  const seen = new Set<string>();
-  departments.forEach((d) => {
-    // Prefer the dept's branch→company; fall back to its own companyId (company-level departments
-    // with no branch would otherwise vanish from the segment).
-    const companyId = (d.branchId ? branchCompany.get(d.branchId) : undefined) ?? d.companyId ?? undefined;
-    if (!companyId) return;
-    const name = d.name ?? d.code ?? 'Department';
-    const key = `${companyId}:${name.toLowerCase()}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    (businessDepts[companyId] ??= []).push({ id: d.id, name, icon: d.icon || iconForName(name), color: d.color || colorForId(d.id) });
-  });
-
-  return { businesses, branches: outBranches, businessDepts };
+  return { businesses, branches: outBranches };
 }

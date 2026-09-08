@@ -56,7 +56,7 @@ export default function GroupInfo() {
   const RENAME_GROUP_EMAILS = ['farhan@travkings.com'];
   const canRename = canEdit || (RENAME_GROUP_EMAILS.includes(myEmail) && memberIds.has(meId));
   const sorted = [...members].sort((a, b) => (a.role === b.role ? 0 : a.role === 'admin' ? -1 : 1));
-  // For a branch-department group, only offer people from that branch — plus company-wide
+  // For a branch group, only offer people from that branch — plus company-wide
   // leadership (Super-Admins & Directors), who aren't tied to any branch but can be added to
   // any group. Non-branch groups offer the whole directory.
   const COMPANY_WIDE = new Set(['SUPER_ADMIN', 'DIRECTOR']);

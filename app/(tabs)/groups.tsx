@@ -4,7 +4,7 @@ import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedRef, run
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Skeleton, SkeletonList } from '../../src/components/ui';
-import { GroupsList, DepartmentsList, SystemAlertsList, HomeHeader } from '../../src/components/home';
+import { GroupsList, SystemAlertsList, HomeHeader } from '../../src/components/home';
 import { colors } from '../../src/theme';
 import { oneLine } from '../../src/logic/text';
 import { useDirectoryStore } from '../../src/store/directoryStore';
@@ -16,17 +16,17 @@ import type { ChatConversation } from '../../src/api/chat';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { isVisibleAlertChannel } from '../../src/data/pulse';
 
-type Segment = 'groups' | 'depts' | 'pulse';
+type Segment = 'groups' | 'pulse';
 const SEGMENTS: { k: Segment; l: string }[] = [
-  { k: 'groups', l: 'Groups' }, { k: 'depts', l: 'Departments' }, { k: 'pulse', l: 'Alerts' },
+  { k: 'groups', l: 'Groups' }, { k: 'pulse', l: 'Alerts' },
 ];
 
-// Groups tab — Groups · Departments · System Alerts (moved out of the Chats tab so Chats holds
+// Groups tab — Groups · System Alerts (moved out of the Chats tab so Chats holds
 // only 1:1 conversations). Business pills + segments are access-driven, same as the old Home panes.
 export default function Groups() {
   const router = useRouter();
   const [seg, setSeg] = useState<Segment>('groups');
-  // Swipeable segments (WhatsApp-style): a horizontal paging ScrollView holds the three panes;
+  // Swipeable segments (WhatsApp-style): a horizontal paging ScrollView holds the two panes;
   // tapping a tab scrolls to it, and settling on a pane after a swipe updates the tab + underline.
   const { width } = useWindowDimensions();
   const pagerRef = useAnimatedRef<Animated.ScrollView>();
@@ -49,11 +49,11 @@ export default function Groups() {
   const activeBizId = useUiStore((s) => s.activeBizId);
   const setBiz = useUiStore((s) => s.setBiz);
 
-  // Real CRM org directory (companies/branches/departments), access-scoped by the backend. We show the
+  // Real CRM org directory (companies/branches), access-scoped by the backend. We show the
   // real org ONLY — no mock fallback — so dummy pills/tabs never flash before the real data loads.
   const dir = useDirectoryStore();
   // Refetch on focus (not just mount): the tab stays mounted all session, so a mount-only load
-  // meant businesses/branches/departments created elsewhere only appeared after an app restart.
+  // meant businesses/branches created elsewhere only appeared after an app restart.
   useFocusEffect(useCallback(() => { void useDirectoryStore.getState().load(); }, []));
   const usingReal = dir.businesses.length > 0;
   const bizSource = dir.businesses;
@@ -66,7 +66,7 @@ export default function Groups() {
     ...(usingReal || isSuper ? bizSource : bizSource.filter((b) => (access?.bizIds || []).includes(b.id))),
   ];
 
-  // Real group conversations the user belongs to — manual ones (branchId, no deptKey) surface under
+  // Real group conversations the user belongs to — they surface under
   // their branch in the Groups pane. Refetched on focus so unread/previews stay current.
   const conversations = useMessagingStore((s) => s.conversations);
   // Long-pressed group row → mute / pin / archive (same sheet as the Chats tab).
@@ -77,20 +77,18 @@ export default function Groups() {
     void useMessagingStore.getState().loadConversations().then(() => useMessagingStore.getState().prefetchMessages());
   }, []));
   const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => ({
-    id: c.id, name: c.name, branchId: c.branchId ?? null, companyId: c.companyId ?? null, deptKey: c.deptKey ?? null, unread: c.unread,
+    id: c.id, name: c.name, branchId: c.branchId ?? null, companyId: c.companyId ?? null, unread: c.unread,
     preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : undefined,
     pinned: !!c.pinned, // pinned groups float to the top of their branch's list
   }));
 
   // Unread badges on the segment tabs — number of unread items per segment (NOT the total count).
-  // Groups = conversations with unread; Alerts = unread alert events. Departments has no cheap
-  // unread source here, so it stays badge-less. The Alerts count must use the same visible-channel
-  // gate as the cards: the server still sends events for hidden channel families (CRM/Finance
-  // flags), and counting those left a badge the user could never clear.
+  // Groups = conversations with unread; Alerts = unread alert events. The Alerts count must use the
+  // same visible-channel gate as the cards: the server still sends events for hidden channel
+  // families (CRM/Finance flags), and counting those left a badge the user could never clear.
   const unreadEvents = usePulseStore((s) => s.events).filter((e) => !e.read && isVisibleAlertChannel(e.channelId)).length;
   const tabUnread: Record<Segment, number> = {
     groups: groupConvs.filter((g) => (g.unread || 0) > 0).length,
-    depts: 0,
     pulse: unreadEvents,
   };
 
@@ -98,7 +96,7 @@ export default function Groups() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
       <HomeHeader />
 
-      {/* Segment chips — Groups / Departments / Alerts, styled exactly like the Chats tab's
+      {/* Segment chips — Groups / Alerts, styled exactly like the Chats tab's
           All / Unread / Groups row so the two pages read as one design. Tap to switch (the panes
           below still swipe); the count bubble matches the home chips' badge. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
@@ -118,7 +116,7 @@ export default function Groups() {
         })}
       </ScrollView>
 
-      {/* Business pills that filter the Groups/Departments panes (access-filtered, View-As-aware).
+      {/* Business pills that filter the Groups pane (access-filtered, View-As-aware).
           Hidden on System Alerts. */}
       {seg !== 'pulse' ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
@@ -137,7 +135,7 @@ export default function Groups() {
         </ScrollView>
       ) : null}
 
-      {/* Swipeable content — swipe left/right to move between Groups · Departments · System Alerts */}
+      {/* Swipeable content — swipe left/right to move between Groups · System Alerts */}
       <View style={{ flex: 1 }} onLayout={(e) => setPagerH(e.nativeEvent.layout.height)}>
         {pagerH > 0 ? (
           <Animated.ScrollView
@@ -164,26 +162,9 @@ export default function Groups() {
                   groupConversations={groupConvs}
                   onLongPressGroup={(id) => setActionsFor(conversations.find((c) => c.id === id) ?? null)}
                   onOpen={(g) => {
-                    // A real group is an existing conversation — open it directly by id.
-                    if (g.convId) { router.push({ pathname: '/chat/[id]', params: { id: g.convId } }); return; }
-                    // Otherwise it's a department: open the department detail to see/create its groups.
-                    router.push({ pathname: '/department/[id]', params: { id: g.id, biz: g.bizId, name: g.name } });
+                    // A group is an existing conversation — open it directly by id.
+                    if (g.convId) router.push({ pathname: '/chat/[id]', params: { id: g.convId } });
                   }}
-                />
-                )}
-              </ScrollView>
-            </View>
-
-            {/* Departments */}
-            <View style={{ width, height: pagerH }}>
-              <ScrollView style={{ flex: 1 }}>
-                {!dir.loaded ? <SkeletonList /> : (
-                <DepartmentsList
-                  activeBizId={activeBizId} access={access} serverFiltered
-                  businesses={dir.businesses}
-                  branches={dir.branches}
-                  businessDepts={dir.businessDepts}
-                  onOpenDept={(d) => router.push({ pathname: '/department/[id]', params: { id: d._key, biz: d.bizId, name: d.name } })}
                 />
                 )}
               </ScrollView>

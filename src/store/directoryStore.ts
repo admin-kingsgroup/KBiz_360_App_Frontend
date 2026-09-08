@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { listCompanies, listBranches, listDepartments, listUsers, toUser } from '../api/directory';
+import { listCompanies, listBranches, listUsers, toUser } from '../api/directory';
 import { useAccessStore } from './accessStore';
 import { buildDirectory, type Directory } from '../logic/directory';
 
-// Real CRM org directory (companies / branches / departments) for the Home segments. Access-scoped by
+// Real CRM org directory (companies / branches) for the Home segments. Access-scoped by
 // the backend. If the API is unavailable/empty (offline, older backend), `businesses` stays empty and
 // Home falls back to the mock org data — so the screen never breaks.
 interface DirectoryStore extends Directory {
@@ -15,19 +15,17 @@ interface DirectoryStore extends Directory {
 export const useDirectoryStore = create<DirectoryStore>((set, get) => ({
   businesses: [],
   branches: [],
-  businessDepts: {},
   loaded: false,
   loading: false,
   load: async () => {
     if (get().loading) return;
     set({ loading: true });
     try {
-      const [companies, branches, departments] = await Promise.all([
+      const [companies, branches] = await Promise.all([
         listCompanies(),
         listBranches(),
-        listDepartments(),
       ]);
-      set({ ...buildDirectory(companies, branches, departments), loaded: true, loading: false });
+      set({ ...buildDirectory(companies, branches), loaded: true, loading: false });
     } catch {
       set({ loaded: true, loading: false }); // leave empty → Home uses the mock fallback
     }

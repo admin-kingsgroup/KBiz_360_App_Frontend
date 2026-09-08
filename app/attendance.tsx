@@ -3,10 +3,11 @@ import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator, Image }
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil, Palmtree, ClipboardCheck } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { DayTimesSheet, type DayTimesTarget } from '../src/components/attendance/DayTimesSheet';
+import { RegularizeSheet } from '../src/components/attendance/RegularizeSheet';
 import { colors } from '../src/theme';
 import { useGeoFence } from '../src/hooks/useGeoFence';
 import { useEventCallback } from '../src/hooks/useEventCallback';
@@ -16,6 +17,7 @@ import { useUiStore } from '../src/store/uiStore';
 import { distanceMeters } from '../src/logic/geo';
 import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, adminSetAttendanceTimes, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
+import { getMyLeave, getMyRegularizations, getPendingRegularizations, requestRegularization, type MyLeave, type Regularization } from '../src/api/hr';
 import { uploadFile } from '../src/api/media';
 import { disarmAttendanceGeofencing } from '../src/services/backgroundAttendance';
 import { clearPendingExit } from '../src/services/pendingExit';
@@ -63,6 +65,13 @@ export default function Attendance() {
   const [photoView, setPhotoView] = useState<string | null>(null); // full-screen face-photo viewer
   const [dayEdit, setDayEdit] = useState<DayTimesTarget | null>(null); // super-admin time editor (a row of the member modal's history)
   const [savingTimes, setSavingTimes] = useState(false);
+  // HR self-service: paid-leave balance (tapping opens /hr/leave) + attendance regularisation
+  // requests (per-history-row "fix" → a request a manager approves).
+  const [leave, setLeave] = useState<MyLeave | null>(null);
+  const [myRegs, setMyRegs] = useState<Regularization[]>([]);
+  const [regTarget, setRegTarget] = useState<DayTimesTarget | null>(null);
+  const [sendingReg, setSendingReg] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState(0); // manager queue size (managers only)
   // Exempt is TRI-STATE: null = not known yet — don't flash the punch UI before the server says
   // whether this account is tracked (super admins are always untracked server-side).
   const [exempt, setExempt] = useState<boolean | null>(null);
@@ -74,6 +83,8 @@ export default function Attendance() {
   // Who gets the Team tab: super admin + company manager (DIRECTOR) see every branch; a branch
   // manager sees only their own — the server scopes the list, this just shows the tab.
   const canSeeTeam = isSuper || role === 'DIRECTOR' || role === 'BRANCH_MANAGER';
+  // Who decides regularisation requests (mirrors the server's requireManage).
+  const canManage = isSuper || role === 'DIRECTOR';
   const consent = useAttendanceStore((s) => s.consent);
   const att = useAttendanceStore((s) => s.att);
   const showToast = useUiStore((s) => s.showToast);
@@ -128,6 +139,11 @@ export default function Attendance() {
       getOffices().then(setOffices), // office geofences — drive the 100 m button gate
       ...(isSuper ? [getAdminOffices().then(setAdminOffices)] : []), // offices for the reassign picker
     ];
+    // HR self-service loads are best-effort — they must never flag loadError (the punch screen is
+    // whole without them) or hold up the retry loop, so they ride outside the tasks list.
+    getMyLeave().then(setLeave).catch(() => undefined);
+    getMyRegularizations().then(setMyRegs).catch(() => undefined);
+    if (canManage) getPendingRegularizations().then((r) => setPendingApprovals(r.length)).catch(() => undefined);
     void Promise.allSettled(tasks).then((results) => {
       // While the server hasn't said whether this account is tracked, behave as tracked so the UI
       // stays usable (manual punch works; the server is the gate).
@@ -231,6 +247,33 @@ export default function Attendance() {
       .finally(() => setSavingTimes(false));
   });
 
+  // Self-service: file a regularisation request for the day open in the sheet. Nothing changes on
+  // the record here — a manager approves it (the server then applies the same evidence-preserving
+  // correction the admin editor uses) or rejects it with a note.
+  const sendRegularization = useEventCallback((body: { checkInAt: string; checkOutAt: string | null; reason: string }): void => {
+    if (!regTarget) return;
+    setSendingReg(true);
+    requestRegularization({ date: regTarget.date, ...body })
+      .then(() => {
+        showToast('Request sent — a manager will review it');
+        setRegTarget(null);
+        getMyRegularizations().then(setMyRegs).catch(() => undefined);
+      })
+      .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not send the request'))
+      .finally(() => setSendingReg(false));
+  });
+  const openRegularize = useCallback((e: AttendanceHistoryEntry): void =>
+    setRegTarget({ date: e.date, inTime: e.inTime, outTime: e.outTime, via: e.via }), []);
+  // Day keys with a PENDING request — those history rows show the state instead of the fix button.
+  const pendingRegDays = useMemo(() => new Set(myRegs.filter((r) => r.status === 'pending').map((r) => r.date)), [myRegs]);
+  const openLeave = useCallback((): void => router.push('/hr/leave'), [router]);
+  const openMonthView = useCallback((): void => router.push('/hr/month'), [router]);
+  const openApprovals = useCallback((): void => router.push('/admin/regularizations'), [router]);
+  const leaveBalanceText = leave?.balance ? `${leave.balance.balance}` : null;
+  const leaveSubText = leave === null ? 'Loading…' : leave.hasRecord
+    ? (leave.balance?.nextCreditOn ? `+${leave.balance.monthlyAccrual} on the 1st · tap to apply` : 'Tap to apply for leave')
+    : 'No HR record linked yet';
+
   // Persist a punch to the backend and adopt the server's record. Failures are NEVER silent: the
   // server is the record of truth, so on rejection we re-adopt its state (the optimistic local
   // punch would otherwise show "checked in" all day while the server has nothing — the person
@@ -315,6 +358,8 @@ export default function Attendance() {
         {canSeeTeam ? <TabSwitch tab={tab} onChange={setTab} /> : null}
 
         {canSeeTeam && tab === 'team' ? (
+          <>
+          {canManage ? <ApprovalsRow n={pendingApprovals} onPress={openApprovals} /> : null}
           <TeamView
             team={team}
             teamDate={teamDate}
@@ -327,6 +372,7 @@ export default function Attendance() {
             onSelectMember={setReassign}
             onViewPhoto={setPhotoView}
           />
+          </>
         ) : exempt === null ? (
           // Don't flash the punch UI before the server says whether this account is tracked —
           // exempt accounts used to render the full punch screen for a beat, then swap to
@@ -343,14 +389,16 @@ export default function Attendance() {
             <Text style={{ color: colors.coolText, fontSize: 12.5, textAlign: 'center', marginBottom: 16, paddingHorizontal: 16 }}>
               Attendance is automatic for your account — you are checked in when you arrive at the office and checked out when you leave.
             </Text>
-            <HistorySection history={history} />
+            <LeaveCard balance={leaveBalanceText} sub={leaveSubText} onPress={openLeave} />
+            <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} />
           </>
         ) : (
           <>
             <LiveClock />
             <StatusCard statusText={statusText} statusColor={statusColor} punchedVia={punchedVia} inText={inText} outText={outText} />
             <PunchCard hasIn={!!inTime} hasOut={!!outTime} canPunch={canPunch} inRange={!!nearest?.within || offices.length === 0} punching={punching} locationSub={locationSub} onPunch={punchNow} />
-            <HistorySection history={history} />
+            <LeaveCard balance={leaveBalanceText} sub={leaveSubText} onPress={openLeave} />
+            <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} />
           </>
         )}
       </ScrollView>
@@ -369,6 +417,9 @@ export default function Attendance() {
 
       {/* Super-admin time editor for one of the selected teammate's days (sits above the modal). */}
       <DayTimesSheet target={dayEdit} name={reassign?.name ?? ''} dateLabel={dayEdit ? dateLabel(dayEdit.date) : ''} saving={savingTimes} onClose={() => setDayEdit(null)} onSave={saveMemberTimes} />
+
+      {/* Self-service: request a correction for one of MY days (a manager approves it). */}
+      <RegularizeSheet target={regTarget} dateLabel={regTarget ? dateLabel(regTarget.date) : ''} saving={sendingReg} onClose={() => setRegTarget(null)} onSave={sendRegularization} />
 
       {/* Full-screen punch-photo viewer */}
       <Modal visible={!!photoView} transparent animationType="fade" onRequestClose={() => setPhotoView(null)}>
@@ -513,26 +564,77 @@ const PunchCard = memo(function PunchCard({ hasIn, hasOut, canPunch, inRange, pu
   );
 });
 
-// Storage note + my recent days. Repaints only when the history list itself changes.
-const HistorySection = memo(function HistorySection({ history }: { history: AttendanceHistoryEntry[] }) {
+// Paid-leave balance card — tap opens the leave screen (/hr/leave: apply + application trail).
+const LeaveCard = memo(function LeaveCard({ balance, sub, onPress }: { balance: string | null; sub: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, borderRadius: 16, marginBottom: 12 }}>
+      <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}><Palmtree size={20} color={colors.primary} /></View>
+      <View className="flex-1">
+        <Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '700' }}>Paid leave</Text>
+        <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>{sub}</Text>
+      </View>
+      {balance !== null ? (
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>{balance}<Text style={{ fontSize: 12, fontWeight: '700' }}> d</Text></Text>
+        </View>
+      ) : null}
+      <ChevronRight size={18} color={colors.coolText3} />
+    </Pressable>
+  );
+});
+
+// Manager entry to the regularisation queue (Team tab only — decisions are requireManage).
+const ApprovalsRow = memo(function ApprovalsRow({ n, onPress }: { n: number; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: n > 0 ? colors.orange + '66' : colors.coolDivider, borderRadius: 14, marginBottom: 12 }}>
+      <ClipboardCheck size={18} color={n > 0 ? colors.orange : colors.coolText} />
+      <Text style={{ flex: 1, color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>Regularisation requests</Text>
+      {n > 0 ? (
+        <View style={{ minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: colors.orange, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{n}</Text>
+        </View>
+      ) : (
+        <Text style={{ color: colors.coolText, fontSize: 12 }}>none waiting</Text>
+      )}
+      <ChevronRight size={16} color={colors.coolText3} />
+    </Pressable>
+  );
+});
+
+// Storage note + my recent days. Repaints only when the history list / pending-request set
+// changes (pendingDays is a useMemo'd Set — stable between unrelated renders).
+const HistorySection = memo(function HistorySection({ history, pendingDays, onRegularize, onMonthView }: { history: AttendanceHistoryEntry[]; pendingDays: Set<string>; onRegularize: (e: AttendanceHistoryEntry) => void; onMonthView: () => void }) {
   return (
     <>
       <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginBottom: 16, paddingHorizontal: 12 }}>Only time, date & method are stored. Payroll & rules run in your Accounts software.</Text>
 
-      <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 8, paddingHorizontal: 4 }}>MY HISTORY</Text>
+      <View className="flex-row items-center justify-between" style={{ marginBottom: 8, paddingHorizontal: 4 }}>
+        <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MY HISTORY</Text>
+        <Pressable onPress={onMonthView} hitSlop={8}>
+          <Text style={{ color: colors.primary, fontSize: 11.5, fontWeight: '700' }}>Month view ›</Text>
+        </Pressable>
+      </View>
       <View style={{ gap: 8 }}>
         {history.length === 0 ? (
           <Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center', paddingVertical: 16 }}>No attendance history yet.</Text>
         ) : null}
         {history.map((e) => {
           const absent = !e.inTime;
+          const regPending = pendingDays.has(e.date);
           return (
             <View key={e.date} className="flex-row items-center gap-2.5 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.danger + '40' : colors.coolDivider, borderRadius: 14 }}>
               <View className="flex-1">
                 <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
                 {absent ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent · no check-in</Text>
                         : <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {fmt(e.inTime ? new Date(e.inTime) : null)} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>}
+                {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Fix requested · waiting for a manager</Text> : null}
               </View>
+              {/* Ask for a correction (missed punch / wrong times) — files a request, not an edit. */}
+              {!regPending ? (
+                <Pressable onPress={() => onRegularize(e)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Request a correction for ${e.date}`} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }}>
+                  <Pencil size={14} color={colors.primary} />
+                </Pressable>
+              ) : null}
               <Badge on={!absent} />
             </View>
           );

@@ -11,7 +11,6 @@ describe('deriveAccess — per role (from adminUsers)', () => {
     expect(a.bizIds).toBeNull();
     expect(a.branches).toBeNull();
     expect(a.groups).toBeNull();
-    expect(a.depts).toBeNull();
     expect(a.alerts).toBeNull();
     expect(a.canManage).toBe(true);
   });
@@ -32,11 +31,10 @@ describe('deriveAccess — per role (from adminUsers)', () => {
     expect(a.canManage).toBe(false);
   });
 
-  it('HOD → branch + dept grants, canManage false', () => {
+  it('HOD → branch + group grants, canManage false', () => {
     const a = deriveAccess(byId('a5'));
     expect(a.branches).toEqual(['AMD']);
     expect(a.groups).toEqual(['AMD-Ticketing']);
-    expect(a.depts).toEqual(['AMD-Ticketing']);
     expect(a.canManage).toBe(false);
   });
 
@@ -54,7 +52,6 @@ describe('access filters — branch-qualified visibility', () => {
     const f = makeAccessFilters(deriveAccess(byId('a1')));
     expect(f.bizOK('qa')).toBe(true);
     expect(f.grpOK('NBO', 'MKTG')).toBe(true);
-    expect(f.deptOK('BOM', 'Holidays')).toBe(true);
     expect(f.alertOK('AMD', 'inventory')).toBe(true);
   });
 
@@ -66,14 +63,7 @@ describe('access filters — branch-qualified visibility', () => {
     expect(f.brOK('BOM')).toBe(false);
     expect(f.grpOK('AMD', 'Ticketing')).toBe(true);
     expect(f.grpOK('AMD', 'Accounts')).toBe(false);
-    expect(f.deptOK('AMD', 'Ticketing')).toBe(true);
     expect(f.alertOK('AMD', 'crm')).toBe(true);
     expect(f.alertOK('AMD', 'pl')).toBe(false);
-  });
-
-  it('deptOK also matches bare dept name (backward-compat path)', () => {
-    const f = makeAccessFilters({ isSuper: false, role: 'HOD', name: 'x', bizIds: ['tk'], branches: ['AMD'], groups: [], depts: ['Accounts'], alerts: [], canManage: false });
-    expect(f.deptOK('AMD', 'Accounts')).toBe(true);   // matches bare 'Accounts'
-    expect(f.deptOK('XYZ', 'Accounts')).toBe(true);   // bare match regardless of branch
   });
 });

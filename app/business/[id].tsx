@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { ChevronLeft, MapPin, Building2, User as UserIcon, Trash2 } from 'lucide-react-native';
+import { ChevronLeft, MapPin, User as UserIcon, Trash2 } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { ROLE_DEFS } from '../../src/constants/roles';
@@ -11,17 +11,17 @@ import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { ApiError } from '../../src/api/client';
 import {
-  listCompanies, listBranches, listDepartments, listUsers, toUser, deleteBranch, deleteDepartment,
-  type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment,
+  listCompanies, listBranches, listUsers, toUser, deleteBranch,
+  type DirectoryCompany, type DirectoryBranch,
 } from '../../src/api/directory';
 import { codeFromName } from '../../src/logic/directory';
 import type { User } from '../../src/types';
 
 const PALETTE = ['#9A6CF0', '#4F8BFF', '#37B6A4', '#E8A13A', '#E3674E', '#2FB36B', '#DB2777'];
-type SubTab = 'branches' | 'depts' | 'users';
+type SubTab = 'branches' | 'users';
 
-// Company detail (real CRM): branches / departments / users for the company. Super-admins can
-// delete branches and departments from here (users are deleted from Team & Users).
+// Company detail (real CRM): branches / users for the company. Super-admins can
+// delete branches from here (users are deleted from Team & Users).
 export default function BusinessDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,33 +31,18 @@ export default function BusinessDetail() {
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<DirectoryCompany | null>(null);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
-  const [depts, setDepts] = useState<DirectoryDepartment[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [refresh, setRefresh] = useState(0); // bump to re-run the focus load after a delete
 
-  // Reload on focus (not just mount): returning from "New branch" / department create must show the
+  // Reload on focus (not just mount): returning from "New branch" must show the
   // fresh lists — a mount-only load kept this screen stale until it was closed and reopened.
   useFocusEffect(useCallback(() => {
     let active = true;
-    Promise.all([listCompanies(), listBranches(), listDepartments(), listUsers()])
-      .then(([companies, allBranches, allDepts, allUsers]) => {
+    Promise.all([listCompanies(), listBranches(), listUsers()])
+      .then(([companies, allBranches, allUsers]) => {
         if (!active) return;
         setCompany(companies.find((c) => c.id === id) ?? null);
-        const br = allBranches.filter((b) => b.companyId === id);
-        setBranches(br);
-        const branchIds = new Set(br.map((b) => b.id));
-        // Departments are stored per-branch, and company-wide (app) departments are expanded across
-        // every branch — so the same department appears once per branch. Dedupe by name for this
-        // company-level view (matching the New Group picker) so a company-wide dept like
-        // "KBIZ360 - SUPPORT" shows once, not once per branch. Per-branch groups are unaffected.
-        const companyDepts = allDepts.filter((d) => (d.branchId ? branchIds.has(d.branchId) : false));
-        const seenDept = new Set<string>();
-        setDepts(companyDepts.filter((d) => {
-          const key = (d.name ?? d.code ?? d.id).toLowerCase().trim();
-          if (seenDept.has(key)) return false;
-          seenDept.add(key);
-          return true;
-        }));
+        setBranches(allBranches.filter((b) => b.companyId === id));
         setUsers(allUsers.map(toUser)); // 1 company = tenant → all directory users belong
       })
       .catch(() => { /* offline */ })
@@ -72,10 +57,6 @@ export default function BusinessDetail() {
   const removeBranch = (b: DirectoryBranch): void => Alert.alert('Delete branch', `Delete "${b.city ?? b.name ?? b.code}"? Team members are un-assigned from it.`, [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: () => { deleteBranch(b.id).then(() => { showToast('Branch deleted'); reload(); }).catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete branch')); } },
-  ]);
-  const removeDept = (d: DirectoryDepartment): void => Alert.alert('Delete department', `Delete "${d.name ?? d.code}" from every branch of this company?`, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => { deleteDepartment(d.id).then(() => { showToast('Department deleted'); reload(); }).catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not delete department')); } },
   ]);
 
   if (loading) {
@@ -106,7 +87,7 @@ export default function BusinessDetail() {
           <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700', letterSpacing: -0.4 }}>{company.name}</Text></View>
         </View>
         <View className="flex-row mt-3" style={{ gap: 8 }}>
-          {[['Branches', branches.length], ['Depts', depts.length], ['Users', users.length]].map(([l, v]) => (
+          {[['Branches', branches.length], ['Users', users.length]].map(([l, v]) => (
             <View key={l as string} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: colors.primarySoft }}>
               <Text style={{ color: colors.primaryDark, fontSize: 20, fontWeight: '800' }}>{v as number}</Text>
               <Text style={{ color: colors.primary, fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4, marginTop: 2 }}>{(l as string).toUpperCase()}</Text>
@@ -117,7 +98,7 @@ export default function BusinessDetail() {
 
       {/* Subtabs */}
       <View className="flex-row mx-4" style={{ borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
-        {([['branches', 'Branches'], ['depts', 'Departments'], ['users', 'Users']] as const).map(([k, l]) => {
+        {([['branches', 'Branches'], ['users', 'Users']] as const).map(([k, l]) => {
           const on = k === subTab;
           return (
             <Pressable key={k} onPress={() => setSubTab(k)} style={{ flex: 1, paddingVertical: 12, alignItems: 'center' }}>
@@ -136,15 +117,6 @@ export default function BusinessDetail() {
                 <View style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>{b.code ?? '—'}</Text></View>
                 <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{b.city ?? b.name ?? b.code}{b.isHO ? '  · HO' : ''}</Text><Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{b.country ?? ''}</Text></View>
                 {isSuper ? <Pressable onPress={() => removeBranch(b)} hitSlop={8} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable> : null}
-              </View>
-            ))
-        ) : subTab === 'depts' ? (
-          depts.length === 0 ? <Empty Icon={Building2} text="No departments" sub="No departments found for this company" />
-            : depts.map((d, i) => (
-              <View key={d.id} className="flex-row items-center gap-3" style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
-                <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: PALETTE[i % PALETTE.length], alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>{(d.name ?? d.code ?? '?').slice(0, 1).toUpperCase()}</Text></View>
-                <View className="flex-1"><Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{d.name ?? d.code}</Text>{d.code ? <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '500' }}>{d.code}</Text> : null}</View>
-                {isSuper ? <Pressable onPress={() => removeDept(d)} hitSlop={8} style={{ padding: 6 }}><Trash2 size={17} color={colors.danger} /></Pressable> : null}
               </View>
             ))
         ) : (

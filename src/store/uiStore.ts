@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type HomeSegment = 'chats' | 'groups' | 'depts' | 'pulse';
+export type HomeSegment = 'chats' | 'groups' | 'pulse';
 
 // UI-only navigation state (no React, no RN). Persistence optional at the edge.
 export interface UiState {

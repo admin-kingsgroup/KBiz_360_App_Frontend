@@ -1,4 +1,4 @@
-import type { Branch, Business, Department } from '../types';
+import type { Branch, Business } from '../types';
 
 // Org structure used by access filters & validation. Values copied from source.
 export const businesses: Business[] = [
@@ -28,14 +28,3 @@ export const branches: Branch[] = [
 
 // branchesFor(bizId): only 'tk' has branches (preserves branchesFor helper behavior).
 export const branchesFor = (bizId: string): Branch[] => (bizId === 'tk' ? branches : []);
-
-export const businessDepts: Record<string, Department[]> = {
-  tk: [
-    { id: 'td1', name: 'Accounts',  icon: '$',  color: '#E8A13A' },
-    { id: 'td2', name: 'Ticketing', icon: '✈',  color: '#4F8BFF' },
-    { id: 'td3', name: 'Holidays',  icon: '☼',  color: '#37B6A4' },
-    { id: 'td4', name: 'BM MGMT',   icon: 'BM', color: '#0C0E14' },
-    { id: 'td5', name: 'MKTG',      icon: '★',  color: '#EC4899' },
-  ],
-  qa: [], hk: [], kd: [], adb: [], ndb: [], kl: [],
-};

@@ -16,6 +16,7 @@ export interface DirectoryUser {
   level: number;
   status: string | null;
   branchIds: string[];
+  businessIds?: string[];   // explicit business access grants (kb360_app), set by super-admins
   position?: string | null; // app-set job title (kb360_app), distinct from role
   avatar?: string | null;   // app-set profile picture url (relative or absolute)
 }
@@ -33,16 +34,6 @@ export interface DirectoryBranch {
   isHO: boolean;
   companyId: string | null;
 }
-export interface DirectoryDepartment {
-  id: string;
-  name: string | null;
-  code: string | null;
-  branchId: string | null;
-  companyId?: string | null; // company-level departments (no branch) file under this
-  icon?: string | null;      // app-created departments may carry a custom icon/color
-  color?: string | null;
-  appOwned?: boolean;        // true = created in-app (editable); false = read-only CRM department
-}
 export interface DirectoryRole {
   id: string;
   name: string;
@@ -59,8 +50,6 @@ export const listUsers = (opts?: { includeDisabled?: boolean }): Promise<Directo
 export const getUser = (id: string): Promise<DirectoryUser> => apiFetch(`/api/users/${encodeURIComponent(id)}`);
 export const listCompanies = (): Promise<DirectoryCompany[]> => apiFetch('/api/companies');
 export const listBranches = (): Promise<DirectoryBranch[]> => apiFetch('/api/branches');
-export const listDepartments = (branchId?: string): Promise<DirectoryDepartment[]> =>
-  apiFetch(`/api/departments${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ''}`);
 export const listRoles = (): Promise<DirectoryRole[]> => apiFetch('/api/roles');
 
 // Super-admin: create a business (written to the CRM companies collection, visible in the ERP too).
@@ -78,19 +67,8 @@ export const deleteBranch = (id: string): Promise<{ ok: boolean }> =>
 export const deleteUser = (id: string): Promise<{ ok: boolean }> =>
   apiFetch(`/api/users/${id}`, { method: 'DELETE' });
 
-// Super-admin: create / edit / delete app departments (companyId required; branchId null = all branches).
-export interface AppDepartment { id: string; name: string; companyId: string | null; branchId: string | null; icon: string | null; color: string | null }
-export const listAppDepartments = (): Promise<AppDepartment[]> => apiFetch('/api/departments/app');
-export interface DepartmentInput { name: string; companyId: string | null; branchId?: string | null; icon?: string | null; color?: string | null }
-export const createDepartment = (body: DepartmentInput): Promise<DirectoryDepartment> =>
-  apiFetch('/api/departments', { method: 'POST', body });
-export const updateDepartment = (id: string, body: Partial<DepartmentInput>): Promise<DirectoryDepartment> =>
-  apiFetch(`/api/departments/${id}`, { method: 'PUT', body });
-export const deleteDepartment = (id: string): Promise<{ ok: boolean }> =>
-  apiFetch(`/api/departments/${id}`, { method: 'DELETE' });
-
 // Super-admin: provision users (writes to the CRM users collection so they can log in).
-export interface UserInput { email: string; password?: string; firstName?: string; lastName?: string; phone?: string | null; roleId?: string; branchIds?: string[]; status?: string }
+export interface UserInput { email: string; password?: string; firstName?: string; lastName?: string; phone?: string | null; roleId?: string; branchIds?: string[]; businessIds?: string[]; status?: string }
 export const createUser = (body: UserInput): Promise<DirectoryUser> => apiFetch('/api/users', { method: 'POST', body });
 export const updateUser = (id: string, body: Partial<UserInput>): Promise<DirectoryUser> => apiFetch(`/api/users/${id}`, { method: 'PUT', body });
 // Any user editing their own profile (name / phone).
@@ -170,8 +148,8 @@ export function toUser(du: DirectoryUser): User {
     email: du.email,
     bizId: null,
     branches: du.branchIds ?? [],
+    businessIds: du.businessIds ?? [],
     accessGroups: [],
-    accessDepts: [],
     accessAlerts: [],
     scopeLine,
     phone: du.phone ?? null,

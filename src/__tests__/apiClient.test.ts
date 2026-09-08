@@ -65,11 +65,11 @@ describe('api/auth — login', () => {
   it('stores tokens and signs in via the existing stores', async () => {
     const user: User = {
       id: 'a1', name: 'Afshin Dhanani', initials: 'AD', color: '#000', role: 'SUPER_ADMIN',
-      bizId: null, branches: [], accessGroups: [], accessDepts: [], accessAlerts: [],
+      bizId: null, branches: [], accessGroups: [], accessAlerts: [],
     };
     const access: AccessControl = {
       isSuper: true, role: 'SUPER_ADMIN', name: 'Afshin Dhanani',
-      bizIds: null, branches: null, groups: null, depts: null, alerts: null, canManage: true,
+      bizIds: null, branches: null, groups: null, alerts: null, canManage: true,
     };
     setFetch(jest.fn().mockResolvedValue(res(200, { accessToken: 'a', refreshToken: 'r', user, access })));
 

@@ -9,8 +9,8 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import {
-  getUser, toUser, listRoles, listBranches, createUser, updateUser, humanizeRole,
-  type DirectoryRole, type DirectoryBranch,
+  getUser, toUser, listRoles, listBranches, listCompanies, createUser, updateUser, humanizeRole,
+  type DirectoryRole, type DirectoryBranch, type DirectoryCompany,
 } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
 import type { User } from '../../src/types';
@@ -39,9 +39,11 @@ export default function UserForm() {
   const [password, setPassword] = useState('');
   const [roleId, setRoleId] = useState<string | null>(null);
   const [branchIds, setBranchIds] = useState<string[]>([]);
+  const [businessIds, setBusinessIds] = useState<string[]>([]);
   const [active, setActive] = useState(true);
   const [roles, setRoles] = useState<DirectoryRole[]>([]);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
+  const [companies, setCompanies] = useState<DirectoryCompany[]>([]);
   const [saving, setSaving] = useState(false);
 
   const loadTarget = (): void => {
@@ -54,6 +56,7 @@ export default function UserForm() {
   useEffect(() => {
     listRoles().then(setRoles).catch(() => undefined);
     listBranches().then(setBranches).catch(() => undefined);
+    listCompanies().then(setCompanies).catch(() => undefined);
     loadTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -68,6 +71,7 @@ export default function UserForm() {
       setPhone(editUser.phone ?? '');
       setRoleId(editUser.roleId ?? null);
       setBranchIds(editUser.branches || []);
+      setBusinessIds(editUser.businessIds || []);
       setActive(editUser.status !== 'inactive');
     }
   }, [editUser]);
@@ -75,6 +79,9 @@ export default function UserForm() {
   const branchLabel = (b: DirectoryBranch): string => b.code || b.name || b.city || 'Branch';
   const roleList = useMemo(() => [...roles].sort((a, b) => a.level - b.level), [roles]);
   const toggleBranch = (bid: string): void => { touched.current = true; setBranchIds((s) => (s.includes(bid) ? s.filter((x) => x !== bid) : [...s, bid])); };
+  const toggleBusiness = (cid: string): void => { touched.current = true; setBusinessIds((s) => (s.includes(cid) ? s.filter((x) => x !== cid) : [...s, cid])); };
+  // Businesses already covered by the selected branches (implicit access, shown pre-ticked + locked).
+  const branchCompanyIds = useMemo(() => new Set(branches.filter((b) => branchIds.includes(b.id)).map((b) => b.companyId ?? '')), [branches, branchIds]);
   const edit = <T,>(set: (v: T) => void) => (v: T): void => { touched.current = true; set(v); };
 
   // In edit mode the record MUST be loaded before saving (else a blank prefill would overwrite the user).
@@ -94,12 +101,12 @@ export default function UserForm() {
     setSaving(true);
     try {
       if (id) { // edit mode (isEdit === !!id)
-        const patch: Parameters<typeof updateUser>[1] = { firstName, lastName, phone: phone.trim() || null, roleId, branchIds, status: active ? 'active' : 'inactive' };
+        const patch: Parameters<typeof updateUser>[1] = { firstName, lastName, phone: phone.trim() || null, roleId, branchIds, businessIds, status: active ? 'active' : 'inactive' };
         if (password.length >= 6) patch.password = password;
         await updateUser(id, patch);
         showToast(`${name.trim()} updated`);
       } else {
-        await createUser({ email: email.trim(), password, firstName, lastName, phone: phone.trim() || null, roleId, branchIds });
+        await createUser({ email: email.trim(), password, firstName, lastName, phone: phone.trim() || null, roleId, branchIds, businessIds });
         showToast(`${name.trim()} invited`);
       }
       await refreshUsers();
@@ -164,6 +171,23 @@ export default function UserForm() {
               })}
             </View>
           )}
+        </FormField>
+
+        <FormField label={`Business access · ${businessIds.length} granted`}>
+          <View className="flex-row flex-wrap gap-2">
+            {companies.map((c) => {
+              const viaBranch = branchCompanyIds.has(c.id); // implicit via a selected branch
+              const on = viaBranch || businessIds.includes(c.id);
+              return (
+                <Pressable key={c.id} disabled={viaBranch} onPress={() => toggleBusiness(c.id)} className="items-center"
+                  style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted, opacity: viaBranch ? 0.6 : 1 }}>
+                  <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{c.name}</Text>
+                  {viaBranch ? <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 10.5 }}>via branch</Text> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>Grants a business without branch membership. Holding any branch of a business grants it automatically; Super Admins and Company Managers always see every business.</Text>
         </FormField>
 
         <FormField label={`Branches · ${branchIds.length} selected`}>

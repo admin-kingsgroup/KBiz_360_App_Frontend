@@ -1,13 +1,13 @@
 import { validateUserDraft } from '../logic/validation';
 import type { UserDraft, ValidationCatalogs } from '../logic/validation';
-import { branches, businessDepts } from '../data/businesses';
+import { branches } from '../data/businesses';
 import { BIZ_MODULES, MODULES } from '../constants/modules';
 
-const cat: ValidationCatalogs = { branches, businessDepts, bizModules: BIZ_MODULES, modules: MODULES };
+const cat: ValidationCatalogs = { branches, bizModules: BIZ_MODULES, modules: MODULES };
 
 const base: UserDraft = {
   name: '', email: '', role: 'EMPLOYEE', bizId: 'tk',
-  branches: [], accessGroups: [], accessDepts: [], accessAlerts: [],
+  branches: [], accessGroups: [], accessAlerts: [],
 };
 
 describe('user creation validation', () => {
@@ -16,16 +16,14 @@ describe('user creation validation', () => {
     expect(r.valid).toBe(true);
   });
 
-  it('EMPLOYEE invalid until branch + group + dept + alert all selected', () => {
+  it('EMPLOYEE invalid until branch + group + alert all selected', () => {
     let d: UserDraft = { ...base, name: 'Emp', email: 'e@x.com' };
     expect(validateUserDraft(d, cat).valid).toBe(false);          // no branch
     d = { ...d, branches: ['AMD'] };
     const r = validateUserDraft(d, cat);
     expect(r.branchOK).toBe(true);
-    expect(r.valid).toBe(false);                                  // groups/depts/alerts missing
+    expect(r.valid).toBe(false);                                  // groups/alerts missing
     d = { ...d, accessGroups: ['AMD-Accounts'] };
-    expect(validateUserDraft(d, cat).valid).toBe(false);          // depts/alerts missing
-    d = { ...d, accessDepts: ['AMD-Accounts'] };
     expect(validateUserDraft(d, cat).valid).toBe(false);          // alerts missing
     d = { ...d, accessAlerts: ['AMD-crm'] };
     expect(validateUserDraft(d, cat).valid).toBe(true);           // complete
@@ -41,7 +39,6 @@ describe('user creation validation', () => {
     const r = validateUserDraft({ ...base, name: 'X', email: 'x@x.com', branches: ['AMD', 'BOM'] }, cat);
     expect(r.groupsAvail).toContain('AMD-Accounts');
     expect(r.groupsAvail).toContain('BOM-MKTG');
-    expect(r.deptsAvailIds).toContain('AMD-Ticketing');
     expect(r.alertsAvailIds).toContain('BOM-crm');
   });
 

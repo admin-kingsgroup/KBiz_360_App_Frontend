@@ -10,7 +10,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { createGroup } from '../../src/api/chat';
 import { canCreateGroups } from '../../src/logic/groupCreate';
-import { listCompanies, listBranches, listDepartments, type DirectoryCompany, type DirectoryBranch, type DirectoryDepartment } from '../../src/api/directory';
+import { listCompanies, listBranches, type DirectoryCompany, type DirectoryBranch } from '../../src/api/directory';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 
 // Company-wide leadership is not tied to any branch but can join any group.
@@ -31,48 +31,30 @@ export default function NewGroup() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canCreate]);
-  // Optional prefill when opened from a department ("+ New group in this department").
-  const prefill = useLocalSearchParams<{ companyId?: string; branchId?: string; departmentId?: string; deptName?: string }>();
+  // Optional prefill when opened with a business/branch already picked.
+  const prefill = useLocalSearchParams<{ companyId?: string; branchId?: string }>();
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Members only need the directory USERS (+ the picked branch), so track their load on its own —
-  // don't make the member list wait on the slower companies/branches/departments fetches.
+  // don't make the member list wait on the slower companies/branches fetches.
   const [usersLoading, setUsersLoading] = useState(users.length === 0);
   const [creating, setCreating] = useState(false);
 
   const [companies, setCompanies] = useState<DirectoryCompany[]>([]);
   const [branches, setBranches] = useState<DirectoryBranch[]>([]);
-  const [allDepts, setAllDepts] = useState<DirectoryDepartment[]>([]);
   const [companyId, setCompanyId] = useState<string | null>(prefill.companyId ?? null);
   const [branchId, setBranchId] = useState<string | null>(prefill.branchId ?? null);
-  const [departmentId, setDepartmentId] = useState<string | null>(prefill.departmentId ?? null);
-
-  // Departments offered for the selected branch: those tied to this branch, plus the company's
-  // branch-less (company-level) departments — deduped by name. A group must belong to a department.
-  const departments = useMemo(() => {
-    if (!branchId) return [];
-    const seen = new Set<string>();
-    return allDepts.filter((d) => {
-      const match = d.branchId === branchId || (!d.branchId && !!companyId && d.companyId === companyId);
-      if (!match) return false;
-      const key = (d.name || d.id).toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [allDepts, branchId, companyId]);
 
   useEffect(() => {
     // Load USERS independently and gate only the member list on them (see usersLoading below), so
     // members appear the moment the directory users arrive — the member area no longer waits on the
-    // companies/branches/departments fetches. Those populate their own chips as each resolves.
+    // companies/branches fetches. Those populate their own chips as each resolves.
     // Always re-pull (throttled): a user invited a moment ago must be pickable here right away.
     if (users.length === 0) setUsersLoading(true);
     void refreshDirectoryUsers().finally(() => setUsersLoading(false));
     listCompanies().then(setCompanies).catch(() => undefined);
     listBranches().then(setBranches).catch(() => undefined);
-    listDepartments().then(setAllDepts).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -80,7 +62,7 @@ export default function NewGroup() {
   useEffect(() => { if (!companyId && companies.length === 1) setCompanyId(companies[0]!.id); }, [companies, companyId]);
 
   // Branches are only offered once a business is picked — a group always lives under
-  // business → branch → department, so the branch list is strictly that business's branches.
+  // business → branch, so the branch list is strictly that business's branches.
   const branchesForCompany = useMemo(
     () => (companyId ? branches.filter((b) => b.companyId === companyId) : []),
     [branches, companyId],
@@ -99,21 +81,19 @@ export default function NewGroup() {
   }, [users, meId, branchId, query]);
 
   const toggle = (id: string): void => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const pickBranch = (id: string): void => { setBranchId(id); setDepartmentId(null); setSelected(new Set()); setQuery(''); };
-  const pickCompany = (id: string): void => { setCompanyId(id); setBranchId(null); setDepartmentId(null); setSelected(new Set()); setQuery(''); };
-  const deptLabel = (d: DirectoryDepartment): string => d.name || d.code || 'Department';
+  const pickBranch = (id: string): void => { setBranchId(id); setSelected(new Set()); setQuery(''); };
+  const pickCompany = (id: string): void => { setCompanyId(id); setBranchId(null); setSelected(new Set()); setQuery(''); };
 
   const create = async (): Promise<void> => {
     // eslint-disable-next-line no-console
-    console.log('[new-group] create tapped', { name: name.trim(), companyId, branchId, departmentId, members: selected.size, deptOptions: departments.length });
+    console.log('[new-group] create tapped', { name: name.trim(), companyId, branchId, members: selected.size });
     if (!name.trim()) { showToast('Group name required'); return; }
     if (!companyId) { showToast('Select a business'); return; }
     if (!branchId) { showToast('Select a branch'); return; }
-    if (!departmentId) { showToast('Select a department'); return; }
     if (selected.size === 0) { showToast('Select at least one member'); return; }
     setCreating(true);
     try {
-      const conv = await createGroup({ name: name.trim(), memberIds: [...selected], companyId, branchId, departmentId });
+      const conv = await createGroup({ name: name.trim(), memberIds: [...selected], companyId, branchId });
       await useMessagingStore.getState().loadConversations();
       router.replace({ pathname: '/chat/[id]', params: { id: conv.id } });
     } catch (e) {
@@ -139,7 +119,7 @@ export default function NewGroup() {
         <TextInput value={name} onChangeText={setName} placeholder="Group name" placeholderTextColor={colors.coolText3}
           style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15.5, color: colors.ink, fontWeight: '500' }} />
 
-        {/* Business (the group lives under business → branch → department) */}
+        {/* Business (the group lives under business → branch) */}
         <Text style={labelStyle}>BUSINESS</Text>
         {companies.length === 0 ? (
           <Text style={{ color: colors.coolText3, fontSize: 13 }}>No businesses available</Text>
@@ -162,22 +142,6 @@ export default function NewGroup() {
             ))}
           </ScrollView>
         )}
-
-        {/* Department (a group lives under a branch's department) */}
-        {branchId ? (
-          <>
-            <Text style={labelStyle}>DEPARTMENT</Text>
-            {departments.length === 0 ? (
-              <Text style={{ color: colors.coolText3, fontSize: 13 }}>No departments for this branch. Create one in Departments → Manage.</Text>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
-                {departments.map((d) => (
-                  <Chip key={d.id} label={deptLabel(d)} active={departmentId === d.id} onPress={() => setDepartmentId(d.id)} />
-                ))}
-              </ScrollView>
-            )}
-          </>
-        ) : null}
 
         <Text style={labelStyle}>
           ADD MEMBERS {selected.size > 0 ? `· ${selected.size} selected` : ''}

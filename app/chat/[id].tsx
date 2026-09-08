@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -135,6 +135,12 @@ export default function ChatDetail() {
   const loadingOlder = useRef(false);
   const reachedTop = useRef(false);
   const [uploading, setUploading] = useState<number | null>(null);
+  // An image picked/shot but not sent yet — WhatsApp-style preview with a caption box. The caption
+  // takes @mentions like any message: the API accepts `mentions` on media messages too.
+  const [pendingImage, setPendingImage] = useState<{ uri: string; name: string; width?: number; height?: number } | null>(null);
+  const [caption, setCaption] = useState('');
+  const [capCursor, setCapCursor] = useState(0);
+  const [capSel, setCapSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [attachOpen, setAttachOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false); // WhatsApp-style emoji panel below the composer
   const [viewer, setViewer] = useState<string | null>(null);
@@ -289,6 +295,27 @@ export default function ChatDetail() {
   const pickMention = (p: User): void => applyPicked(p.name);
   const pickEveryone = (): void => applyPicked(MENTION_EVERYONE);
 
+  // The same mention machinery for the image caption. Kept as its own set of derivations rather
+  // than a shared hook because the two fields are visible at the same time in the tree (the
+  // composer sits behind the preview modal) and must not share a caret.
+  const capMention = isGroup && pendingImage ? activeMention(caption, capCursor) : null;
+  const capMatches = capMention ? rankMentionMatches(mentionPeople, capMention.query) : [];
+  const capShowEveryone = !!capMention && canMentionEveryone && MENTION_EVERYONE.startsWith(capMention.query.trim().toLowerCase());
+  const applyCaptionPick = (name: string): void => {
+    if (!capMention) return;
+    const next = applyMention(caption, capMention, name);
+    setCaption(next.text);
+    setCapCursor(next.cursor);
+    setCapSel({ start: next.cursor, end: next.cursor });
+  };
+  // Re-scan a finished draft against the roster — the wire format is ids, not names.
+  const mentionsIn = (body: string): string[] | undefined => {
+    if (!isGroup) return undefined;
+    if (canMentionEveryone && hasEveryoneMention(body)) return mentionPeople.map((p) => p.id);
+    const ids = mentionIdsInText(body, mentionPeople);
+    return ids.length ? ids : undefined;
+  };
+
   // ── emoji panel (WhatsApp-style) ──
   // Smiley toggles the panel (dismissing the keyboard); focusing the input brings the keyboard
   // back and hides the panel. Insertions go to the tracked cursor, exactly like mention picks.
@@ -330,11 +357,9 @@ export default function ChatDetail() {
     setText('');
     useMessagingStore.getState().setDraft(convId, ''); // sent ⇒ no longer a draft
     emitStopTyping(convId);
-    let mentions = isGroup ? mentionIdsInText(t, mentionPeople) : undefined;
-    if (isGroup && canMentionEveryone && hasEveryoneMention(t)) {
-      mentions = mentionPeople.map((p) => p.id); // @everyone ⇒ the whole roster (supersedes named picks)
-    }
-    await useMessagingStore.getState().send(convId, t, replyTo?.id, mentions?.length ? mentions : undefined);
+    // @everyone expands to the whole roster and supersedes named picks — see mentionsIn.
+    const mentions = mentionsIn(t);
+    await useMessagingStore.getState().send(convId, t, replyTo?.id, mentions);
     setReplyTo(null);
   };
 
@@ -452,11 +477,11 @@ export default function ChatDetail() {
     setFileViewer(f);
   };
 
-  const doUpload = async (file: { uri: string; name: string; mime: string }, type: ChatMessage['type'], extra: Partial<ChatAttachment> = {}): Promise<void> => {
+  const doUpload = async (file: { uri: string; name: string; mime: string }, type: ChatMessage['type'], extra: Partial<ChatAttachment> = {}, text?: string, mentions?: string[]): Promise<void> => {
     setUploading(0);
     try {
       const res = await uploadFile(file, setUploading);
-      await useMessagingStore.getState().sendMedia(convId, { type, attachments: [toAttachment(res, extra)] });
+      await useMessagingStore.getState().sendMedia(convId, { type, attachments: [toAttachment(res, extra)], text, mentions });
     } catch {
       showToast('Upload failed — check your connection');
     } finally {
@@ -475,7 +500,25 @@ export default function ChatDetail() {
       const out = await ImageManipulator.manipulateAsync(a.uri, [{ resize: { width: Math.min(a.width || 1280, 1280) } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG });
       uri = out.uri; w = out.width; h = out.height;
     } catch { /* fall back to original */ }
-    await doUpload({ uri, name: a.fileName ?? 'photo.jpg', mime: 'image/jpeg' }, 'image', { width: w, height: h });
+    // Compression happens here, before the preview, so Send is instant afterwards. Videos still
+    // go straight up — only stills get the caption sheet (same as the web client).
+    setCaption(''); setCapCursor(0); setCapSel(undefined);
+    setPendingImage({ uri, name: a.fileName ?? 'photo.jpg', width: w, height: h });
+  };
+
+  const closePendingImage = (): void => {
+    setPendingImage(null);
+    setCaption(''); setCapCursor(0); setCapSel(undefined);
+  };
+
+  const sendPendingImage = async (): Promise<void> => {
+    const p = pendingImage;
+    if (!p) return;
+    const body = caption.trim();
+    const mentions = body ? mentionsIn(body) : undefined; // resolve BEFORE the caption is cleared
+    closePendingImage();
+    Keyboard.dismiss();
+    await doUpload({ uri: p.uri, name: p.name, mime: 'image/jpeg' }, 'image', { width: p.width, height: p.height }, body || undefined, mentions);
   };
   const pickImageOrVideo = async (): Promise<void> => {
     setAttachOpen(false);
@@ -1050,6 +1093,71 @@ export default function ChatDetail() {
             {savingImage ? <ActivityIndicator color="#fff" /> : <Download size={24} color="#fff" />}
           </Pressable>
         </GestureHandlerRootView>
+      </Modal>
+
+      {/* Send-photo preview: caption + @mentions before the upload, WhatsApp-style. Previously a
+          picked photo went straight up with no caption at all, so a photo could never tag anyone.
+          Padding comes from the screen-scope `insets` and the keyboard from RN's own
+          KeyboardAvoidingView — root providers (safe-area, keyboard-controller) do not reach
+          inside an RN Modal's separate native view tree (see modalSafeArea.test.ts — and keep the
+          angle brackets out of this comment, the scanner counts them as a real tag). */}
+      <Modal visible={!!pendingImage} animationType="slide" presentationStyle="fullScreen" onRequestClose={closePendingImage}>
+        <RNKeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: '#0B0F12' }}>
+          <View style={{ flex: 1, paddingTop: insets.top }}>
+            <View className="flex-row items-center gap-1 px-2" style={{ height: 54 }}>
+              <Pressable onPress={closePendingImage} hitSlop={12} accessibilityLabel="Cancel"
+                style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <X size={23} color="#fff" />
+              </Pressable>
+              <Text numberOfLines={1} style={{ flex: 1, color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Send photo</Text>
+            </View>
+            {pendingImage ? (
+              <RNImage source={{ uri: pendingImage.uri }} resizeMode="contain" style={{ flex: 1, width: '100%' }} />
+            ) : null}
+
+            {/* Same suggestion list as the composer, dark-themed for the preview. */}
+            {capMention && (capMatches.length > 0 || capShowEveryone) ? (
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 190, backgroundColor: '#151B20' }}>
+                {capShowEveryone ? (
+                  <Pressable onPress={() => applyCaptionPick(MENTION_EVERYONE)} android_ripple={{ color: '#22303A' }} className="flex-row items-center gap-2.5"
+                    style={{ paddingHorizontal: 14, paddingVertical: 9 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primaryDark, alignItems: 'center', justifyContent: 'center' }}>
+                      <Megaphone size={16} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Everyone</Text>
+                      <Text numberOfLines={1} style={{ color: '#98A0A8', fontSize: 11.5 }}>Notify all {mentionPeople.length} members</Text>
+                    </View>
+                  </Pressable>
+                ) : null}
+                {capMatches.map((p, i) => (
+                  <Pressable key={p.id} onPress={() => applyCaptionPick(p.name)} android_ripple={{ color: '#22303A' }} className="flex-row items-center gap-2.5"
+                    style={{ paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 && !capShowEveryone ? 0 : 1, borderTopColor: '#22303A' }}>
+                    <Avatar initials={p.initials} color={p.color} size={32} uri={p.avatar} />
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
+                      {p.position || p.roleName ? <Text numberOfLines={1} style={{ color: '#98A0A8', fontSize: 11.5 }}>{p.position ?? p.roleName}</Text> : null}
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+
+            <View className="flex-row items-end gap-2" style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: insets.bottom + 10 }}>
+              <View style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: '#1B2228', paddingHorizontal: 16, justifyContent: 'center' }}>
+                <TextInput value={caption} onChangeText={setCaption} multiline
+                  selection={capSel}
+                  onSelectionChange={(e) => { setCapCursor(e.nativeEvent.selection.start); if (capSel) setCapSel(undefined); }}
+                  placeholder={isGroup ? 'Add a caption — @ to mention' : 'Add a caption'} placeholderTextColor="#7C8894"
+                  style={{ paddingVertical: 12, fontSize: 15, color: '#fff', maxHeight: 110 }} />
+              </View>
+              <Pressable onPress={() => void sendPendingImage()} accessibilityLabel="Send photo"
+                style={{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}>
+                <Send size={20} color="#fff" />
+              </Pressable>
+            </View>
+          </View>
+        </RNKeyboardAvoidingView>
       </Modal>
 
       {/* In-app file viewer (iOS) — the downloaded PDF/video/doc renders inside the app like

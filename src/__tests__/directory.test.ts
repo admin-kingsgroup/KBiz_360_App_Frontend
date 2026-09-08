@@ -1,5 +1,5 @@
 import { buildDirectory, codeFromName, iconForName, countryInfo } from '../logic/directory';
-import type { DirectoryCompany, DirectoryBranch, DirectoryDepartment } from '../api/directory';
+import type { DirectoryCompany, DirectoryBranch } from '../api/directory';
 
 describe('directory adapters', () => {
   it('codeFromName derives a short code', () => {
@@ -26,32 +26,18 @@ describe('directory adapters', () => {
     { id: 'b1', code: 'AMD', name: 'Ahmedabad', city: 'Ahmedabad', country: 'India', isHO: true, companyId: 'c1' },
     { id: 'b2', code: 'NBO', name: 'Nairobi', city: 'Nairobi', country: 'Kenya', isHO: false, companyId: 'c1' },
   ];
-  const departments: DirectoryDepartment[] = [
-    { id: 'd1', name: 'Accounts', code: 'ACC', branchId: 'b1' },
-    { id: 'd2', name: 'Ticketing', code: 'TKT', branchId: 'b1' },
-    { id: 'd3', name: 'Accounts', code: 'ACC', branchId: 'b2' }, // same dept name in another branch
-  ];
-
   it('builds businesses with derived code/colour + branch counts', () => {
-    const { businesses } = buildDirectory(companies, branches, departments);
+    const { businesses } = buildDirectory(companies, branches);
     expect(businesses).toHaveLength(2);
     expect(businesses[0]).toMatchObject({ id: 'c1', code: 'TK', name: 'Travkings', branches: 2, status: 'active' });
     expect(businesses[1]).toMatchObject({ id: 'c2', code: 'KD', branches: 0, status: 'setup' });
     expect(businesses[0].color).toMatch(/^#/);
   });
 
-  it('branches carry companyId + groups built from their departments', () => {
-    const { branches: out } = buildDirectory(companies, branches, departments);
+  it('branches carry companyId + country info', () => {
+    const { branches: out } = buildDirectory(companies, branches);
     const amd = out.find((b) => b.id === 'b1')!;
     expect(amd.companyId).toBe('c1');
     expect(amd.flag).toBe('🇮🇳');
-    expect(amd.groups.map((g) => g.name).sort()).toEqual(['Accounts', 'Ticketing']);
-  });
-
-  it('businessDepts groups departments per company, de-duped by name', () => {
-    const { businessDepts } = buildDirectory(companies, branches, departments);
-    // c1 has Accounts (twice across branches) + Ticketing → deduped to 2 unique names
-    expect(businessDepts.c1.map((d) => d.name).sort()).toEqual(['Accounts', 'Ticketing']);
-    expect(businessDepts.c2).toEqual([]);
   });
 });
