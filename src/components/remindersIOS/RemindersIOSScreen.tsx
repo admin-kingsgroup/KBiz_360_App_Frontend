@@ -6,6 +6,8 @@ import type { SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSw
 import { Search, Clock, Menu, Flag, CircleDot, ChevronRight, ChevronLeft, Ellipsis, Plus } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { parseQuickAdd, whenLabel } from '../../logic/quickAdd';
+import { activeMention, applyMention, rankMentionMatches, splitMentions, mentionIdsInText } from '../../logic/mentions';
+import { Avatar } from '../ui';
 import { listReminders, completeReminder, createReminder, deleteReminder } from '../../api/reminders';
 import type { ReminderRecord } from '../../data/reminders';
 import type { IOSReminder, IOSBusiness } from '../../data/remindersIOS';
@@ -98,6 +100,11 @@ export default function RemindersIOSScreen() {
   const [searchQ, setSearchQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // Caret tracking for @-mentions. `sel` is set ONLY right after a mention is inserted, to place
+  // the caret; released on the next selection event (a permanently controlled selection fights
+  // the Android keyboard) — same pattern as the full composer.
+  const [cursor, setCursor] = useState(0);
+  const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [showCompleted, setShowCompleted] = useState(false);
   // Real records: open (For me + I set, deduped) and archived (the Completed set).
   const [recs, setRecs] = useState<{ open: ReminderRecord[]; archived: ReminderRecord[] }>({ open: [], archived: [] });
@@ -224,18 +231,21 @@ export default function RemindersIOSScreen() {
   const startAdd = () => {
     closeOpenRow();
     if (screen === 'home') setScreen(businesses[0]?.id ?? 'all');
-    setAdding(true); setNewTitle('');
+    setAdding(true); setNewTitle(''); setCursor(0); setSel(undefined);
   };
-  // Quick add creates a REAL reminder for myself (the full composer with assignees stays on "+").
+  // Quick add creates a REAL reminder — for myself, or for the people @-mentioned in the text
+  // (each mentioned user gets it, and it files under THEIR branch via the assignee mapping).
   const commitAdd = () => {
     const p = parseQuickAdd(newTitle);
-    if (p.title && meId) {
+    const mentionIds = mentionIdsInText(newTitle, users);
+    const forIds = mentionIds.length ? mentionIds : meId ? [meId] : [];
+    if (p.title && forIds.length) {
       const due = new Date();
       due.setHours(9, 0, 0, 0); // date-only input defaults to 9:00 AM
       due.setDate(due.getDate() + p.day);
       const tm = p.time.match(/^(\d{1,2}):(\d{2}) (AM|PM)$/);
       if (tm) due.setHours((Number(tm[1]) % 12) + (tm[3] === 'PM' ? 12 : 0), Number(tm[2]), 0, 0);
-      createReminder({ text: p.title, forIds: [meId], when: whenLabel(p.day, p.time), dueAt: due.toISOString(), section: 'today' })
+      createReminder({ text: p.title, forIds, when: whenLabel(p.day, p.time), dueAt: due.toISOString(), section: 'today' })
         .then(() => { void loadData(); void useReminderBadgeStore.getState().refresh(); })
         .catch(() => showToast('Could not create reminder'));
     }
@@ -288,7 +298,28 @@ export default function RemindersIOSScreen() {
   const results = q ? reminders.filter((r) => r.title.toLowerCase().includes(q)) : [];
 
   const parsed = adding ? parseQuickAdd(newTitle) : null;
-  const parsedHint = parsed && parsed.hasDate && parsed.title ? `Due ${whenLabel(parsed.day, parsed.time)}` : '';
+
+  // ── @-mentions in the quick add ────────────────────────────────────────────
+  // Typing "@" opens a people list; picking someone writes their name (shown in red) into the
+  // sentence and assigns the reminder to them — it then files under that person's branch.
+  const mention = adding ? activeMention(newTitle, cursor) : null;
+  const mentionMatches = mention ? rankMentionMatches(users, mention.query) : [];
+  const userBranchCode = (u: (typeof users)[number]): string =>
+    dir.branches.find((b) => b.id === (u.branches ?? [])[0])?.code ?? '';
+  const pickMention = (p: (typeof users)[number]): void => {
+    if (!mention) return;
+    const next = applyMention(newTitle, mention, p.name);
+    setNewTitle(next.text);
+    setCursor(next.cursor);
+    setSel({ start: next.cursor, end: next.cursor });
+  };
+  const mentionNames = adding
+    ? mentionIdsInText(newTitle, users).map((id) => users.find((u) => u.id === id)?.name).filter(Boolean)
+    : [];
+  const parsedHint = [
+    parsed && parsed.hasDate && parsed.title ? `Due ${whenLabel(parsed.day, parsed.time)}` : '',
+    mentionNames.length ? `For ${mentionNames.join(', ')}` : '',
+  ].filter(Boolean).join(' · ');
 
   const rowProps = { onToggleDone: toggleDone, onToggleSub: toggleSub, onFlag: flagRow, onDelete: deleteRow, onOpen: registerOpenRow, onRowPress: closeOpenRow };
 
@@ -446,21 +477,52 @@ export default function RemindersIOSScreen() {
 
           {/* Inline quick add */}
           {adding ? (
-            <View style={{ backgroundColor: T.card, borderRadius: 16, marginHorizontal: 16, marginTop: 14, paddingVertical: 11, paddingHorizontal: 16, flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-              <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1.7, borderColor: T.ring, flexShrink: 0 }} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <TextInput
-                  autoFocus
-                  value={newTitle}
-                  onChangeText={setNewTitle}
-                  onSubmitEditing={commitAdd}
-                  returnKeyType="done"
-                  placeholder="Try “Pay vendor tomorrow at 3pm”"
-                  placeholderTextColor={T.placeholder}
-                  style={{ fontSize: 17, color: T.ink, padding: 0 }}
-                />
-                {parsedHint ? <Text style={{ fontSize: 13, color: T.accent, marginTop: 3 }}>{parsedHint}</Text> : null}
+            <View style={{ marginHorizontal: 16, marginTop: 14 }}>
+              <View style={{ backgroundColor: T.card, borderRadius: 16, paddingVertical: 11, paddingHorizontal: 16, flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1.7, borderColor: T.ring, flexShrink: 0 }} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  {/* Styled children (not `value`) so @-mentions render in red inside the input. */}
+                  <TextInput
+                    autoFocus
+                    onChangeText={setNewTitle}
+                    selection={sel}
+                    onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
+                    onSubmitEditing={commitAdd}
+                    returnKeyType="done"
+                    placeholder="Try “@Harshit pay vendor tomorrow 3pm”"
+                    placeholderTextColor={T.placeholder}
+                    style={{ fontSize: 17, color: T.ink, padding: 0 }}
+                  >
+                    <Text>
+                      {splitMentions(newTitle, users.map((u) => u.name)).map((seg, i) => (
+                        <Text key={i} style={seg.mention ? { color: T.overdue, fontWeight: '600' } : undefined}>{seg.text}</Text>
+                      ))}
+                    </Text>
+                  </TextInput>
+                  {parsedHint ? <Text style={{ fontSize: 13, color: T.accent, marginTop: 3 }}>{parsedHint}</Text> : null}
+                </View>
               </View>
+
+              {/* Mention suggestions — right under the card, so the keyboard never covers them. */}
+              {mention && mentionMatches.length > 0 ? (
+                <View style={{ backgroundColor: T.card, borderRadius: 16, marginTop: 8, overflow: 'hidden' }}>
+                  {mentionMatches.map((p, i) => (
+                    <Pressable key={p.id} onPress={() => pickMention(p)}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: T.sep }}>
+                      <Avatar initials={p.initials} color={p.color} size={30} uri={p.avatar} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '600', color: T.ink }}>{p.name}</Text>
+                        {p.roleName ? <Text numberOfLines={1} style={{ fontSize: 12, color: T.sub }}>{p.roleName}</Text> : null}
+                      </View>
+                      {userBranchCode(p) ? (
+                        <View style={{ backgroundColor: branchColorMap[userBranchCode(p)]?.bg ?? T.fill, borderRadius: 6, paddingVertical: 2, paddingHorizontal: 7 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: branchColorMap[userBranchCode(p)]?.fg ?? T.sub }}>{userBranchCode(p)}</Text>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
 

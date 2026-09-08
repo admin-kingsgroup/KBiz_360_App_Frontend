@@ -72,6 +72,17 @@ export default function MyAttendanceMonthScreen() {
     return holidays.filter((h) => h.date >= data.today).slice(0, 8);
   }, [holidays, data]);
 
+  // Why a month can legitimately read blank — said plainly, because an unexplained empty
+  // calendar looks like the screen is broken. Holidays still show underneath either way.
+  const notice = useMemo((): string | null => {
+    if (!data) return null;
+    if (data.exempt) return 'Attendance isn’t tracked for your account, so no days are recorded here. Paid leave and holidays still come from HR.';
+    if (!data.employee.hasRecord) return 'No HR record is linked to your login yet, so there is no leave balance or shift to read. Ask HR to add you on the Employee Master — your punches keep recording meanwhile.';
+    if (data.beforeFirstPunch) return 'This month is before your first punch in the app — the blank days are no data, not absences.';
+    if (data.summary.noData > 0 && data.summary.present === 0 && data.summary.absent === 0) return 'No attendance was recorded for you this month — the blank days are no data, not absences.';
+    return null;
+  }, [data]);
+
   const canGoNext = month < thisMonth();
 
   return (
@@ -116,10 +127,10 @@ export default function MyAttendanceMonthScreen() {
               {data.summary.hoursTotal}h worked · avg {data.summary.avgHours}h/day
               {data.leaveBalance ? ` · leave balance ${data.leaveBalance.balance}d at month end` : ''}
             </Text>
-            {data.beforeFirstPunch ? (
-              <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginBottom: 10 }}>
-                This month is before your first punch in the app — blank days are no data, not absences.
-              </Text>
+            {notice ? (
+              <View style={{ padding: 12, borderRadius: 14, backgroundColor: colors.orange + '12', borderWidth: 1, borderColor: colors.orange + '40', marginBottom: 12 }}>
+                <Text style={{ color: colors.ink, fontSize: 12.5, lineHeight: 18 }}>{notice}</Text>
+              </View>
             ) : null}
 
             {/* Calendar grid (Monday-first) */}
