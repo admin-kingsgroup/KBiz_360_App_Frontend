@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator, Image }
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil, Palmtree, ClipboardCheck } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil, Palmtree, ClipboardCheck, Send } from 'lucide-react-native';
 import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { DayTimesSheet, type DayTimesTarget } from '../src/components/attendance/DayTimesSheet';
@@ -83,8 +83,9 @@ export default function Attendance() {
   // Who gets the Team tab: super admin + company manager (DIRECTOR) see every branch; a branch
   // manager sees only their own — the server scopes the list, this just shows the tab.
   const canSeeTeam = isSuper || role === 'DIRECTOR' || role === 'BRANCH_MANAGER';
-  // Who decides regularisation requests (mirrors the server's requireManage).
-  const canManage = isSuper || role === 'DIRECTOR';
+  // Who decides regularisation requests — SUPER ADMIN ONLY (mirrors the server's requireSuper;
+  // approving writes the day's times, which is the one thing nobody else may do).
+  const canManage = isSuper;
   const consent = useAttendanceStore((s) => s.consent);
   const att = useAttendanceStore((s) => s.att);
   const showToast = useUiStore((s) => s.showToast);
@@ -588,7 +589,7 @@ const ApprovalsRow = memo(function ApprovalsRow({ n, onPress }: { n: number; onP
   return (
     <Pressable onPress={onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: n > 0 ? colors.orange + '66' : colors.coolDivider, borderRadius: 14, marginBottom: 12 }}>
       <ClipboardCheck size={18} color={n > 0 ? colors.orange : colors.coolText} />
-      <Text style={{ flex: 1, color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>Regularisation requests</Text>
+      <Text style={{ flex: 1, color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>Time correction requests</Text>
       {n > 0 ? (
         <View style={{ minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: colors.orange, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{n}</Text>
@@ -608,12 +609,16 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
     <>
       <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginBottom: 16, paddingHorizontal: 12 }}>Only time, date & method are stored. Payroll & rules run in your Accounts software.</Text>
 
-      <View className="flex-row items-center justify-between" style={{ marginBottom: 8, paddingHorizontal: 4 }}>
+      <View className="flex-row items-center justify-between" style={{ marginBottom: 4, paddingHorizontal: 4 }}>
         <Text style={{ color: colors.coolText, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MY HISTORY</Text>
         <Pressable onPress={onMonthView} hitSlop={8}>
           <Text style={{ color: colors.primary, fontSize: 11.5, fontWeight: '700' }}>Month view ›</Text>
         </Pressable>
       </View>
+      {/* Say the rule outright — the ASK button must never read as "edit my own time". */}
+      <Text style={{ color: colors.coolText, fontSize: 11, marginBottom: 8, paddingHorizontal: 4 }}>
+        Missed a check-in or check-out? Tap Ask on that day. Only the Super Admin can change a recorded time.
+      </Text>
       <View style={{ gap: 8 }}>
         {history.length === 0 ? (
           <Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center', paddingVertical: 16 }}>No attendance history yet.</Text>
@@ -627,12 +632,15 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
                 <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
                 {absent ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent · no check-in</Text>
                         : <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {fmt(e.inTime ? new Date(e.inTime) : null)} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>}
-                {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Fix requested · waiting for a manager</Text> : null}
+                {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Correction requested · waiting for the Super Admin</Text> : null}
               </View>
-              {/* Ask for a correction (missed punch / wrong times) — files a request, not an edit. */}
+              {/* ASK for a correction (missed punch / wrong times) — this files a request for the
+                  Super Admin to approve. Deliberately NOT a pencil: a pencil reads as "I can edit
+                  my own time", which is exactly what nobody but the super admin may do. */}
               {!regPending ? (
-                <Pressable onPress={() => onRegularize(e)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Request a correction for ${e.date}`} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }}>
-                  <Pencil size={14} color={colors.primary} />
+                <Pressable onPress={() => onRegularize(e)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Ask for a correction for ${e.date}`} className="flex-row items-center gap-1" style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
+                  <Send size={12} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontSize: 10.5, fontWeight: '800' }}>ASK</Text>
                 </Pressable>
               ) : null}
               <Badge on={!absent} />

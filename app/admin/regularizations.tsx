@@ -8,10 +8,11 @@ import { useUiStore } from '../../src/store/uiStore';
 import { ApiError } from '../../src/api/client';
 import { getPendingRegularizations, decideRegularization, type Regularization } from '../../src/api/hr';
 
-// Manager queue: attendance-regularisation requests waiting for a decision. Approve corrects the
-// day through the same evidence-preserving path as the admin time editor (the server does it);
-// Reject requires a note that goes back to the requester. Server-gated to super_admin/company
-// manager — this screen only assumes the caller got here through the admin entry points.
+// SUPER-ADMIN queue: attendance-correction requests waiting for a decision. Approve corrects the
+// day through the same evidence-preserving path as the super admin's own time editor (the server
+// does it); Reject requires a note that goes back to the requester. Server-gated to super_admin
+// (owner rule 2026-09-08 — nobody else may change a recorded time), so this screen only assumes
+// the caller reached it through the super-admin entry points.
 
 const fmtT = (iso: string | null): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'open');
 const fmtD = (key: string): string => new Date(key + 'T00:00:00').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -53,8 +54,8 @@ export default function RegularizationsScreen() {
       <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View>
-          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Regularisations</Text>
-          <Text style={{ color: colors.coolText, fontSize: 12 }}>Attendance corrections waiting for you</Text>
+          <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Time corrections</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12 }}>Staff requests — only you can apply them</Text>
         </View>
       </View>
 

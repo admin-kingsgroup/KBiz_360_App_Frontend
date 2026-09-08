@@ -25,7 +25,7 @@ const EMPTY: DayTimesTarget = { date: '', inTime: null, outTime: null };
 
 // Self-service "regularise this day" sheet — the employee's version of the admin DayTimesSheet:
 // same wheel, same client-side bounds (buildDayTimes mirrors the server), plus a REQUIRED reason.
-// Saving files a REQUEST — nothing changes on the record until a manager approves it.
+// Saving files a REQUEST — nothing changes on the record until the Super Admin approves it.
 export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: RegularizeSheetProps) {
   const insets = useSafeAreaInsets(); // keep the sheet clear of the Android nav bar / iOS home indicator
   const [draft, setDraft] = useState<DayTimesDraft>(() => seedDayTimes(EMPTY, new Date()));
@@ -45,7 +45,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
   const isToday = !!target && target.date === localDayKey(new Date());
   const result = target ? buildDayTimes(target.date, draft, new Date()) : null;
   const timesError = result && !result.ok ? result.error : null;
-  const error = timesError ?? (!reason.trim() ? 'Say why — the reason goes to your manager' : null);
+  const error = timesError ?? (!reason.trim() ? 'Say why — the reason goes to the Super Admin' : null);
 
   const hour = which === 'in' ? draft.inHour : draft.outHour;
   const minute = which === 'in' ? draft.inMinute : draft.outMinute;
@@ -73,7 +73,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
           <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
           <View className="flex-row items-center justify-between px-5 pb-1">
             <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Regularise attendance</Text>
+              <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Ask for a correction</Text>
               <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 12, marginTop: 1 }}>
                 {dateLabel}{target?.via ? ` · recorded via ${target.via}` : target && !target.inTime ? ' · no punch recorded' : ''}
               </Text>
@@ -112,7 +112,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
             </Pressable>
           ) : null}
 
-          {/* Why — required; travels to the manager with the request. */}
+          {/* Why — required; travels to the Super Admin with the request. */}
           <View className="px-5 pt-2">
             <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6 }}>REASON</Text>
             <TextInput
@@ -127,7 +127,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
           </View>
 
           <View className="px-5 pt-3">
-            <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>This files a request — your record changes only after a manager approves it.</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>This only ASKS for the change — your record is corrected when the Super Admin approves it.</Text>
             {error ? <Text style={{ color: colors.coral, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>{error}</Text> : null}
             <SheetSave label={saving ? 'Sending…' : 'Send request'} disabled={!!error || saving} onPress={save} />
           </View>

@@ -183,7 +183,7 @@ export default function Profile() {
             title: 'Administration',
             rows: [
               { key: 'office-locations', label: 'Office locations', sub: 'Set branch geofences for attendance', Icon: MapPin, tint: colors.coral, onPress: () => router.push('/admin/office-locations') },
-              { key: 'regularizations', label: 'Regularisations', sub: 'Attendance correction requests', Icon: ClipboardCheck, tint: colors.orange, onPress: () => router.push('/admin/regularizations') },
+              { key: 'regularizations', label: 'Time corrections', sub: 'Approve staff attendance-time requests', Icon: ClipboardCheck, tint: colors.orange, onPress: () => router.push('/admin/regularizations') },
               { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, tint: colors.blue, onPress: () => router.push('/admin/businesses') },
               { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, tint: colors.purple, onPress: () => router.push('/admin/users') },
               { key: 'roles', label: 'Roles & Permissions', sub: loaded ? `${counts.roles}-tier access hierarchy` : 'Access hierarchy', Icon: Shield, tint: colors.teal, onPress: () => router.push('/admin/roles') },
