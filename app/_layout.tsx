@@ -10,6 +10,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary, OfflineBanner } from '../src/components/common';
 import { GlobalToast } from '../src/components/ui';
+import { LocationDisclosureHost } from '../src/components/LocationDisclosureHost';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
 import { useAttendanceStore } from '../src/store/attendanceStore';
@@ -209,6 +210,10 @@ export default function RootLayout() {
             <View style={{ flex: 1 }}>
               {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
             </View>
+            {/* Location "prominent disclosure" modal (Google Play User Data policy) — one host for
+                every screen; requestLocationWithDisclosure() awaits its "I agree" before any OS
+                location dialog. */}
+            <LocationDisclosureHost />
             {/* App-wide toast host — must be last so it layers above every screen. Mounted here
                 (not per-screen) so showToast() from any screen is actually visible. */}
             <GlobalToast />

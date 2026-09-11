@@ -15,9 +15,16 @@ export type GeoState = 'idle' | 'locating' | 'ok' | 'denied' | 'unavailable';
 // state. Feeds the foundation computePresence (via the screen calling attendanceStore.refreshPresence).
 // simulate() mirrors the source "at office / away" test controls so presence can be exercised
 // without real GPS (e.g. in the simulator).
+//
+// NEVER PROMPTS. This hook only READS the permission: an OS dialog popping on mount, with no
+// in-app disclosure in front of it, is what got the 1.1.0 update rejected by Google Play
+// (Prominent Disclosure, 09-10). When permission is missing it reports 'denied' and the screen
+// offers an "Allow location" action that runs requestLocationWithDisclosure() and then calls
+// refresh() here to start the watch.
 export function useGeoFence(office: { lat: number; lng: number } | null) {
   const [coords, setCoords] = useState<Coords | null>(null);
   const [geoState, setGeoState] = useState<GeoState>('idle');
+  const [attempt, setAttempt] = useState(0); // bumped by refresh() to re-run the watch effect
   const lastFix = useRef<Coords | null>(null);
 
   useEffect(() => {
@@ -30,7 +37,7 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
     (async () => {
       try {
         setGeoState('locating');
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync(); // read-only — no dialog
         if (cancelled) return;
         if (status !== 'granted') { setGeoState('denied'); return; }
         sub = await Location.watchPositionAsync(
@@ -56,7 +63,10 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
     // Deliberately keyed on the coordinates (not the object identity) so a re-fetched office
     // with the same location doesn't restart the GPS watch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [office?.lat, office?.lng]);
+  }, [office?.lat, office?.lng, attempt]);
+
+  // Re-check permission and (re)start the watch — call after the user grants location.
+  const refresh = useCallback(() => setAttempt((n) => n + 1), []);
 
   // Test control: drop a coord near (inside) or far (outside) the office, like source simGeo.
   const simulate = useCallback((here: boolean) => {
@@ -67,5 +77,5 @@ export function useGeoFence(office: { lat: number; lng: number } | null) {
     setCoords(next);
   }, [office]);
 
-  return { coords, geoState, simulate };
+  return { coords, geoState, simulate, refresh };
 }
