@@ -29,6 +29,7 @@ import { objectIdForTime, earlierCandidate } from '../../src/logic/dateJump';
 import { DateJumpSheet } from '../../src/components/chat/DateJumpSheet';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
+import { requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
 import { WALLPAPERS } from '../../src/theme/wallpapers';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
@@ -546,9 +547,12 @@ export default function ChatDetail() {
   const shareLocation = async (): Promise<void> => {
     setAttachOpen(false);
     try {
+      // In-app disclosure → "I agree" → OS prompt (Google Play Prominent Disclosure). Never the
+      // OS dialog on its own.
+      const result = await requestLocationWithDisclosure('chat');
+      if (result === 'blocked') { showToast('Location is off for KBiz 360 — allow it in Settings'); openLocationSettings(); return; }
+      if (result !== 'granted') { if (result !== 'declined') showToast('Location permission is needed to share your location'); return; }
       const Location = await import('expo-location');
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (!perm.granted) { showToast('Location permission is needed to share your location'); return; }
       showToast('Getting your location…');
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude } = pos.coords;

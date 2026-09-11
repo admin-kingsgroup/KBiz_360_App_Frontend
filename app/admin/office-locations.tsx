@@ -15,6 +15,7 @@ import {
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 import { syncAttendanceGeofencing } from '../../src/services/backgroundAttendance';
+import { requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
 import { ApiError } from '../../src/api/client';
 
 type Form = { officeId: string | null; branchId: string; label: string; lat: string; lng: string; radius: string; address: string; wifiSsid: string };
@@ -66,8 +67,10 @@ export default function OfficeLocations() {
   const useMyLocation = async (): Promise<void> => {
     setLocating(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') { showToast('Location permission denied'); return; }
+      // In-app disclosure → "I agree" → OS prompt (Google Play Prominent Disclosure).
+      const result = await requestLocationWithDisclosure('admin');
+      if (result === 'blocked') { showToast('Location is off for KBiz 360 — allow it in Settings'); openLocationSettings(); return; }
+      if (result !== 'granted') { if (result !== 'declined') showToast('Location permission denied'); return; }
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setForm((f) => (f ? { ...f, lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) } : f));
       try {
