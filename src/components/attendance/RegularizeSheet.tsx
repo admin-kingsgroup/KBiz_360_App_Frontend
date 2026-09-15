@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Pressable, Modal, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDownLeft, ArrowUpRight, Check, X } from 'lucide-react-native';
 import { colors } from '../../theme';
@@ -59,16 +59,17 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
     if (!target || !reason.trim()) return;
     const r = buildDayTimes(target.date, draft, new Date());
     if (!r.ok) return;
+    Keyboard.dismiss();
     onSave({ checkInAt: r.checkInAt, checkOutAt: r.checkOutAt, reason: reason.trim() });
   };
 
   return (
     <Modal visible={!!target} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+      <Pressable onPress={() => { Keyboard.dismiss(); onClose(); }} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
         {/* No ScrollView here — the TimeWheel owns its own ScrollViews and must not be nested
             inside another vertical one (same rule as DateTimeSheet). The keyboard is handled by
             padding the sheet instead. */}
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16) }}>
           <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
           <View className="flex-row items-center justify-between px-5 pb-1">
@@ -78,10 +79,9 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
                 {dateLabel}{target?.via ? ` · recorded via ${target.via}` : target && !target.inTime ? ' · no punch recorded' : ''}
               </Text>
             </View>
-            <Pressable onPress={onClose} hitSlop={9} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
+            <Pressable onPress={() => { Keyboard.dismiss(); onClose(); }} hitSlop={9} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
           </View>
 
-          {/* Which of the two times the wheel edits */}
           <View className="flex-row gap-2 px-5 pt-3">
             <TimeChip label="Check-in" Icon={ArrowDownLeft} value={fmtHM(draft.inHour, draft.inMinute)} active={which === 'in'} onPress={() => setWhich('in')} />
             <TimeChip label="Check-out" Icon={ArrowUpRight} value={draft.hasOut ? fmtHM(draft.outHour, draft.outMinute) : 'Still in'} active={which === 'out'} onPress={() => setWhich('out')} />
@@ -96,7 +96,9 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
               key={`${openSeq}-${which}`}
               hour={hour}
               minute={minute}
+              hour24
               onHour12={(h12) => setHour((h) => to24h(h12, to12h(h).meridiem))}
+              onHour24={(nextHour) => setHour(() => nextHour)}
               onMinute={setMinute}
               onMeridiem={(mer) => setHour((h) => to24h(to12h(h).h12, mer))}
             />
@@ -122,12 +124,15 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
               placeholderTextColor={colors.coolText3}
               multiline
               maxLength={300}
+              blurOnSubmit
+              onSubmitEditing={() => Keyboard.dismiss()}
               style={{ minHeight: 64, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 10, color: colors.ink, fontSize: 13.5, textAlignVertical: 'top' }}
             />
+            <Text style={{ color: colors.coolText3, fontSize: 10.5, textAlign: 'right', marginTop: 4 }}>{reason.length}/300</Text>
           </View>
 
           <View className="px-5 pt-3">
-            <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>This only ASKS for the change — your record is corrected when the Super Admin approves it.</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>This sends a request. Your attendance record changes only when a Super Admin approves it.</Text>
             {error ? <Text style={{ color: colors.coral, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>{error}</Text> : null}
             <SheetSave label={saving ? 'Sending…' : 'Send request'} disabled={!!error || saving} onPress={save} />
           </View>

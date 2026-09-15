@@ -55,7 +55,7 @@ export default function RegularizationsScreen() {
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View>
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Time corrections</Text>
-          <Text style={{ color: colors.coolText, fontSize: 12 }}>Staff requests — only you can apply them</Text>
+          <Text style={{ color: colors.coolText, fontSize: 12 }}>Staff requests — Super Admin approval applies the change</Text>
         </View>
       </View>
 

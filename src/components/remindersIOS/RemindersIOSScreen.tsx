@@ -17,7 +17,7 @@ import { useMessagingStore } from '../../store/messagingStore';
 import { useUiStore } from '../../store/uiStore';
 import { useReminderBadgeStore } from '../../store/reminderBadgeStore';
 import { cancelReminderLocal } from '../../services/notifications/reminderLocal';
-import { T, BRANCH_PALETTE, type BranchPaletteEntry } from './tokens';
+import { T, branchIdentity, type BranchPaletteEntry } from './tokens';
 import { ReminderRow } from './ReminderRow';
 
 // iOS Reminders-style screen, wired to REAL data: reminders come from the reminders API
@@ -140,9 +140,13 @@ export default function RemindersIOSScreen() {
   // with no branch (e.g. super admins) carry no business/branch — they still show in the smart lists.
   const reminders: IOSReminder[] = useMemo(() => {
     const branchById = new Map(dir.branches.map((b) => [b.id, b]));
-    const userBranchId = new Map(users.map((u) => [u.id, (u.branches ?? [])[0] ?? '']));
+    const branchByCode = new Map(dir.branches.map((b) => [b.code, b]));
+    const userBranch = new Map(users.map((u) => {
+      const value = (u.branches ?? [])[0] ?? '';
+      return [u.id, branchById.get(value) ?? branchByCode.get(value)];
+    }));
     const toRow = (r: ReminderRecord, done: boolean): IOSReminder => {
-      const br = branchById.get(userBranchId.get(r.forId) ?? '');
+      const br = userBranch.get(r.forId);
       const { day, time } = dayTimeOf(r.dueAt);
       return {
         id: r.id,
@@ -185,11 +189,10 @@ export default function RemindersIOSScreen() {
       }));
   }, [dir.businesses, dir.branches, access, reminders]);
 
-  // Branch → badge colors, assigned in branch order across businesses (cycle of 8).
+  // Branch identity is derived from its code, so colors/icons stay stable across directory refreshes.
   const branchColorMap = useMemo(() => {
     const m: Record<string, BranchPaletteEntry> = {};
-    let i = 0;
-    for (const biz of businesses) for (const b of biz.branches) if (!(b in m)) m[b] = BRANCH_PALETTE[i++ % BRANCH_PALETTE.length];
+    for (const biz of businesses) for (const b of biz.branches) if (!(b in m)) m[b] = branchIdentity(b);
     return m;
   }, [businesses]);
 
@@ -304,8 +307,10 @@ export default function RemindersIOSScreen() {
   // sentence and assigns the reminder to them — it then files under that person's branch.
   const mention = adding ? activeMention(newTitle, cursor) : null;
   const mentionMatches = mention ? rankMentionMatches(users, mention.query) : [];
-  const userBranchCode = (u: (typeof users)[number]): string =>
-    dir.branches.find((b) => b.id === (u.branches ?? [])[0])?.code ?? '';
+  const userBranchCode = (u: (typeof users)[number]): string => {
+    const value = (u.branches ?? [])[0] ?? '';
+    return dir.branches.find((b) => b.id === value || b.code === value)?.code ?? '';
+  };
   const pickMention = (p: (typeof users)[number]): void => {
     if (!mention) return;
     const next = applyMention(newTitle, mention, p.name);
@@ -443,7 +448,9 @@ export default function RemindersIOSScreen() {
                     }}
                   >
                     {c.id !== 'all' ? (
-                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: on ? '#fff' : branchColorMap[c.id]?.dot ?? T.allGray }} />
+                      <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: on ? 'rgba(255,255,255,0.2)' : branchColorMap[c.id]?.bg ?? T.fill, alignItems: 'center', justifyContent: 'center' }}>
+                        {(() => { const Icon = branchIdentity(c.id).Icon; return <Icon size={11} color={on ? '#fff' : branchColorMap[c.id]?.fg ?? T.sub} strokeWidth={2.5} />; })()}
+                      </View>
                     ) : null}
                     <Text style={{ fontSize: 13, fontWeight: '600', color: on ? '#fff' : T.ink }}>{c.label}</Text>
                   </Pressable>
@@ -514,11 +521,16 @@ export default function RemindersIOSScreen() {
                         <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '600', color: T.ink }}>{p.name}</Text>
                         {p.roleName ? <Text numberOfLines={1} style={{ fontSize: 12, color: T.sub }}>{p.roleName}</Text> : null}
                       </View>
-                      {userBranchCode(p) ? (
-                        <View style={{ backgroundColor: branchColorMap[userBranchCode(p)]?.bg ?? T.fill, borderRadius: 6, paddingVertical: 2, paddingHorizontal: 7 }}>
-                          <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: branchColorMap[userBranchCode(p)]?.fg ?? T.sub }}>{userBranchCode(p)}</Text>
-                        </View>
-                      ) : null}
+                      {userBranchCode(p) ? (() => {
+                        const code = userBranchCode(p);
+                        const identity = branchIdentity(code);
+                        return (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: identity.bg, borderRadius: 8, paddingVertical: 4, paddingHorizontal: 8 }}>
+                            <identity.Icon size={12} color={identity.fg} strokeWidth={2.4} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: identity.fg }}>{code}</Text>
+                          </View>
+                        );
+                      })() : null}
                     </Pressable>
                   ))}
                 </View>

@@ -2,12 +2,14 @@ import { useState, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
+import { Search, Plus, MessageCircle, Mic, Archive, ClipboardCheck } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader } from '../../src/components/home';
 import { colors } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
+import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
+import { getPendingRegularizations } from '../../src/api/hr';
 import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
@@ -58,6 +60,9 @@ export default function Home() {
   // on the Groups tab, so listing every group here again was just noise.
   const [filter, setFilter] = useState<ChatFilter>('all');
   const realUser = useAuthStore((s) => s.user);
+  const role = useAccessStore((s) => s.user?.role);
+  const isSuper = role === 'SUPER_ADMIN';
+  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   // Real conversations from the messaging store. Refetch every time Home gains focus so the list is
   // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
@@ -65,6 +70,10 @@ export default function Home() {
   const presence = useMessagingStore((s) => s.presence);
   const myUserId = useMessagingStore((s) => s.myUserId);
   const drafts = useMessagingStore((s) => s.drafts);
+  useFocusEffect(useCallback(() => {
+    if (!isSuper) return;
+    getPendingRegularizations().then((rows) => setPendingApprovals(rows.length)).catch(() => undefined);
+  }, [isSuper]));
   // Long-pressed row → the mute/pin/archive sheet.
   const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
   useFocusEffect(useCallback(() => {
@@ -129,6 +138,17 @@ export default function Home() {
             </Pressable>
           );
         })}
+        {isSuper ? (
+          <Pressable onPress={() => router.push('/admin/regularizations')} className="flex-row items-center" style={[chip, { gap: 6, backgroundColor: colors.coolMuted }]} accessibilityRole="button" accessibilityLabel="Pending leave approval">
+            <ClipboardCheck size={15} color={colors.coolText} />
+            <Text style={{ color: colors.coolText, fontSize: 13, fontWeight: '600' }}>Pending leave approval</Text>
+            {pendingApprovals > 0 ? (
+              <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}>
+                <Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '700' }}>{pendingApprovals > 9 ? '9+' : pendingApprovals}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       {/* Chats — flat full-width white rows on the cool canvas (mockup list), flush under the chips */}

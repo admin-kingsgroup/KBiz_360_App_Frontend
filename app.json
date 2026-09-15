@@ -3,7 +3,10 @@
     "name": "KBiz 360 - Smart Connect",
     "slug": "kbiz360-smart-connect",
     "scheme": "kbiz360",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "version": "1.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -26,8 +29,12 @@
             "NSExtensionActivationSupportsMovieWithMaxCount": 10,
             "NSExtensionActivationSupportsFileWithMaxCount": 10
           },
-          "androidIntentFilters": ["*/*"],
-          "androidMultiIntentFilters": ["*/*"]
+          "androidIntentFilters": [
+            "*/*"
+          ],
+          "androidMultiIntentFilters": [
+            "*/*"
+          ]
         }
       ],
       [
@@ -88,7 +95,8 @@
         {
           "appleTeamId": "9GPR588XWH"
         }
-      ]
+      ],
+      "expo-splash-screen"
     ],
     "ios": {
       "supportsTablet": false,

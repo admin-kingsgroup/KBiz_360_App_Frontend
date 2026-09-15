@@ -1,3 +1,5 @@
+import { Building2, CircleDot, Compass, Crown, Gem, Landmark, MapPin, Shield, type LucideIcon } from 'lucide-react-native';
+
 // Design tokens from the iOS Reminders handoff (light theme only — the app is light).
 // Values are exact per the handoff; don't round them to the app theme.
 
@@ -22,6 +24,10 @@ export interface BranchPaletteEntry {
   fg: string;
 }
 
+export interface BranchIdentity extends BranchPaletteEntry {
+  Icon: LucideIcon;
+}
+
 // Branch badge colors — assigned in branch order, cycle of 8 (per handoff).
 export const BRANCH_PALETTE: BranchPaletteEntry[] = [
   { dot: '#2f6fed', bg: 'rgba(47,111,237,0.13)', fg: '#1d4ed8' },
@@ -33,3 +39,13 @@ export const BRANCH_PALETTE: BranchPaletteEntry[] = [
   { dot: '#0891b2', bg: 'rgba(8,145,178,0.13)', fg: '#0e7490' },
   { dot: '#ea7317', bg: 'rgba(234,115,23,0.14)', fg: '#9a3412' },
 ];
+
+const BRANCH_ICONS: LucideIcon[] = [Building2, MapPin, Compass, Shield, Landmark, Crown, Gem, CircleDot];
+
+// Branch identity is derived from the code, so it stays the same when directory ordering changes.
+export function branchIdentity(code: string): BranchIdentity {
+  let hash = 0;
+  for (const char of code.toUpperCase()) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  const palette = BRANCH_PALETTE[hash % BRANCH_PALETTE.length];
+  return { ...palette, Icon: BRANCH_ICONS[hash % BRANCH_ICONS.length] };
+}
