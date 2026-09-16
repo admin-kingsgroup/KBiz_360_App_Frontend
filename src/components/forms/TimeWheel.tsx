@@ -17,6 +17,7 @@ const WHEEL_H = ITEM_H * VISIBLE;
 const FADE = [1, 0.35, 0.14];
 
 const HOUR_LABELS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+const HOUR_24_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTE_LABELS = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
 interface WheelProps {
@@ -110,17 +111,19 @@ export interface TimeWheelProps {
   onHour12: (h12: number) => void; // clock-face hour (1–12) from the hour wheel
   onMinute: (minute: number) => void;
   onMeridiem: (m: Meridiem) => void;
+  hour24?: boolean;
+  onHour24?: (hour: number) => void;
 }
 
 // Remount (change the React key) to re-seed the wheels — they own their position after mount.
-export function TimeWheel({ hour, minute, onHour12, onMinute, onMeridiem }: TimeWheelProps) {
+export function TimeWheel({ hour, minute, onHour12, onMinute, onMeridiem, hour24 = false, onHour24 }: TimeWheelProps) {
   const { h12, meridiem } = to12h(hour);
   return (
     <View className="flex-row items-center justify-center" style={{ height: WHEEL_H, gap: 14 }}>
-      <MeridiemPill label="AM" active={meridiem === 'AM'} onPress={() => onMeridiem('AM')} />
-      <Wheel items={HOUR_LABELS} index={h12 - 1} label="Hour" onChange={(i) => onHour12(i + 1)} />
+      {hour24 ? null : <MeridiemPill label="AM" active={meridiem === 'AM'} onPress={() => onMeridiem('AM')} />}
+      <Wheel items={hour24 ? HOUR_24_LABELS : HOUR_LABELS} index={hour24 ? hour : h12 - 1} label="Hour" onChange={(i) => hour24 ? onHour24?.(i) : onHour12(i + 1)} />
       <Wheel items={MINUTE_LABELS} index={minute} label="Minute" onChange={onMinute} />
-      <MeridiemPill label="PM" active={meridiem === 'PM'} onPress={() => onMeridiem('PM')} />
+      {hour24 ? null : <MeridiemPill label="PM" active={meridiem === 'PM'} onPress={() => onMeridiem('PM')} />}
     </View>
   );
 }

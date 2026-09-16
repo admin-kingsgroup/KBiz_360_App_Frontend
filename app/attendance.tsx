@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil, Palmtree, ClipboardCheck, Send } from 'lucide-react-native';
 import { Modal } from 'react-native';
@@ -67,12 +67,12 @@ export default function Attendance() {
   const [dayEdit, setDayEdit] = useState<DayTimesTarget | null>(null); // super-admin time editor (a row of the member modal's history)
   const [savingTimes, setSavingTimes] = useState(false);
   // HR self-service: paid-leave balance (tapping opens /hr/leave) + attendance regularisation
-  // requests (per-history-row "fix" → a request a manager approves).
+  // requests (per-history-row "fix" -> a request only a Super Admin can decide).
   const [leave, setLeave] = useState<MyLeave | null>(null);
   const [myRegs, setMyRegs] = useState<Regularization[]>([]);
   const [regTarget, setRegTarget] = useState<DayTimesTarget | null>(null);
   const [sendingReg, setSendingReg] = useState(false);
-  const [pendingApprovals, setPendingApprovals] = useState(0); // manager queue size (managers only)
+  const [pendingApprovals, setPendingApprovals] = useState(0); // Super Admin queue size
   // Exempt is TRI-STATE: null = not known yet — don't flash the punch UI before the server says
   // whether this account is tracked (super admins are always untracked server-side).
   const [exempt, setExempt] = useState<boolean | null>(null);
@@ -174,6 +174,7 @@ export default function Attendance() {
     return () => { if (retryRef.current) clearTimeout(retryRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useFocusEffect(useCallback(() => { loadCore(); }, [loadCore]));
 
   // Team view follows the selected day (today by default; admin can browse past days).
   const loadTeam = useEventCallback((): Promise<void> =>
@@ -259,14 +260,14 @@ export default function Attendance() {
   });
 
   // Self-service: file a regularisation request for the day open in the sheet. Nothing changes on
-  // the record here — a manager approves it (the server then applies the same evidence-preserving
+  // the record here — a Super Admin approves it (the server then applies the same evidence-preserving
   // correction the admin editor uses) or rejects it with a note.
   const sendRegularization = useEventCallback((body: { checkInAt: string; checkOutAt: string | null; reason: string }): void => {
     if (!regTarget) return;
     setSendingReg(true);
     requestRegularization({ date: regTarget.date, ...body })
       .then(() => {
-        showToast('Request sent — a manager will review it');
+        showToast('Request sent — a Super Admin will review it');
         setRegTarget(null);
         getMyRegularizations().then(setMyRegs).catch(() => undefined);
       })
@@ -431,7 +432,7 @@ export default function Attendance() {
       {/* Super-admin time editor for one of the selected teammate's days (sits above the modal). */}
       <DayTimesSheet target={dayEdit} name={reassign?.name ?? ''} dateLabel={dayEdit ? dateLabel(dayEdit.date) : ''} saving={savingTimes} onClose={() => setDayEdit(null)} onSave={saveMemberTimes} />
 
-      {/* Self-service: request a correction for one of MY days (a manager approves it). */}
+      {/* Self-service: request a correction for one of MY days (a Super Admin decides it). */}
       <RegularizeSheet target={regTarget} dateLabel={regTarget ? dateLabel(regTarget.date) : ''} saving={sendingReg} onClose={() => setRegTarget(null)} onSave={sendRegularization} />
 
       {/* Full-screen punch-photo viewer */}
@@ -603,7 +604,7 @@ const LeaveCard = memo(function LeaveCard({ balance, sub, onPress }: { balance: 
   );
 });
 
-// Manager entry to the regularisation queue (Team tab only — decisions are requireManage).
+// Super Admin entry to the regularisation queue (Team tab only — decisions are server-gated).
 const ApprovalsRow = memo(function ApprovalsRow({ n, onPress }: { n: number; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: n > 0 ? colors.orange + '66' : colors.coolDivider, borderRadius: 14, marginBottom: 12 }}>

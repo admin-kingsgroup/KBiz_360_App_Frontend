@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { getMyAttendanceMonth, getHolidays, type MyAttendanceMonth, type MonthDay, type HolidayRow, type DayState } from '../../src/api/hr';
@@ -56,6 +56,7 @@ export default function MyAttendanceMonthScreen() {
     getMyAttendanceMonth(m).then(setData).catch(() => setFailed(true));
   }, []);
   useEffect(() => { load(month); }, [month, load]);
+  useFocusEffect(useCallback(() => { load(month); }, [load, month]));
   useEffect(() => {
     getHolidays(Number(month.slice(0, 4))).then((h) => setHolidays(h.published ? h.holidays : [])).catch(() => setHolidays([]));
   }, [month]);

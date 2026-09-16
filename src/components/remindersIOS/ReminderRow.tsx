@@ -4,7 +4,7 @@ import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture
 import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
 import { Flag } from 'lucide-react-native';
 import { whenLabel } from '../../logic/quickAdd';
-import { T, type BranchPaletteEntry } from './tokens';
+import { branchIdentity, T, type BranchPaletteEntry } from './tokens';
 import type { IOSReminder } from '../../data/remindersIOS';
 
 // One reminder row: completion circle (with the iOS pop), priority marks, meta lines,
@@ -40,6 +40,7 @@ export function ReminderRow({ r, bizCode, branchColors, isLast, onToggleDone, on
   const swipeRef = useRef<SwipeableMethods>(null);
   const when = whenLabel(r.day, r.time);
   const who = (r.assignedTo ? `For ${r.assignedTo}` : '') + (r.assignedTo && r.assignedBy ? ' · ' : '') + (r.assignedBy ? `From ${r.assignedBy}` : '');
+  const branch = r.branch ? branchIdentity(r.branch) : null;
 
   const renderRightActions = () => (
     <View style={{ flexDirection: 'row', width: 132 }}>
@@ -101,7 +102,8 @@ export function ReminderRow({ r, bizCode, branchColors, isLast, onToggleDone, on
             {r.branch || r.tags.length > 0 ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 }}>
                 {r.branch ? (
-                  <View style={{ backgroundColor: branchColors?.bg ?? T.fill, borderRadius: 6, paddingVertical: 2, paddingHorizontal: 7 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: branchColors?.bg ?? branch?.bg ?? T.fill, borderRadius: 8, paddingVertical: 4, paddingHorizontal: 8 }}>
+                    {branch ? <branch.Icon size={12} color={branchColors?.fg ?? branch.fg} strokeWidth={2.4} /> : null}
                     <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: branchColors?.fg ?? T.sub }}>
                       {bizCode ? `${bizCode}-${r.branch}` : r.branch}
                     </Text>
