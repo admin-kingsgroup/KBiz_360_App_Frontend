@@ -3,10 +3,11 @@ import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-na
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedRef, runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Skeleton, SkeletonList } from '../../src/components/ui';
+import { SkeletonList } from '../../src/components/ui';
 import { GroupsList, SystemAlertsList, HomeHeader } from '../../src/components/home';
 import { colors } from '../../src/theme';
 import { oneLine } from '../../src/logic/text';
+import { relTime } from '../../src/utils/time';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
@@ -80,6 +81,9 @@ export default function Groups() {
     id: c.id, name: c.name, branchId: c.branchId ?? null, companyId: c.companyId ?? null, unread: c.unread,
     preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : undefined,
     pinned: !!c.pinned, // pinned groups float to the top of their branch's list
+    // Stamped with the SAME helper the Chats tab uses, so a conversation reads identically on both.
+    time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
+    members: c.memberCount,
   }));
 
   // Unread badges on the segment tabs — number of unread items per segment (NOT the total count).
@@ -117,21 +121,18 @@ export default function Groups() {
       </ScrollView>
 
       {/* Business pills that filter the Groups pane (access-filtered, View-As-aware).
-          Hidden on System Alerts. */}
-      {seg !== 'pulse' ? (
+          Hidden on System Alerts — and hidden when there is only one pill, since a filter with a
+          single option cannot do anything and the business name already reads on the row below. */}
+      {seg !== 'pulse' && pills.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
-          {!dir.loaded && pills.length === 0 ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} w={64} h={34} r={999} />)
-          ) : (
-            pills.map((p) => {
-              const on = activeBizId === p.id;
-              return (
-                <Pressable key={p.id} onPress={() => setBiz(p.id)} style={[chip, { backgroundColor: on ? colors.primary : colors.coolMuted }]}>
-                  <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{p.id === 'all' ? 'All' : p.code}</Text>
-                </Pressable>
-              );
-            })
-          )}
+          {pills.map((p) => {
+            const on = activeBizId === p.id;
+            return (
+              <Pressable key={p.id} onPress={() => setBiz(p.id)} style={[chip, { backgroundColor: on ? colors.primary : colors.coolMuted }]}>
+                <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{p.id === 'all' ? 'All' : p.code}</Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       ) : null}
 
