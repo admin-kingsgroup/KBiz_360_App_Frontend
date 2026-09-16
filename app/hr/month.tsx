@@ -31,6 +31,17 @@ const STATE_LABELS: Record<DayState, string> = {
   noData: 'No data',
 };
 
+// Holiday cards sit on a wash of the Holiday orange — the colour this page ALREADY uses for the
+// legend dot and the calendar's holiday markers, so the list reads as part of the calendar above it
+// rather than introducing a new hue. Alpha-suffix tints follow the Tile convention below.
+const HOLIDAY_BG = colors.orange + '12';        // ~7%, the same wash Tile uses
+const HOLIDAY_EDGE = colors.orange + '33';
+const HOLIDAY_NEXT_BG = colors.orange + '28';   // the soonest one runs deeper so it reads first
+const HOLIDAY_NEXT_EDGE = colors.orange + '66';
+// Darkened orange for 11.5px text ON the deeper wash — colors.orange itself is too light there to
+// stay legible at that size.
+const HOLIDAY_NEXT_INK = '#8A5E14';
+
 const fmtT = (iso: string | null): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—');
 const monthLabel = (m: string): string => new Date(`${m}-01T00:00:00`).toLocaleDateString([], { month: 'long', year: 'numeric' });
 const thisMonth = (): string => {
@@ -202,18 +213,26 @@ export default function MyAttendanceMonthScreen() {
               <Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>No holidays left this year.</Text>
             ) : (
               <View style={{ gap: 6 }}>
-                {upcoming.map((h) => (
-                  <View key={h.date} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, borderRadius: 14 }}>
-                    <View style={{ alignItems: 'center', width: 44 }}>
-                      <Text style={{ color: colors.orange, fontSize: 16, fontWeight: '800' }}>{Number(h.date.slice(8, 10))}</Text>
-                      <Text style={{ color: colors.coolText, fontSize: 10, fontWeight: '700' }}>{new Date(h.date + 'T00:00:00').toLocaleDateString([], { month: 'short' }).toUpperCase()}</Text>
+                {upcoming.map((h, i) => {
+                  // `upcoming` is the published list filtered to today-or-later, so the first row IS
+                  // the next holiday — it gets the solid date chip and the deeper wash so the one
+                  // that actually matters is the one the eye lands on.
+                  const next = i === 0;
+                  return (
+                  <View key={h.date} className="flex-row items-center gap-3 p-3" style={{ backgroundColor: next ? HOLIDAY_NEXT_BG : HOLIDAY_BG, borderWidth: 1, borderColor: next ? HOLIDAY_NEXT_EDGE : HOLIDAY_EDGE, borderRadius: 14 }}>
+                    <View style={{ alignItems: 'center', width: 44, backgroundColor: next ? colors.orange : undefined, borderRadius: next ? 10 : 0, paddingVertical: next ? 5 : 0 }}>
+                      <Text style={{ color: next ? '#fff' : colors.orange, fontSize: 16, fontWeight: '800' }}>{Number(h.date.slice(8, 10))}</Text>
+                      <Text style={{ color: next ? 'rgba(255,255,255,0.88)' : colors.coolText, fontSize: 10, fontWeight: '700' }}>{new Date(h.date + 'T00:00:00').toLocaleDateString([], { month: 'short' }).toUpperCase()}</Text>
                     </View>
                     <View className="flex-1">
-                      <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600' }}>{h.name}{h.movable ? ' *' : ''}</Text>
-                      <Text style={{ color: colors.coolText, fontSize: 11.5 }}>{h.weekday}{h.kind === 'optional' ? ' · optional (prior approval)' : ''}</Text>
+                      <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: next ? '700' : '600' }}>{h.name}{h.movable ? ' *' : ''}</Text>
+                      <Text style={{ color: next ? HOLIDAY_NEXT_INK : colors.coolText, fontSize: 11.5, fontWeight: next ? '600' : '400' }}>
+                        {h.weekday}{h.kind === 'optional' ? ' · optional (prior approval)' : next ? ' · next up' : ''}
+                      </Text>
                     </View>
                   </View>
-                ))}
+                  );
+                })}
                 <Text style={{ color: colors.coolText, fontSize: 10.5, textAlign: 'center', marginTop: 4 }}>* subject to moon sighting — the date may shift</Text>
               </View>
             )}
