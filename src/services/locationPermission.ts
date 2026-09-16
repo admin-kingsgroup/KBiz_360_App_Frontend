@@ -2,13 +2,16 @@ import { Linking } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import type * as LocationModuleT from 'expo-location';
 import type { BgLocationStatus } from '../logic/permissionGate';
+import { locationFlowStep, requestResultFrom, type LocationPurpose, type LocationRequestResult } from '../logic/locationDisclosure';
+import { askLocationDisclosure } from './locationDisclosure';
 
-// Real OS location permissions. The ENTRY GATE needs only foreground ("While using the app") —
-// requestForegroundLocation. Background ("Allow all the time") powers geofence auto-punch with the
-// app closed and is requested ONLY from the Attendance screen's optional nudge — never at app open
-// (on Android 11+ the bg request drops the user into the system Settings page, which read as
-// "Allow all the time is compulsory to open the app"). Lazy-required + Expo-Go-guarded exactly
-// like backgroundAttendance: background location isn't available in Expo Go.
+// Real OS location permissions. FOREGROUND ("While using the app") is the only permission the
+// Android build declares (background location was dropped from app.json after the Play rejection
+// of 09-10 — staff attendance checks the office only while the screen is open). Every prompt goes
+// through requestLocationWithDisclosure, which shows the in-app disclosure and waits for "I agree"
+// BEFORE the OS dialog — the Play "Prominent Disclosure" rule. Nothing else in the app may call
+// expo-location's request*PermissionsAsync directly. Lazy-required + Expo-Go-guarded like
+// backgroundAttendance.
 type LocationModule = typeof LocationModuleT;
 let _loc: LocationModule | null = null;
 function loc(): LocationModule {
@@ -17,7 +20,8 @@ function loc(): LocationModule {
   return _loc;
 }
 
-// Current status WITHOUT prompting — used by the revocation guard on app open/foreground.
+// Current status WITHOUT prompting — used by the revocation guard on app open/foreground and by
+// the attendance GPS watch (which must never prompt on its own).
 export async function getBackgroundLocationStatus(): Promise<BgLocationStatus> {
   if (isRunningInExpoGo()) return 'unavailable';
   try {
@@ -31,33 +35,29 @@ export async function getBackgroundLocationStatus(): Promise<BgLocationStatus> {
   }
 }
 
-// Foreground prompt ONLY ("While using the app") — what the entry gate uses. Never triggers the
-// background/settings-page flow. If background was already granted earlier, still reports 'granted'
-// so the UI reflects the stronger grant.
-export async function requestForegroundLocation(): Promise<BgLocationStatus> {
+// Foreground permission, gated by the in-app disclosure:
+//   already granted → 'granted' immediately (no disclosure, no dialog);
+//   otherwise show the disclosure for `purpose` → "Not now" resolves 'declined' with NO OS dialog;
+//   "I agree" fires the OS prompt (or, when the OS will no longer prompt, resolves 'blocked' so
+//   the caller can route to Settings).
+export async function requestLocationWithDisclosure(purpose: LocationPurpose): Promise<LocationRequestResult> {
   if (isRunningInExpoGo()) return 'unavailable';
+  let Location: LocationModule;
+  let step: ReturnType<typeof locationFlowStep>;
   try {
-    const Location = loc();
-    const fg = await Location.requestForegroundPermissionsAsync();
-    if (fg.status !== 'granted') return 'denied';
-    const bg = await Location.getBackgroundPermissionsAsync(); // read-only — no prompt, no Settings page
-    return bg.status === 'granted' ? 'granted' : 'foreground-only';
+    Location = loc();
+    const cur = await Location.getForegroundPermissionsAsync();
+    step = locationFlowStep(cur.status === 'granted', cur.canAskAgain);
   } catch {
     return 'unavailable';
   }
-}
-
-// Fire BOTH OS prompts: foreground first, then background ("Allow all the time"; Android 11+ routes
-// this through the app's location settings page). Used ONLY by the Attendance screen's optional
-// auto-punch nudge — never by the entry gate.
-export async function requestBackgroundLocation(): Promise<BgLocationStatus> {
-  if (isRunningInExpoGo()) return 'unavailable';
+  if (step === 'granted') return 'granted';
+  const agreed = await askLocationDisclosure(purpose);
+  if (!agreed) return 'declined';
+  if (step === 'blocked') return 'blocked';
   try {
-    const Location = loc();
-    const fg = await Location.requestForegroundPermissionsAsync();
-    if (fg.status !== 'granted') return 'denied';
-    const bg = await Location.requestBackgroundPermissionsAsync();
-    return bg.status === 'granted' ? 'granted' : 'foreground-only';
+    const res = await Location.requestForegroundPermissionsAsync();
+    return requestResultFrom(res.status, res.canAskAgain);
   } catch {
     return 'unavailable';
   }

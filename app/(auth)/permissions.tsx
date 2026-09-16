@@ -8,16 +8,16 @@ import type { PermKey } from '../../src/constants/permissions';
 import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { savePerms } from '../../src/services/storage';
 import { requestNotificationPermission, registerPushToken } from '../../src/services/notifications';
-import { getBackgroundLocationStatus, requestForegroundLocation, openLocationSettings } from '../../src/services/locationPermission';
+import { getBackgroundLocationStatus, requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
 import { locationPermSatisfied, type BgLocationStatus } from '../../src/logic/permissionGate';
+import { toGateStatus } from '../../src/logic/locationDisclosure';
 
 // Port of source PermissionGate with ONE deliberate deviation from source: LOCATION is a real
-// OS grant, but only FOREGROUND ("While using the app") — that alone turns the row ON and opens
-// the app. Background ("Allow all the time") is an OPTIONAL auto-punch enhancement nudged from
-// the Attendance screen; it is never requested or required here (the Android 11+ background
-// request drops the user into the system Settings page, which read as "Allow all the time is
-// compulsory to open the app"). Only a full location deny keeps the row OFF, with a hint that
-// routes to Settings.
+// OS grant — FOREGROUND ("While using the app") only; that is the only location permission the
+// Android build declares. The OS dialog is ALWAYS preceded by the in-app location disclosure
+// (requestLocationWithDisclosure → LocationDisclosureHost → "I agree" → OS prompt); Google Play
+// rejected the 1.1.0 update on 09-10 because the dialog used to appear straight from this screen.
+// Only a full location deny keeps the row OFF, with a hint that routes to Settings.
 //  - Notifications use the real OS prompt (as before); network has no OS prompt.
 //  - If the OS won't prompt again (hard deny), we show an Open Settings path and auto-recheck when
 //    the app returns to the foreground.
@@ -32,7 +32,7 @@ export default function Permissions() {
   const perms = useAttendanceStore((s) => s.perms);
   const setPerm = useAttendanceStore((s) => s.setPerm);
   const allOn = PERMISSIONS.every((p) => perms[p.key]);
-  // Set after a location grant attempt fails — drives the "Allow all the time" hint + Open Settings.
+  // Set after a location grant attempt fails — drives the "Location is off" hint + Open Settings.
   const [locBlocked, setLocBlocked] = useState<BgLocationStatus | null>(null);
 
   const grant = async (key: PermKey) => {
@@ -42,13 +42,13 @@ export default function Permissions() {
       setPerm('notifications', ok);
       if (ok) void registerPushToken(); // register Expo push token for message/call/reminder pushes
     } else if (key === 'location') {
-      // Foreground ("While using the app") only — enough to open the app and record check-ins.
-      // The background "Allow all the time" upgrade is offered later on the Attendance screen;
-      // firing it here would bounce a fresh install into the system Settings page.
-      const st = await requestForegroundLocation();
+      // Disclosure first, then the OS prompt ("While using the app"). "Not now" on the disclosure
+      // leaves the row OFF without any OS dialog; a hard OS deny shows the Open Settings hint.
+      const result = await requestLocationWithDisclosure('attendance');
+      const st = toGateStatus(result);
       const ok = locationPermSatisfied(st);
       setPerm('location', ok);
-      setLocBlocked(ok ? null : st);
+      setLocBlocked(ok || result === 'declined' ? null : st);
     } else {
       setPerm(key, true);
     }
@@ -87,7 +87,7 @@ export default function Permissions() {
           </View>
           <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 }}>Permissions required</Text>
           <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 6, textAlign: 'center', lineHeight: 19 }}>
-            KBiz 360 needs all of the following enabled to run. Attendance is recorded automatically and transparently.
+            KBiz 360 needs the following to run. Location is used only while the app is open, to confirm you are at your branch when you mark attendance.
           </Text>
         </View>
 
@@ -149,7 +149,7 @@ export default function Permissions() {
             <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{allOn ? 'Enter KBiz 360' : 'Allow all permissions'}</Text>
           </Pressable>
           <Text style={{ color: colors.coolText3, fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 15 }}>
-            You can review these anytime in Profile · Privacy & Security. Attendance tracking is disclosed to all staff.
+            You can review these anytime in Profile · Privacy & Security or your phone’s Settings. Location is never tracked in the background.
           </Text>
         </View>
       </ScrollView>

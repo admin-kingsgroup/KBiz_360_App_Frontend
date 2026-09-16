@@ -6,7 +6,7 @@ export type PermKey = keyof Permissions;
 export interface PermissionMeta { key: PermKey; iconName: 'navigation' | 'wifi' | 'bell'; color: string; title: string; desc: string; }
 
 export const PERMISSIONS: PermissionMeta[] = [
-  { key: 'location',      iconName: 'navigation', color: '#22C55E', title: 'Location', desc: 'Detects the office for check-in — “While using the app” is enough. You can enable “Allow all the time” later from Attendance for automatic check-in.' },
+  { key: 'location',      iconName: 'navigation', color: '#22C55E', title: 'Location', desc: 'Confirms you are at your branch office when you check in or check out. Used only while the app is open — never in the background.' },
   { key: 'network',       iconName: 'wifi',       color: '#4F8BFF', title: 'Local network / Wi-Fi', desc: 'Detect the office router for auto check-in.' },
   { key: 'notifications', iconName: 'bell',       color: '#E8A13A', title: 'Notifications',         desc: 'Reminders, system alerts and attendance confirmations.' },
 ];

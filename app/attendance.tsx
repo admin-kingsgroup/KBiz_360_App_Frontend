@@ -20,6 +20,7 @@ import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHis
 import { getMyLeave, getMyRegularizations, getPendingRegularizations, requestRegularization, type MyLeave, type Regularization } from '../src/api/hr';
 import { uploadFile } from '../src/api/media';
 import { disarmAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { requestLocationWithDisclosure, openLocationSettings } from '../src/services/locationPermission';
 import { clearPendingExit } from '../src/services/pendingExit';
 import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
@@ -92,7 +93,16 @@ export default function Attendance() {
 
   // Live GPS watch while the screen is open (manual punchers only) — it drives the button gate.
   // The hook only needs A location to start watching; range is judged against ALL offices below.
-  const { coords, geoState } = useGeoFence(exempt === false && !hidden ? (offices[0] ?? null) : null);
+  // It never prompts: the OS dialog is reachable only via enableLocation() below, which shows the
+  // in-app disclosure first (Google Play Prominent Disclosure — the 09-10 rejection). No watch
+  // before consent either, so the permission question never precedes the consent screen.
+  const { coords, geoState, refresh: refreshGeo } = useGeoFence(consent && exempt === false && !hidden ? (offices[0] ?? null) : null);
+  const enableLocation = useEventCallback(async (): Promise<void> => {
+    const result = await requestLocationWithDisclosure('attendance');
+    if (result === 'granted') { refreshGeo(); return; }
+    if (result === 'blocked') { showToast('Location is off for KBiz 360 — allow it in Settings'); openLocationSettings(); return; }
+    if (result === 'denied') showToast('Location is needed to mark attendance');
+  });
 
   // Nearest office to the current fix + whether we're inside its radius (default 100 m).
   const nearest = useMemo(() => {
@@ -299,7 +309,9 @@ export default function Attendance() {
   const outTime = att.outTime;
   const punchedVia = att.via || '';
 
-  const agree = useCallback((): void => { useAttendanceStore.getState().setConsent(true); void saveConsent(true); }, []);
+  // Consent → straight into the location disclosure (if location isn't granted yet), so the OS
+  // dialog is always preceded by our own explanation and an explicit "I agree".
+  const agree = useCallback((): void => { useAttendanceStore.getState().setConsent(true); void saveConsent(true); void enableLocation(); }, [enableLocation]);
   const onBack = useCallback((): void => router.back(), [router]);
   const closeReassign = useCallback((): void => { setReassign(null); setDayEdit(null); }, []);
 
@@ -335,7 +347,7 @@ export default function Attendance() {
   // One line describing the location gate ("N m from OFFICE · within 100 m" / permission nudges).
   const locationSub = useMemo(() => {
     if (offices.length === 0) return loadError ? 'Couldn’t reach the server — retrying automatically…' : 'No office location set for your branch yet — punches are recorded unverified.';
-    if (geoState === 'denied') return 'Location permission is needed — enable it in Settings to mark attendance.';
+    if (geoState === 'denied') return 'Location is needed to confirm you are at the office — tap Allow location.';
     if (geoState === 'unavailable') return 'Location is unavailable on this device.';
     if (!nearest) return 'Getting your location…';
     return `${nearest.distance} m from ${nearest.office.label} · ${nearest.within ? 'in range' : `must be within ${nearest.office.radius} m`}`;
@@ -397,7 +409,7 @@ export default function Attendance() {
           <>
             <LiveClock />
             <StatusCard statusText={statusText} statusColor={statusColor} punchedVia={punchedVia} inText={inText} outText={outText} />
-            <PunchCard hasIn={!!inTime} hasOut={!!outTime} canPunch={canPunch} inRange={!!nearest?.within || offices.length === 0} punching={punching} locationSub={locationSub} onPunch={punchNow} />
+            <PunchCard hasIn={!!inTime} hasOut={!!outTime} canPunch={canPunch} inRange={!!nearest?.within || offices.length === 0} punching={punching} locationSub={locationSub} needsLocation={geoState === 'denied'} onPunch={punchNow} onEnableLocation={enableLocation} />
             <LeaveCard balance={leaveBalanceText} sub={leaveSubText} onPress={openLeave} />
             <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} />
           </>
@@ -532,7 +544,7 @@ const StatusCard = memo(function StatusCard({ statusText, statusColor, punchedVi
 // Punch card — the button is ENABLED only inside the office geofence (owner rules, 07-31);
 // tapping it opens the front camera for the face photo, then records the punch.
 // Repaints only when punch/location state changes.
-const PunchCard = memo(function PunchCard({ hasIn, hasOut, canPunch, inRange, punching, locationSub, onPunch }: { hasIn: boolean; hasOut: boolean; canPunch: boolean; inRange: boolean; punching: boolean; locationSub: string; onPunch: () => void }) {
+const PunchCard = memo(function PunchCard({ hasIn, hasOut, canPunch, inRange, punching, locationSub, needsLocation, onPunch, onEnableLocation }: { hasIn: boolean; hasOut: boolean; canPunch: boolean; inRange: boolean; punching: boolean; locationSub: string; needsLocation: boolean; onPunch: () => void; onEnableLocation: () => void }) {
   return (
     <>
       <View className="flex-row items-center gap-1.5 mb-2 px-1"><Clock size={13} color={colors.primary} /><Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MARK ATTENDANCE</Text></View>
@@ -541,9 +553,16 @@ const PunchCard = memo(function PunchCard({ hasIn, hasOut, canPunch, inRange, pu
         <View className="flex-row items-center gap-1.5" style={{ marginBottom: 10 }}>
           <MapPin size={14} color={inRange ? colors.primary : colors.coolText} />
           <Text style={{ color: colors.coolText, fontSize: 12.5, flex: 1 }}>{locationSub}</Text>
-          <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (inRange ? colors.primary : colors.danger) + '18' }}>
-            <Text style={{ color: inRange ? colors.primary : colors.danger, fontSize: 10, fontWeight: '700' }}>{inRange ? 'IN RANGE' : 'OUT OF RANGE'}</Text>
-          </View>
+          {needsLocation ? (
+            // Opens the in-app location disclosure, then the OS prompt — never the prompt alone.
+            <Pressable onPress={onEnableLocation} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primary }}>
+              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Allow location</Text>
+            </Pressable>
+          ) : (
+            <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (inRange ? colors.primary : colors.danger) + '18' }}>
+              <Text style={{ color: inRange ? colors.primary : colors.danger, fontSize: 10, fontWeight: '700' }}>{inRange ? 'IN RANGE' : 'OUT OF RANGE'}</Text>
+            </View>
+          )}
         </View>
         {hasIn && hasOut ? (
           <View className="flex-row items-center justify-center gap-1.5" style={{ paddingVertical: 13, borderRadius: 999, backgroundColor: colors.coolMuted }}><CheckCircle2 size={16} color={colors.coolText3} /><Text style={{ color: colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Done for today</Text></View>
