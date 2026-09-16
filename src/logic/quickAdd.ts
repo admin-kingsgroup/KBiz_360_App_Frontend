@@ -70,6 +70,17 @@ export function parseQuickAdd(text: string): QuickAddResult {
 }
 
 // "Yesterday, 3:00 PM" / "Today" / "Tomorrow, 10:00 AM" / "Sat, Sep 26, 5:00 PM"
+// Row chip wording — the DATE half only (the clock time rides its own chip). Same calendar text as
+// whenLabel, except a past due date says how LATE it is ("4 days overdue") rather than merely when
+// it was ("4 days ago"): a reminder list is a list of what you owe, not a history.
+export function dueChipLabel(day: number): string {
+  if (day === -1) return 'Yesterday';
+  if (day < -1) return `${-day} days overdue`;
+  if (day === 0) return 'Today';
+  if (day === 1) return 'Tomorrow';
+  return new Date(Date.now() + day * DAY_MS).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 export function whenLabel(day: number, time: string): string {
   let d: string;
   if (day === -1) d = 'Yesterday';

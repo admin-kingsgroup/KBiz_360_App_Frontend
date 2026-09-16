@@ -17,7 +17,7 @@ import { useMessagingStore } from '../../store/messagingStore';
 import { useUiStore } from '../../store/uiStore';
 import { useReminderBadgeStore } from '../../store/reminderBadgeStore';
 import { cancelReminderLocal } from '../../services/notifications/reminderLocal';
-import { T, branchIdentity, type BranchPaletteEntry } from './tokens';
+import { T, branchIdentity, SMART_TINT, type BranchPaletteEntry } from './tokens';
 import { ReminderRow } from './ReminderRow';
 
 // iOS Reminders-style screen, wired to REAL data: reminders come from the reminders API
@@ -75,18 +75,18 @@ function NewReminderButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-function SmartCard({ Icon, iconSize, color, count, label, filled, onPress }: {
-  Icon: LucideIcon; iconSize: number; color: string; count: number; label: string; filled?: boolean; onPress: () => void;
+function SmartCard({ Icon, iconSize, tint, count, label, filled, onPress }: {
+  Icon: LucideIcon; iconSize: number; tint: BranchPaletteEntry; count: number; label: string; filled?: boolean; onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={{ flexBasis: '45%', flexGrow: 1, backgroundColor: T.card, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, gap: 6 }}>
+    <Pressable onPress={onPress} style={{ flexBasis: '45%', flexGrow: 1, backgroundColor: tint.bg, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, gap: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: tint.dot, alignItems: 'center', justifyContent: 'center' }}>
           <Icon size={iconSize} color="#fff" fill={filled ? '#fff' : 'none'} strokeWidth={filled ? 1 : 2} />
         </View>
-        <Text style={{ fontSize: 24, fontWeight: '700', color: T.ink }}>{count}</Text>
+        <Text style={{ fontSize: 24, fontWeight: '700', color: tint.fg }}>{count}</Text>
       </View>
-      <Text style={{ fontSize: 15, fontWeight: '600', color: T.sub }}>{label}</Text>
+      <Text style={{ fontSize: 15, fontWeight: '600', color: tint.fg }}>{label}</Text>
     </Pressable>
   );
 }
@@ -159,8 +159,10 @@ export default function RemindersIOSScreen() {
         flag: flagged.has(r.id),
         prio: 0,
         done,
-        assignedTo: r.forId && r.forId !== meId ? r.forName : undefined,
-        assignedBy: r.byId && r.byId !== meId ? (r.byName ?? undefined) : undefined,
+        forName: r.forName ?? '',
+        byName: r.byName ?? '',
+        forIsMe: !!r.forId && r.forId === meId,
+        byIsMe: !!r.byId && r.byId === meId,
         tags: [],
         subs: [],
       };
@@ -326,7 +328,9 @@ export default function RemindersIOSScreen() {
     mentionNames.length ? `For ${mentionNames.join(', ')}` : '',
   ].filter(Boolean).join(' · ');
 
-  const rowProps = { onToggleDone: toggleDone, onToggleSub: toggleSub, onFlag: flagRow, onDelete: deleteRow, onOpen: registerOpenRow, onRowPress: closeOpenRow };
+  // Every assignable name, so a row can paint "@Name" the way the composer does.
+  const allNames = useMemo(() => users.map((u) => u.name).filter(Boolean), [users]);
+  const rowProps = { mentionNames: allNames, onToggleDone: toggleDone, onToggleSub: toggleSub, onFlag: flagRow, onDelete: deleteRow, onOpen: registerOpenRow, onRowPress: closeOpenRow };
 
   // ── Home ───────────────────────────────────────────────────────────────────
   if (screen === 'home') {
@@ -368,10 +372,10 @@ export default function RemindersIOSScreen() {
             <>
               {/* Smart cards */}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginHorizontal: 16 }}>
-                <SmartCard Icon={CircleDot} iconSize={16} color={T.accent} count={active.filter((r) => r.day <= 0).length} label="Today" onPress={() => openScreen('today')} />
-                <SmartCard Icon={Clock} iconSize={16} color={T.overdue} count={active.length} label="Scheduled" onPress={() => openScreen('scheduled')} />
-                <SmartCard Icon={Menu} iconSize={14} color={T.allGray} count={active.length} label="All" onPress={() => openScreen('all')} />
-                <SmartCard Icon={Flag} iconSize={13} color={T.flag} count={active.filter((r) => r.flag).length} label="Flagged" filled onPress={() => openScreen('flagged')} />
+                <SmartCard Icon={CircleDot} iconSize={16} tint={SMART_TINT.today} count={active.filter((r) => r.day <= 0).length} label="Today" onPress={() => openScreen('today')} />
+                <SmartCard Icon={Clock} iconSize={16} tint={SMART_TINT.scheduled} count={active.length} label="Scheduled" onPress={() => openScreen('scheduled')} />
+                <SmartCard Icon={Menu} iconSize={14} tint={SMART_TINT.all} count={active.length} label="All" onPress={() => openScreen('all')} />
+                <SmartCard Icon={Flag} iconSize={13} tint={SMART_TINT.flagged} count={active.filter((r) => r.flag).length} label="Flagged" filled onPress={() => openScreen('flagged')} />
               </View>
 
               {/* Businesses — the real CRM directory (companies + their branches) */}
@@ -429,8 +433,11 @@ export default function RemindersIOSScreen() {
             )}
           </View>
 
-          {/* Large title */}
-          <Text style={{ paddingTop: 8, paddingHorizontal: 20, fontSize: 32, fontWeight: '700', letterSpacing: 0.2, color: meta.color }}>{meta.title}</Text>
+          {/* Large title, with how many open items are under it */}
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingTop: 8, paddingHorizontal: 20 }}>
+            <Text style={{ fontSize: 32, fontWeight: '700', letterSpacing: 0.2, color: meta.color }}>{meta.title}</Text>
+            {curActive.length > 0 ? <Text style={{ fontSize: 20, fontWeight: '600', color: T.placeholder }}>{curActive.length}</Text> : null}
+          </View>
 
           {/* Branch filter chips — the business's real branches */}
           {curBiz && curBiz.branches.length > 0 ? (
@@ -481,6 +488,14 @@ export default function RemindersIOSScreen() {
               </View>
             </View>
           ))}
+
+          {/* Swipe-left to flag/delete exists but nothing on screen said so. */}
+          {sections.length > 0 && !adding ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 20, paddingTop: 16 }}>
+              <ChevronLeft size={13} color={T.placeholder} strokeWidth={2.2} />
+              <Text style={{ fontSize: 12.5, color: T.placeholder }}>Swipe a row left to flag or delete</Text>
+            </View>
+          ) : null}
 
           {/* Inline quick add */}
           {adding ? (

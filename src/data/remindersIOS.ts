@@ -19,8 +19,13 @@ export interface IOSReminder {
   flag: boolean;
   prio: number; // 0–2 → '', '!', '!!'
   done: boolean;
-  assignedTo?: string;
-  assignedBy?: string;
+  // BOTH sides of the reminder, always populated. The row renders "creator → assignee" and marks
+  // whichever side is the viewer. The previous assignedTo/assignedBy pair dropped the side that was
+  // you, so a reminder assigned TO you could only ever render "From X" and never say who owed it.
+  forName: string; // assignee
+  byName: string; // creator
+  forIsMe: boolean;
+  byIsMe: boolean;
   tags: string[];
   subs: IOSSubtask[];
 }
