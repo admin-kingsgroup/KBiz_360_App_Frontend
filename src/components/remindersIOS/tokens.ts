@@ -24,6 +24,17 @@ export interface BranchPaletteEntry {
   fg: string;
 }
 
+// Smart-card surfaces. Each card wears the colour its own icon already uses, so the tint reinforces
+// what the card means instead of decorating it. The blue / red / amber triples are BRANCH_PALETTE
+// entries 0-2 verbatim — the cards and the branch badges should speak one colour language; only the
+// grey needed a new pair.
+export const SMART_TINT: Record<'today' | 'scheduled' | 'all' | 'flagged', BranchPaletteEntry> = {
+  today: { dot: '#2f6fed', bg: 'rgba(47,111,237,0.13)', fg: '#1d4ed8' },
+  scheduled: { dot: '#e8483f', bg: 'rgba(232,72,63,0.13)', fg: '#c2382f' },
+  all: { dot: '#8e8e93', bg: 'rgba(142,142,147,0.13)', fg: '#5b5b60' },
+  flagged: { dot: '#f59e0b', bg: 'rgba(245,158,11,0.16)', fg: '#b45309' },
+};
+
 export interface BranchIdentity extends BranchPaletteEntry {
   Icon: LucideIcon;
 }
