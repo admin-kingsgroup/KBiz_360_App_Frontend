@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { View, Text, Pressable, ScrollView, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUpDown, ChevronDown, ChevronUp, Clock, Lock, MessageCircle, Pin, X } from 'lucide-react-native';
+import { ArrowUpDown, ChevronDown, ChevronUp, Lock, MessageCircle, Pin, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
 import { makeAccessFilters } from '../../logic/accessFilters';
@@ -14,9 +14,23 @@ import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch } from '../../types';
 
 // A real group conversation the user belongs to (manual "New group" groups are filed under a branch).
-export interface GroupConv { id: string; name: string; branchId?: string | null; companyId?: string | null; unread?: number; preview?: string; pinned?: boolean }
+export interface GroupConv { id: string; name: string; branchId?: string | null; companyId?: string | null; unread?: number; preview?: string; pinned?: boolean; time?: string; members?: number }
 export interface GroupOpen { id: string; name: string; bizId: string; branchId: string; branchCode?: string; convId?: string }
-interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; pinned?: boolean; bizId: string; branchId: string; branchCode?: string; convId?: string; }
+interface GItem { id: string; name: string; icon: string; color: string; preview?: string; unread?: number; pinned?: boolean; bizId: string; branchId: string; branchCode?: string; convId?: string; time?: string; members?: number; }
+
+// Card background is a wash of the group's OWN avatar colour, so a card visibly belongs to its
+// group instead of being one more white slab. 8% reads as colour without dulling the preview text;
+// the border takes the same hue at 22%.
+const mix = (hex: string, ratio: number): string => {
+  const h = hex.replace('#', '');
+  const ch = (i: number) => Math.round(parseInt(h.slice(i, i + 2), 16) * ratio + 255 * (1 - ratio)).toString(16).padStart(2, '0');
+  return `#${ch(0)}${ch(2)}${ch(4)}`;
+};
+// One entry of the avatar palette is near-black, whose wash is just grey — that group would read as
+// the only uncoloured card. For BACKGROUNDS it borrows a hue; the avatar itself stays black.
+const tintBase = (hex: string): string => (hex.toUpperCase() === '#0C0E14' ? '#2FB36B' : hex);
+const cardBg = (hex: string): string => mix(tintBase(hex), 0.08);
+const cardEdge = (hex: string): string => mix(tintBase(hex), 0.22);
 
 const initialsOf = (name: string): string => ((name.match(/\b\w/g) ?? []).slice(0, 2).join('') || name.slice(0, 2)).toUpperCase();
 interface Sub { code: string; city: string; color: string; time: string; flag: string; items: GItem[]; }
@@ -52,7 +66,7 @@ export function GroupsList({
 
   // The Groups tab lists the real group chats the user belongs to, grouped by branch — opened
   // directly by conversation id. New groups are created via the "+" New group action.
-  const toItem = (c: GroupConv): GItem => ({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId ?? '', branchCode: undefined });
+  const toItem = (c: GroupConv): GItem => ({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId ?? '', branchCode: undefined, time: c.time, members: c.members });
   // Pinned groups float to the top of their chip (stable sort keeps the rest in recency order).
   const pinnedFirst = (items: GItem[]): GItem[] => items.sort((a, z) => Number(!!z.pinned) - Number(!!a.pinned));
   // A group whose branch the directory does not return (row deleted or retired in the shared
@@ -92,7 +106,7 @@ export function GroupsList({
 
   const GroupCard = (g: GItem) => (
     <Pressable key={g.id} onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })} onLongPress={() => g.convId && onLongPressGroup?.(g.convId)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 p-3"
-      style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16 }}>
+      style={{ backgroundColor: cardBg(g.color), borderColor: cardEdge(g.color), borderWidth: 1, borderRadius: 16 }}>
       <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: g.color, opacity: g.preview ? 1 : 0.55, alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{g.icon}</Text>
       </View>
@@ -100,10 +114,15 @@ export function GroupsList({
         <View className="flex-row items-center" style={{ gap: 5 }}>
           <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 15.5, fontWeight: '600' }}>{g.name}</Text>
           {g.pinned ? <Pin size={13} color={colors.coolText3} style={{ transform: [{ rotate: '45deg' }] }} /> : null}
+          <View className="flex-1" />
+          {/* Stamp, as on the Chats tab — highlighted while the group has unread. */}
+          {g.time ? <Text style={{ color: g.unread ? colors.primary : colors.coolText3, fontSize: 11.5, fontWeight: g.unread ? '700' : '400' }}>{g.time}</Text> : null}
         </View>
         <View className="flex-row justify-between items-center gap-2" style={{ marginTop: 2 }}>
           <Text numberOfLines={1} style={{ flex: 1, color: g.preview ? colors.coolText : colors.coolText3, fontSize: 13, fontStyle: g.preview ? 'normal' : 'italic' }}>{g.preview || 'No recent messages · tap to start'}</Text>
-          {g.unread ? <Unread n={g.unread} /> : null}
+          {/* The unread badge earns the right edge; with nothing unread, the member count uses it. */}
+          {g.unread ? <Unread n={g.unread} />
+            : g.members ? <Text style={{ color: colors.coolText3, fontSize: 11.5 }}>{g.members} members</Text> : null}
         </View>
       </View>
     </Pressable>
@@ -120,15 +139,24 @@ export function GroupsList({
         const active = subs.find((s) => s.code === sel) ?? subs[0];
         return (
           <View key={bl.id} style={{ gap: 8 }}>
-            {/* Business header */}
+            {/* Context line — business, count and the selected branch's local time on ONE row.
+                This replaces three stacked bands (business header + a separate clock row, on top of
+                the business pill row the tab now hides when there is only one business). */}
             <View className="flex-row items-center gap-1.5 px-1 mt-1">
-              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: bl.color }} />
-              <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{bl.label}</Text>
-              <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>· {total} groups</Text>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: bl.color }} />
+              <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '700' }}>{bl.label}</Text>
+              <Text style={{ color: colors.coolText3, fontSize: 12.5 }}>{total} groups</Text>
+              <View className="flex-1" />
+              {active.time ? (
+                <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>{active.flag} {active.time} · {active.city}</Text>
+              ) : null}
             </View>
 
             {/* Branch chips — the badge is the number of the branch's GROUPS with unread (chats,
-                not messages — same unit as the segment tab and bottom-bar badges). */}
+                not messages — same unit as the segment tab and bottom-bar badges). Rendered only
+                when there is more than one branch: a single chip filters nothing, and its code is
+                already on the context line above and in the group names themselves. */}
+            {subs.length > 1 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}
               onTouchStart={() => onChipRowTouch?.(true)}
               onTouchEnd={() => onChipRowTouch?.(false)}
@@ -149,20 +177,11 @@ export function GroupsList({
                 );
               })}
               {/* Arrange — reorder the chips to taste (long-pressing any chip opens the same sheet). */}
-              {subs.length > 1 ? (
-                <Pressable onPress={() => setArrangeFor(bl.id)} accessibilityLabel="Arrange branches"
-                  style={{ height: 36, width: 36, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
-                  <ArrowUpDown size={15} color={colors.coolText} />
-                </Pressable>
-              ) : null}
+              <Pressable onPress={() => setArrangeFor(bl.id)} accessibilityLabel="Arrange branches"
+                style={{ height: 36, width: 36, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+                <ArrowUpDown size={15} color={colors.coolText} />
+              </Pressable>
             </ScrollView>
-
-            {/* Selected branch's local time */}
-            {active.time ? (
-              <View className="flex-row items-center gap-1.5 px-1">
-                <Clock size={12} color={colors.primary} />
-                <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600' }}>{active.flag} {active.time} · {active.city}</Text>
-              </View>
             ) : null}
 
             {/* Groups of the selected branch (unread ones keep their own per-card badge) */}

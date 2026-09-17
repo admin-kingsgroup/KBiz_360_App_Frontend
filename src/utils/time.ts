@@ -1,4 +1,14 @@
 // Display-time helpers (pure). tzTime/timeAgo extracted verbatim from source.
+
+// Conversation-list stamp: HH:MM today, D/M before that. Shared by the Chats tab and the Groups
+// tab so the two lists stamp a conversation identically (they are meant to read as one design).
+export function relTime(iso: string): string {
+  const d = new Date(iso); const now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+    : `${d.getDate()}/${d.getMonth() + 1}`;
+}
+
 export function tzTime(tz: string): string {
   try {
     return new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });

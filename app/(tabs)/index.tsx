@@ -13,15 +13,10 @@ import { getPendingRegularizations } from '../../src/api/hr';
 import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
+import { relTime } from '../../src/utils/time';
 import type { PresenceInfo } from '../../src/store/messagingStore';
 
 // Map a real conversation → the row shape ChatListItem renders.
-const relTime = (iso: string): string => {
-  const d = new Date(iso); const now = new Date();
-  return d.toDateString() === now.toDateString()
-    ? `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-    : `${d.getDate()}/${d.getMonth() + 1}`;
-};
 function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>, myUserId: string | null, draft?: string) {
   const last = c.lastMessage;
   // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
