@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { View, Text, Image, Pressable, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, Users, Bell, Mail, RefreshCw, type LucideIcon } from 'lucide-react-native';
+import { MessageCircle, Users, Bell, Mail, ClipboardCheck, RefreshCw, type LucideIcon } from 'lucide-react-native';
 import { useOtaUpdate } from '../../src/hooks/useOtaUpdate';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -78,6 +78,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: ({ color, focused }) => <TabPill Icon={MessageCircle} color={color} focused={focused} />, tabBarBadge: chatsBadge > 0 ? (chatsBadge > 9 ? '9+' : chatsBadge) : undefined }} />
       <Tabs.Screen name="groups" options={{ title: 'Groups', tabBarIcon: ({ color, focused }) => <TabPill Icon={Users} color={color} focused={focused} />, tabBarBadge: groupsBadge > 0 ? (groupsBadge > 9 ? '9+' : groupsBadge) : undefined }} />
       <Tabs.Screen name="reminders" options={{ title: 'Reminders', tabBarIcon: ({ color, focused }) => <TabPill Icon={Bell} color={color} focused={focused} />, tabBarBadge: reminderBadge > 0 ? (reminderBadge > 9 ? '9+' : reminderBadge) : undefined }} />
+      <Tabs.Screen name="approvals" options={{ title: 'Approvals', tabBarIcon: ({ color, focused }) => <TabPill Icon={ClipboardCheck} color={color} focused={focused} /> }} />
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused }) => <ProfileTabIcon focused={focused} /> }} />
     </Tabs>
