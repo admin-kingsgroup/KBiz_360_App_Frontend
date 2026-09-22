@@ -59,12 +59,16 @@ export default function GroupInfo() {
   // For a branch group, only offer people from that branch — plus company-wide
   // leadership (Super-Admins & Directors), who aren't tied to any branch but can be added to
   // any group. Non-branch groups offer the whole directory.
+  // A company-wide ADDER (Super-Admin / Director) may add anyone in the directory to any group
+  // (owner decision 2026-09-22 — the server never restricted this; e.g. an NBO-only user joining
+  // the INB inter-branch group): branch people are listed first, everyone else after, flagged.
   const COMPANY_WIDE = new Set(['SUPER_ADMIN', 'DIRECTOR']);
-  const candidates = users.filter((u) =>
-    !memberIds.has(u.id) &&
-    (!conv?.branchId || COMPANY_WIDE.has(u.role) || (u.branches ?? []).includes(conv.branchId)) &&
-    u.name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
+  const inBranch = (u: { role: string; branches?: string[] }): boolean =>
+    !conv?.branchId || COMPANY_WIDE.has(u.role) || (u.branches ?? []).includes(conv.branchId);
+  const q = query.trim().toLowerCase();
+  const candidates = users
+    .filter((u) => !memberIds.has(u.id) && (canManage || inBranch(u)) && u.name.toLowerCase().includes(q))
+    .sort((a, b) => Number(inBranch(b)) - Number(inBranch(a)));
 
   const saveName = async (): Promise<void> => {
     if (!nameInput.trim()) return;
@@ -213,7 +217,10 @@ export default function GroupInfo() {
                 return (
                   <Pressable onPress={() => toggle(u.id)} android_ripple={{ color: colors.coolMuted }} className="flex-row items-center gap-3 px-2 py-2.5" style={{ borderRadius: 12, backgroundColor: on ? colors.primarySoft : 'transparent' }}>
                     <Avatar initials={(u.name[0] ?? '?').toUpperCase()} color={colors.blue} size={44} uri={u.avatar} />
-                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{u.name}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }}>{u.name}</Text>
+                      {inBranch(u) ? null : <Text numberOfLines={1} style={{ color: colors.coolText3, fontSize: 12 }}>Not in this group's branch</Text>}
+                    </View>
                     <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                       {on ? <Check size={14} color="#fff" /> : null}
                     </View>
