@@ -148,6 +148,7 @@ function GateController() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="approval/new" options={{ presentation: 'card' }} />
       <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="share" options={{ presentation: 'modal' }} />
       <Stack.Screen name="attendance" />

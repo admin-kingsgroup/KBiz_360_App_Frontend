@@ -20,6 +20,7 @@ export interface ReminderRecord extends Reminder {
   dueAt?: string; // ISO due timestamp (real backend reminders)
   completedAt?: number;
   approvedAt?: number;
+  createdAt?: string | number;
 }
 
 // Person → business (for the per-reminder accent color). Copied from source PEOPLE_BIZ.

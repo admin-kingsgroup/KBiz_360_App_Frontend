@@ -10,7 +10,7 @@ import { TimeWheel } from '../forms/TimeWheel';
 import type { DayTimesTarget } from './DayTimesSheet';
 
 export interface RegularizeSheetProps {
-  target: DayTimesTarget | null; // the day being regularised (null = closed)
+  target: DayTimesTarget | null; 
   dateLabel: string;
   saving: boolean;
   onClose: () => void;

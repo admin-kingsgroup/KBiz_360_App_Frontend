@@ -3,12 +3,6 @@ import { View, Text, Pressable, ScrollView, type NativeSyntheticEvent, type Nati
 import { colors } from '../../theme';
 import { to12h, type Meridiem } from '../../logic/timeWheel';
 
-// Alarm-style scroll-wheel time picker (pure JS — no native picker module, so it works in Expo Go
-// and existing dev builds). Two snap-to-centre wheels (hour 1–12, minute 00–59) whose rows fade
-// away from the centre line, flanked by AM/PM pills aligned with the selected row.
-// Each control reports ONLY its own axis (hour wheel → onHour12, minute wheel → onMinute, pills →
-// onMeridiem) so the parent can compose with functional setState — a composite (hour, minute)
-// callback would let two same-frame commits resubmit each other's stale value.
 const ITEM_H = 42;
 const VISIBLE = 5; // odd: one centre row + two fading rows each side
 const PAD = ((VISIBLE - 1) / 2) * ITEM_H; // inset so the first/last items can reach the centre
