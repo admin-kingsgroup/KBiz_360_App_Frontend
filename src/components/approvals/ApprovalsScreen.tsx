@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { ClipboardCheck, ChevronDown, CheckCircle2, ChevronRight, X, XCircle } from 'lucide-react-native';
+import { ClipboardCheck, ChevronDown, CheckCircle2, ChevronRight, Plus, X, XCircle } from 'lucide-react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 import { useAccessStore } from '../../store/accessStore';
@@ -9,7 +10,6 @@ import { decideRegularization, getPendingRegularizations } from '../../api/hr';
 import type { Approval, ApprovalHierarchyResponse, ApprovalStatus, ApprovalStep, ApprovalStepStatus, ApprovalStepKey } from '../../api/approvals';
 import { getApprovalHierarchy, listApprovals, submitApprovalRequest, updateApprovalDecision } from '../../api/approvals';
 
-type ApprovalTab = 'request' | 'inbox';
 type SelectorKey = 'branch_manager' | 'company_manager' | 'business_owner';
 type SelectorValues = Record<SelectorKey, string>;
 
@@ -163,7 +163,7 @@ function AvatarBadge({ name, size = 34 }: { name: string; size?: number }) {
   );
 }
 
-function RequestForm() {
+export function RequestForm() {
   const users = useAccessStore((state) => state.users);
   const showToast = useUiStore((state) => state.showToast);
   const [title, setTitle] = useState('');
@@ -345,11 +345,10 @@ function Inbox() {
     });
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => {
+    load();
+  }, [load]));
   const filteredRows = rows?.filter((row) => filter === 'all' || row.status === filter) ?? [];
-''
-  console.log(filteredRows , 'data');
-  
 
   const decide = (record: Approval, action: 'approve' | 'reject') => {
     const message = action === 'approve' ? 'Approve this request?' : 'Reject this request?';
@@ -384,24 +383,29 @@ function Inbox() {
 }
 
 export default function ApprovalsScreen() {
-  const [tab, setTab] = useState<ApprovalTab>('request');
   return <SafeAreaView style={styles.screen}>
-    <View style={styles.header}><Text style={styles.headerTitle}>Approvals</Text><Text style={styles.headerSubtitle}>Requests and pending decisions</Text></View>
-    <View style={styles.tabs}><Pressable onPress={() => setTab('request')} style={[styles.tab, tab === 'request' && styles.activeTab]}><Text style={[styles.tabText, tab === 'request' && styles.activeTabText]}>New request</Text></Pressable><Pressable onPress={() => setTab('inbox')} style={[styles.tab, tab === 'inbox' && styles.activeTab]}><Text style={[styles.tabText, tab === 'inbox' && styles.activeTabText]}>My approvals</Text></Pressable></View>
-    {tab === 'request' ? <RequestForm /> : <Inbox />}
+    <View style={styles.header}>
+      <View style={styles.headerCopy}>
+        <Text style={styles.headerTitle}>Approvals</Text>
+        <Text style={styles.headerSubtitle}>Requests and pending decisions</Text>
+      </View>
+      <Pressable onPress={() => router.push('/approval/new')} style={styles.addButton} accessibilityRole="button" accessibilityLabel="Create new approval request">
+        <Plus size={19} color="#fff" strokeWidth={2.6} />
+        <Text style={styles.addButtonText}>New request</Text>
+      </Pressable>
+    </View>
+    <Inbox />
   </SafeAreaView>;
 }
 
 const styles = {
   screen: { flex: 1, backgroundColor: colors.coolBg },
-  header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 14, backgroundColor: colors.card },
+  header: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: 12, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 14, backgroundColor: colors.card },
+  headerCopy: { flex: 1 },
   headerTitle: { color: colors.ink, fontSize: 24, fontWeight: '800' as const },
   headerSubtitle: { color: colors.coolText, fontSize: 12.5, marginTop: 3 },
-  tabs: { flexDirection: 'row' as const, backgroundColor: colors.card, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: colors.coolDivider },
-  tab: { flex: 1, alignItems: 'center' as const, paddingVertical: 13, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  activeTab: { borderBottomColor: colors.primary },
-  tabText: { color: colors.coolText, fontSize: 13, fontWeight: '700' as const },
-  activeTabText: { color: colors.primary },
+  addButton: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, minHeight: 40, paddingHorizontal: 13, borderRadius: 13, backgroundColor: colors.primary },
+  addButtonText: { color: '#fff', fontSize: 12.5, fontWeight: '800' as const },
   content: { padding: 16, paddingBottom: 36, gap: 14 },
   intro: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12, marginBottom: 4 },
   introIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: colors.primarySoft },
