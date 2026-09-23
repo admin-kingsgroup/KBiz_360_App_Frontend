@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { ClipboardCheck, ChevronDown, CheckCircle2, ChevronRight, Plus, X, XCircle } from 'lucide-react-native';
+import { ClipboardCheck, ChevronDown, CheckCircle2, ChevronRight, Plus, Search, X, XCircle } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
@@ -118,11 +118,16 @@ const DEMO_APPROVALS: Approval[] = [
 
 function Selector({ label, value, options, onChange }: { label: string; value: string; options: { id: string; name: string }[]; onChange: (id: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const selected = options.find((option) => option.id === value);
+  const matchingOptions = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return normalized ? options.filter((option) => option.name.toLowerCase().includes(normalized)) : options;
+  }, [options, query]);
   return (
     <View>
       <Text style={styles.label}>{label}</Text>
-      <Pressable onPress={() => setOpen(true)} style={styles.select} accessibilityRole="button" accessibilityLabel={`Select ${label}`}>
+      <Pressable onPress={() => { setQuery(''); setOpen(true); }} style={styles.select} accessibilityRole="button" accessibilityLabel={`Select ${label}`}>
         <Text style={[styles.selectText, !selected && styles.placeholder]} numberOfLines={1}>{selected?.name ?? `Select ${label.toLowerCase()}`}</Text>
         <ChevronDown size={18} color={colors.coolText} />
       </Pressable>
@@ -130,13 +135,17 @@ function Selector({ label, value, options, onChange }: { label: string; value: s
         <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)}>
           <Pressable style={styles.optionSheet} onPress={() => undefined}>
             <Text style={styles.sheetTitle}>{label}</Text>
+            <View style={styles.searchBox}>
+              <Search size={16} color={colors.coolText} />
+              <TextInput value={query} onChangeText={setQuery} placeholder="Search by name" placeholderTextColor={colors.coolText3} autoFocus style={styles.searchInput} />
+            </View>
             <ScrollView style={{ maxHeight: 280 }}>
-              {options.length ? options.map((option) => (
+              {matchingOptions.length ? matchingOptions.map((option) => (
                 <Pressable key={option.id} onPress={() => { onChange(option.id); setOpen(false); }} style={styles.option}>
                   <Text style={styles.optionText}>{option.name}</Text>
                   {option.id === value ? <CheckCircle2 size={18} color={colors.primary} /> : null}
                 </Pressable>
-              )) : <Text style={styles.emptyOption}>No matching users found</Text>}
+              )) : <Text style={styles.emptyOption}>No matching authorized users found</Text>}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -494,6 +503,8 @@ const styles = {
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' as const, padding: 24 },
   optionSheet: { backgroundColor: colors.card, borderRadius: 20, padding: 18 },
   sheetTitle: { color: colors.ink, fontSize: 17, fontWeight: '800' as const, marginBottom: 8 },
+  searchBox: { minHeight: 42, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8, paddingHorizontal: 12, marginBottom: 8, borderRadius: 12, backgroundColor: colors.coolMuted },
+  searchInput: { flex: 1, color: colors.ink, fontSize: 14, paddingVertical: 9 },
   option: { minHeight: 48, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, borderBottomWidth: 1, borderBottomColor: colors.coolDivider },
   optionText: { color: colors.ink, fontSize: 14 },
   emptyOption: { color: colors.coolText, paddingVertical: 18, textAlign: 'center' as const },

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Modal, FlatList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { X, CalendarClock, ChevronDown, Search as SearchIcon, Check } from 'lucide-react-native';
+import { X, CalendarDays, ChevronDown, Search as SearchIcon, Check } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
-import { FormField, SheetSave, DateTimeSheet } from '../../src/components/forms';
+import { DaySheet, FormField, SheetSave } from '../../src/components/forms';
 import { colors } from '../../src/theme';
 import { createReminder, updateReminder } from '../../src/api/reminders';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
@@ -14,15 +14,17 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { scheduleLocal } from '../../src/services/notifications';
 import { rememberReminderLocal, cancelReminderLocal } from '../../src/services/notifications/reminderLocal';
 import { useUiStore } from '../../src/store/uiStore';
-import { WHEN_PRESETS, presetDue, formatWhenLabel, secondsUntil, parseWhen, type WhenPresetKey } from '../../src/logic/reminderWhen';
+import { secondsUntil } from '../../src/logic/reminderWhen';
 import { activeMention, applyMention, rankMentionMatches } from '../../src/logic/mentions';
 
-// Reminder composer (modal). Assignee = searchable directory sheet; due time = presets or a real
-// date+time picker. Every reminder carries a real dueAt so the backend can push "⏰ Reminder due"
-// to the assignee; self-reminders also schedule a local OS notification at that time.
+// Reminder composer (modal). Dates are selected as calendar days only. The API still receives a
+// stable end-of-day dueAt for compatibility with existing reminder and notification flows.
 const PALETTE = [colors.purple, colors.blue, colors.teal, colors.orange, colors.coral, colors.primary];
 const colorFor = (id: string): string => PALETTE[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % PALETTE.length];
 const initialsOf = (name: string): string => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
+const dayKey = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const dateFromDayKey = (day: string): Date => { const [year, month, date] = day.split('-').map(Number); return new Date(year, month - 1, date, 23, 59, 0, 0); };
+const dateLabel = (day: string): string => dateFromDayKey(day).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
 interface Person { id: string; name: string; initials: string; color: string; avatar?: string | null; role?: string }
 
@@ -49,8 +51,7 @@ export default function NewReminder() {
   const [peopleError, setPeopleError] = useState(false);
   const [forIds, setForIds] = useState<string[]>(meId ? [meId] : []);
   const [text, setText] = useState(editing ? (editText ?? '') : '');
-  const [preset, setPreset] = useState<WhenPresetKey | 'custom'>(editing ? 'custom' : 'today_evening');
-  const [customDue, setCustomDue] = useState<Date | null>(editInitialDue);
+  const [selectedDay, setSelectedDay] = useState<string | null>(editInitialDue ? dayKey(editInitialDue) : dayKey(new Date()));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
@@ -82,23 +83,8 @@ export default function NewReminder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meId]);
 
-  // ── "when" read out of the text ──
-  // "call the agent tomorrow 5pm" pre-selects Tomorrow 5:00 PM. It only ever fills a slot the
-  // user hasn't set themselves: touching any preset or the date picker pins the choice and stops
-  // the text from moving it again.
-  const [whenTouched, setWhenTouched] = useState(editing); // editing pins the loaded time — typing must not move it
-  const detectedWhen = useMemo(() => parseWhen(text), [text]);
-  useEffect(() => {
-    if (whenTouched) return;
-    if (detectedWhen) { setCustomDue(detectedWhen.due); setPreset('custom'); }
-    else { setCustomDue(null); setPreset('today_evening'); } // phrase deleted → back to the default
-  }, [detectedWhen, whenTouched]);
-
-  // The reminder's real due time: from the preset, or the custom pick.
-  const dueAt = useMemo(
-    () => (preset === 'custom' ? customDue : presetDue(preset)),
-    [preset, customDue],
-  );
+  // Date-only UI; dueAt remains a compatible end-of-day timestamp internally.
+  const dueAt = useMemo(() => selectedDay ? dateFromDayKey(selectedDay) : null, [selectedDay]);
   const selectedPeople = forIds.map((id) => people.find((p) => p.id === id)).filter((p): p is Person => !!p);
   const firstSelected = selectedPeople[0] ?? myself;
   const firstNames = selectedPeople.map((p) => (p.id === meId ? 'Myself' : p.name.split(' ')[0]));
@@ -135,17 +121,14 @@ export default function NewReminder() {
   const save = async () => {
     if (!text.trim()) { showToast('Add reminder text'); return; }
     if (!editing && !forIds.length) { showToast('Choose at least one person'); return; }
-    // Recompute at press time — the memoized dueAt goes stale while the form sits open, so a
-    // reminder could otherwise be created already-due and fire its local notification instantly.
-    const due = preset === 'custom' ? customDue : presetDue(preset);
-    if (!due) { showToast('Pick a date & time'); return; }
-    if (due.getTime() <= Date.now()) { showToast('That time has passed — pick a new one'); return; }
+    const due = dueAt;
+    if (!due || !selectedDay) { showToast('Pick a due date'); return; }
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     if (editing) {
       try {
-        const label = formatWhenLabel(due);
+        const label = dateLabel(selectedDay);
         await updateReminder(editId!, { text: text.trim(), when: label, dueAt: due.toISOString() });
         // A self-reminder's local notification is pinned to the OLD time — re-arm it at the new one.
         if (editForId && editForId === meId) {
@@ -163,7 +146,7 @@ export default function NewReminder() {
       return;
     }
     try {
-      const label = formatWhenLabel(due);
+      const label = dateLabel(selectedDay);
       const recs = await createReminder({ text: text.trim(), forIds, when: label, dueAt: due.toISOString(), section: 'today' });
       // My own copy also fires locally at the due time (works offline; the server push is the
       // backup). Remember the notification id so completing the reminder can cancel it.
@@ -189,7 +172,7 @@ export default function NewReminder() {
         <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={16} color={colors.coolText} /></Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <FormField label="Reminder" required hint={editing ? 'Editing what and when — use Re-assign on the card to change who.' : 'Type @ to mention someone — it assigns the reminder to them.'}>
+        <FormField label="Reminder" required hint={editing ? 'Edit the reminder or due date — use Re-assign on the card to change who.' : 'Type @ to mention someone — it assigns the reminder to them.'}>
           <TextInput value={text} onChangeText={setText} placeholder="What needs doing? Type @ to assign" placeholderTextColor={colors.coolText3} multiline
             selection={sel}
             onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
@@ -227,42 +210,27 @@ export default function NewReminder() {
         </FormField>
         )}
 
-        {/* Due time — presets plus a real date+time picker */}
-        <FormField label="When" required>
-          <View className="flex-row flex-wrap gap-1.5">
-            {WHEN_PRESETS.map((w) => {
-              const on = preset === w.key;
-              return (
-                <Pressable key={w.key} onPress={() => { setWhenTouched(true); setPreset(w.key); }} style={{ paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted }}>
-                  <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '600' }}>{w.label}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable onPress={() => setPickerOpen(true)} className="flex-row items-center gap-1"
-              style={{ paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: preset === 'custom' ? colors.primary : colors.coolMuted }}>
-              <CalendarClock size={13} color={preset === 'custom' ? '#fff' : colors.coolText} />
-              <Text style={{ color: preset === 'custom' ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '600' }}>
-                {preset === 'custom' && customDue ? formatWhenLabel(customDue) : 'Pick date & time'}
-              </Text>
-            </Pressable>
-          </View>
-          {detectedWhen && !whenTouched ? (
-            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600', marginTop: 6 }}>
-              Picked up “{detectedWhen.match}” from your text{detectedWhen.hasTime ? '' : ' — assuming 9:00 AM'}
-            </Text>
-          ) : null}
-          {dueAt ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Will remind {forIds.length === 1 && forIds[0] === meId ? 'you' : forLabel} · {formatWhenLabel(dueAt)}</Text> : null}
+        <FormField label="Due date" required hint="Choose the day this reminder should be completed.">
+          <Pressable onPress={() => setPickerOpen(true)} className="flex-row items-center gap-2"
+            style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }}>
+            <CalendarDays size={17} color={colors.primary} />
+            <Text style={{ flex: 1, color: selectedDay ? colors.ink : colors.coolText, fontSize: 14, fontWeight: '600' }}>{selectedDay ? dateLabel(selectedDay) : 'Choose date'}</Text>
+            <ChevronDown size={18} color={colors.coolText} />
+          </Pressable>
+          {selectedDay ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Due {dateLabel(selectedDay)}</Text> : null}
         </FormField>
 
         <SheetSave label={saving ? 'Saving…' : editing ? 'Save changes' : 'Set reminder'} disabled={!text.trim() || !dueAt || saving} onPress={save} />
       </ScrollView>
 
-      {/* Custom date & time picker */}
-      <DateTimeSheet
+      <DaySheet
         visible={pickerOpen}
-        initial={customDue}
+        title="Choose due date"
+        initial={selectedDay}
+        minDay={dayKey(new Date())}
+        maxDay={dayKey(new Date(new Date().getFullYear() + 2, 11, 31))}
         onClose={() => setPickerOpen(false)}
-        onConfirm={(d) => { setWhenTouched(true); setCustomDue(d); setPreset('custom'); setPickerOpen(false); }}
+        onConfirm={(day) => { setSelectedDay(day); setPickerOpen(false); }}
       />
 
       {/* Assignee picker — searchable directory list, Myself pinned first */}
