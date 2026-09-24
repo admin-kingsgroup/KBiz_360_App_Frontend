@@ -30,27 +30,40 @@ export const sortReminders = (items: ReminderRecord[], now = new Date()): Remind
 
 export const groupByUser = (items: ReminderRecord[], now = new Date()): UserReminderGroup[] => {
   const groups = new Map<string, UserReminderGroup>();
-  sortReminders(items.filter((r) => isOverdueReminder(r) && r.state !== 'approved'), now).forEach((r) => {
+  sortReminders(items.filter((r) => r.state !== 'approved'), now).forEach((r) => {
     const group = groups.get(r.forId) ?? { userId: r.forId, userName: r.forName || 'Unassigned', tasks: [] };
     group.tasks.push(r); groups.set(r.forId, group);
   });
-  return [...groups.values()].sort((a, b) => timeOf(a.tasks[0]?.dueAt) - timeOf(b.tasks[0]?.dueAt));
+  return [...groups.values()].sort((a, b) =>
+    Number(isOverdueReminder(b.tasks[0])) - Number(isOverdueReminder(a.tasks[0])) ||
+    timeOf(a.tasks[0]?.dueAt) - timeOf(b.tasks[0]?.dueAt));
 };
 
 /** Groups only records/users/branches supplied by authorized endpoints; no client-side scope is invented. */
 export const groupByBranch = (items: ReminderRecord[], users: DirectoryUser[], branches: DirectoryBranch[], now = new Date()): BranchReminderGroup[] => {
   const usersById = new Map(users.map((u) => [u.id, u]));
-  const branchesById = new Map(branches.map((b) => [b.id, b]));
+  // Older directory records can hold a branch code while newer ones store the branch id.
+  // Both values came from the authorized directory endpoint, so either is safe to resolve.
+  const branchesByRef = new Map<string, DirectoryBranch>();
+  branches.forEach((branch) => { branchesByRef.set(branch.id, branch); if (branch.code) branchesByRef.set(branch.code, branch); });
   const groups = new Map<string, BranchReminderGroup>();
-  items.filter((r) => isOverdueReminder(r) && r.state !== 'approved').forEach((r) => {
+  items.filter((r) => r.state !== 'approved').forEach((r) => {
     const user = usersById.get(r.forId);
-    user?.branchIds?.forEach((branchId) => {
-      const branch = branchesById.get(branchId);
-      if (!branch) return;
-      const group = groups.get(branch.id) ?? { branchId: branch.id, branchName: branch.name || 'Unnamed branch', branchCode: branch.code || '', overdueCount: 0, tasks: [] };
-      if (!group.tasks.some((task) => task.id === r.id)) { group.tasks.push(r); group.overdueCount++; }
-      groups.set(branch.id, group);
+    const mappedBranches = (user?.branchIds ?? []).map((branchRef) => branchesByRef.get(branchRef)).filter((branch): branch is DirectoryBranch => !!branch);
+    // Keep every authorized task visible. A missing membership is shown transparently instead of
+    // guessing a branch or silently excluding the task from the branch dashboard.
+    const destinations = mappedBranches.length ? mappedBranches : [null];
+    destinations.forEach((branch) => {
+      const key = branch?.id ?? '__unassigned__';
+      const group = groups.get(key) ?? { branchId: key, branchName: branch?.name || 'No branch assigned', branchCode: branch?.code || '', overdueCount: 0, tasks: [] };
+      if (!group.tasks.some((task) => task.id === r.id)) {
+        group.tasks.push(r);
+        if (isOverdueReminder(r)) group.overdueCount++;
+      }
+      groups.set(key, group);
     });
   });
-  return [...groups.values()].map((g) => ({ ...g, tasks: sortReminders(g.tasks, now) })).sort((a, b) => b.overdueCount - a.overdueCount || a.branchName.localeCompare(b.branchName));
+  return [...groups.values()]
+    .map((g) => ({ ...g, tasks: sortReminders(g.tasks, now) }))
+    .sort((a, b) => Number(isOverdueReminder(b.tasks[0])) - Number(isOverdueReminder(a.tasks[0])) || b.overdueCount - a.overdueCount || a.branchName.localeCompare(b.branchName));
 };
