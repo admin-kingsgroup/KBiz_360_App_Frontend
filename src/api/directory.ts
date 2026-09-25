@@ -16,6 +16,9 @@ export interface DirectoryUser {
   level: number;
   status: string | null;
   branchIds: string[];
+  branches?: string[];
+  branch?: string | null;
+  branchCode?: string | null;
   businessIds?: string[];   // explicit business access grants (kb360_app), set by super-admins
   position?: string | null; // app-set job title (kb360_app), distinct from role
   avatar?: string | null;   // app-set profile picture url (relative or absolute)
@@ -130,7 +133,16 @@ function initialsOf(name: string): string {
 // Map a directory user → the frontend `User` the Team/admin screens render.
 export function toUser(du: DirectoryUser): User {
   const role = mapRole(du.role);
-  const branchCount = du.branchIds?.length ?? 0;
+  const rawBranches = (du.branches && du.branches.length > 0)
+    ? du.branches
+    : (du.branchIds && du.branchIds.length > 0)
+    ? du.branchIds
+    : du.branch
+    ? [du.branch]
+    : du.branchCode
+    ? [du.branchCode]
+    : [];
+  const branchCount = rawBranches.length;
   const scopeLine =
     role === 'SUPER_ADMIN'
       ? 'Everything · all companies & branches'
@@ -147,7 +159,7 @@ export function toUser(du: DirectoryUser): User {
     role,
     email: du.email,
     bizId: null,
-    branches: du.branchIds ?? [],
+    branches: rawBranches,
     businessIds: du.businessIds ?? [],
     accessGroups: [],
     accessAlerts: [],

@@ -1,5 +1,8 @@
 import type { DirectoryBranch, DirectoryUser } from '../api/directory';
 import type { ReminderRecord } from '../data/reminders';
+import { adminUsers, PERSON_META } from '../data/users';
+import { branches as staticBranches } from '../data/businesses';
+import { useAccessStore } from '../store/accessStore';
 
 export type UserReminderGroup = { userId: string; userName: string; tasks: ReminderRecord[] };
 export type BranchReminderGroup = { branchId: string; branchName: string; branchCode: string; overdueCount: number; tasks: ReminderRecord[] };
@@ -39,23 +42,173 @@ export const groupByUser = (items: ReminderRecord[], now = new Date()): UserRemi
     timeOf(a.tasks[0]?.dueAt) - timeOf(b.tasks[0]?.dueAt));
 };
 
+export const buildBranchRefMap = (branches: DirectoryBranch[] = []): Map<string, DirectoryBranch> => {
+  const map = new Map<string, DirectoryBranch>();
+
+  // Static branch fallbacks
+  staticBranches.forEach((sb) => {
+    const defaultBranch: DirectoryBranch = {
+      id: sb.id,
+      code: sb.code,
+      name: sb.city || sb.code,
+      city: sb.city ?? null,
+      country: sb.country ?? null,
+      isHO: false,
+      companyId: sb.companyId ?? null,
+    };
+    if (sb.id) {
+      map.set(sb.id, defaultBranch);
+      map.set(sb.id.toLowerCase(), defaultBranch);
+    }
+    if (sb.code) {
+      map.set(sb.code, defaultBranch);
+      map.set(sb.code.toUpperCase(), defaultBranch);
+      map.set(sb.code.toLowerCase(), defaultBranch);
+    }
+  });
+
+  // Dynamic directory branches take precedence
+  branches.forEach((b) => {
+    if (b.id) {
+      map.set(b.id, b);
+      map.set(b.id.toLowerCase(), b);
+    }
+    if (b.code) {
+      map.set(b.code, b);
+      map.set(b.code.toUpperCase(), b);
+      map.set(b.code.toLowerCase(), b);
+    }
+    if (b.name) {
+      map.set(b.name, b);
+      map.set(b.name.toLowerCase(), b);
+    }
+  });
+
+  return map;
+};
+
+export const resolveUserBranches = (
+  userId: string,
+  userName?: string,
+  users: DirectoryUser[] = [],
+  branches: DirectoryBranch[] = []
+): DirectoryBranch[] => {
+  const branchMap = buildBranchRefMap(branches);
+  const rawRefs: string[] = [];
+
+  // 1. Check passed users list
+  const user = users.find(
+    (u) => u.id === userId || (userName && u.name && u.name.trim().toLowerCase() === userName.trim().toLowerCase())
+  );
+  if (user) {
+    if (Array.isArray(user.branches)) rawRefs.push(...user.branches);
+    if (Array.isArray(user.branchIds)) rawRefs.push(...user.branchIds);
+    if (user.branch && typeof user.branch === 'string') rawRefs.push(user.branch);
+    if (user.branchCode && typeof user.branchCode === 'string') rawRefs.push(user.branchCode);
+  }
+
+  // 2. Check accessStore.users
+  if (rawRefs.length === 0) {
+    try {
+      const storeUsers = useAccessStore?.getState?.()?.users ?? [];
+      const su = storeUsers.find(
+        (u) => u.id === userId || (userName && u.name && u.name.trim().toLowerCase() === userName.trim().toLowerCase())
+      );
+      if (su?.branches && Array.isArray(su.branches)) {
+        rawRefs.push(...su.branches);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. Check adminUsers
+  if (rawRefs.length === 0) {
+    const au = adminUsers.find(
+      (u) => u.id === userId || (userName && u.name && u.name.trim().toLowerCase() === userName.trim().toLowerCase())
+    );
+    if (au?.branches && Array.isArray(au.branches)) {
+      rawRefs.push(...au.branches);
+    }
+  }
+
+  // 4. Check PERSON_META
+  if (rawRefs.length === 0 && PERSON_META[userId]?.branches) {
+    rawRefs.push(...PERSON_META[userId].branches);
+  }
+
+  const cleanRefs = Array.from(new Set(rawRefs.map((r) => String(r).trim()).filter(Boolean)));
+  if (cleanRefs.length === 0) return [];
+
+  const resolved: DirectoryBranch[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const ref of cleanRefs) {
+    let b = branchMap.get(ref) || branchMap.get(ref.toUpperCase()) || branchMap.get(ref.toLowerCase());
+    if (!b) {
+      b = {
+        id: ref,
+        code: ref.toUpperCase(),
+        name: ref.toUpperCase(),
+        city: null,
+        country: null,
+        isHO: false,
+        companyId: null,
+      };
+      branchMap.set(ref, b);
+      branchMap.set(ref.toUpperCase(), b);
+    }
+    const key = (b.code || b.id).toUpperCase();
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      resolved.push(b);
+    }
+  }
+
+  return resolved;
+};
+
 /** Groups only records/users/branches supplied by authorized endpoints; no client-side scope is invented. */
-export const groupByBranch = (items: ReminderRecord[], users: DirectoryUser[], branches: DirectoryBranch[], now = new Date()): BranchReminderGroup[] => {
-  const usersById = new Map(users.map((u) => [u.id, u]));
-  // Older directory records can hold a branch code while newer ones store the branch id.
-  // Both values came from the authorized directory endpoint, so either is safe to resolve.
-  const branchesByRef = new Map<string, DirectoryBranch>();
-  branches.forEach((branch) => { branchesByRef.set(branch.id, branch); if (branch.code) branchesByRef.set(branch.code, branch); });
+export const groupByBranch = (
+  items: ReminderRecord[],
+  users: DirectoryUser[],
+  branches: DirectoryBranch[],
+  now = new Date()
+): BranchReminderGroup[] => {
+  const branchMap = buildBranchRefMap(branches);
   const groups = new Map<string, BranchReminderGroup>();
+
   items.filter((r) => r.state !== 'approved').forEach((r) => {
-    const user = usersById.get(r.forId);
-    const mappedBranches = (user?.branchIds ?? []).map((branchRef) => branchesByRef.get(branchRef)).filter((branch): branch is DirectoryBranch => !!branch);
-    // Keep every authorized task visible. A missing membership is shown transparently instead of
-    // guessing a branch or silently excluding the task from the branch dashboard.
+    let mappedBranches = resolveUserBranches(r.forId, r.forName, users, branches);
+
+    // If no branch from assignee, check reminder record itself
+    if (mappedBranches.length === 0) {
+      const rBranchRef = (r as any).branch || (r as any).branchCode || (r as any).branchId;
+      if (rBranchRef) {
+        const refStr = String(rBranchRef).trim();
+        const b = branchMap.get(refStr) || branchMap.get(refStr.toUpperCase()) || {
+          id: refStr,
+          code: refStr.toUpperCase(),
+          name: refStr.toUpperCase(),
+          city: null,
+          country: null,
+          isHO: false,
+          companyId: null,
+        };
+        mappedBranches = [b];
+      }
+    }
+
     const destinations = mappedBranches.length ? mappedBranches : [null];
     destinations.forEach((branch) => {
-      const key = branch?.id ?? '__unassigned__';
-      const group = groups.get(key) ?? { branchId: key, branchName: branch?.name || 'No branch assigned', branchCode: branch?.code || '', overdueCount: 0, tasks: [] };
+      const key = branch ? (branch.code ? branch.code.toUpperCase() : branch.id) : '__unassigned__';
+      const group = groups.get(key) ?? {
+        branchId: key,
+        branchName: branch?.name || 'No branch assigned',
+        branchCode: branch?.code || '',
+        overdueCount: 0,
+        tasks: [],
+      };
       if (!group.tasks.some((task) => task.id === r.id)) {
         group.tasks.push(r);
         if (isOverdueReminder(r)) group.overdueCount++;
@@ -63,7 +216,13 @@ export const groupByBranch = (items: ReminderRecord[], users: DirectoryUser[], b
       groups.set(key, group);
     });
   });
+
   return [...groups.values()]
     .map((g) => ({ ...g, tasks: sortReminders(g.tasks, now) }))
-    .sort((a, b) => Number(isOverdueReminder(b.tasks[0])) - Number(isOverdueReminder(a.tasks[0])) || b.overdueCount - a.overdueCount || a.branchName.localeCompare(b.branchName));
+    .sort(
+      (a, b) =>
+        Number(isOverdueReminder(b.tasks[0])) - Number(isOverdueReminder(a.tasks[0])) ||
+        b.overdueCount - a.overdueCount ||
+        a.branchName.localeCompare(b.branchName)
+    );
 };

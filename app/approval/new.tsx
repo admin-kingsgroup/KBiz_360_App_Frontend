@@ -17,7 +17,7 @@ export default function NewApprovalRequestScreen() {
           <Text style={styles.subtitle}>Create an approval request for your team</Text>
         </View>
       </View>
-      <RequestForm />
+      <RequestForm onSuccess={() => router.back()} />
     </SafeAreaView>
   );
 }
