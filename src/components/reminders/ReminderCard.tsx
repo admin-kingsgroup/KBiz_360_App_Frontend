@@ -1,0 +1,100 @@
+import { memo } from 'react';
+import { View, Text, Pressable } from 'react-native';
+import { Clock, Check, Pencil, RotateCcw } from 'lucide-react-native';
+import { colors } from '../../theme';
+import type { Business } from '../../types';
+import { type ReminderRecord } from '../../data/reminders';
+import { formatWhenLabel } from '../../logic/reminderWhen';
+
+// Status/affordances depend on for-me/by-me + state. `meId` is the signed-in user's real id.
+// White card on the cool canvas; the left stripe keeps the semantic accent (pink = personal,
+// business color = that business, green = default).
+function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign, onEdit }: {
+  r: ReminderRecord; biz: Business | null; meId: string;
+  onComplete: (id: string) => void; onApprove: (id: string) => void; onReassign: (r: ReminderRecord) => void;
+  /** Creator-only field edit (text/time) — shown while the reminder is still pending. */
+  onEdit?: (r: ReminderRecord) => void;
+}) {
+  const forMe = r.forId === meId;
+  const byMe = r.byId === meId;
+  const isPersonal = forMe && byMe;
+  const isReview = r.state === 'review';
+  const showReviewActions = isReview && byMe;
+  const showWaiting = r.state === 'pending' && byMe && !forMe;
+  const canEdit = !!onEdit && byMe && r.state === 'pending';
+
+  const accent = isPersonal ? '#D6336C' : (biz?.color || colors.primary);
+  // The stored label ("Today · 5:00 PM") freezes at creation and goes wrong as days pass —
+  // re-derive it from the real due time whenever the record carries one. Same for overdue: the
+  // server flag freezes in offline snapshots, so judge it against the clock at render time.
+  const when = r.dueAt ? formatWhenLabel(new Date(r.dueAt)) : r.when;
+  const overdue = r.state === 'pending' && r.dueAt ? new Date(r.dueAt).getTime() < Date.now() : !!r.overdue;
+  const stripe = overdue ? colors.danger : accent;
+
+  return (
+    // Long-pressing the card is the creator's shortcut to edit (same action as the pencil).
+    <Pressable onLongPress={canEdit ? () => onEdit!(r) : undefined}
+      style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 16, padding: 12, overflow: 'hidden' }}>
+      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: stripe }} />
+      <View className="flex-row items-start gap-3">
+        {forMe && r.state === 'pending' ? (
+          <Pressable onPress={() => onComplete(r.id)} accessibilityLabel="Mark complete" hitSlop={8} style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: overdue ? colors.danger : colors.primary, marginTop: 1 }} />
+        ) : showReviewActions ? (
+          // The creator's dot on a completed reminder: tapping approves it → moves to the archive
+          // (same one-tap language as the assignee's complete dot, in the review accent).
+          <Pressable onPress={() => onApprove(r.id)} accessibilityLabel="Approve · move to archive" hitSlop={8} style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.orange, marginTop: 1 }} />
+        ) : isReview ? (
+          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.orange, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>!</Text>
+          </View>
+        ) : showWaiting ? (
+          <Clock size={18} color={colors.coolText3} style={{ marginTop: 2 }} />
+        ) : (
+          <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.coolDivider, marginTop: 1 }} />
+        )}
+
+        <View className="flex-1">
+          <View className="flex-row items-start" style={{ gap: 8 }}>
+            <Text numberOfLines={3} style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '500', lineHeight: 21 }}>{r.text}</Text>
+            {canEdit ? (
+              <Pressable onPress={() => onEdit!(r)} accessibilityLabel="Edit reminder" hitSlop={8}
+                style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
+                <Pencil size={13} color={colors.coolText} />
+              </Pressable>
+            ) : null}
+          </View>
+          <View className="flex-row items-center gap-1.5" style={{ marginTop: 6 }}>
+            {when ? <Text style={{ color: overdue ? colors.danger : colors.coolText, fontSize: 12, fontWeight: overdue ? '700' : '600' }}>{overdue ? `${when} · Overdue` : when}</Text> : null}
+            {when ? <Text style={{ color: colors.coolText3, fontSize: 11 }}>•</Text> : null}
+            <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: forMe ? (r.byColor || colors.ink) : (r.forColor || colors.ink), alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{(forMe ? (r.byInitials || '') : (r.forInitials || '')).charAt(0)}</Text>
+            </View>
+            <Text numberOfLines={1} style={{ color: accent, fontSize: 12, fontWeight: '600' }}>
+              {isPersonal ? 'Personal' : forMe ? `From ${(r.byName || '').split(' ')[0]}` : `To ${(r.forName || '').split(' ')[0]}`}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {isReview ? (
+        <View className="flex-row items-center justify-between gap-2 mt-2.5" style={{ marginLeft: 34, flexWrap: 'wrap' }}>
+          <Text style={{ color: colors.orange, fontSize: 12, fontWeight: '700', flex: 1 }}>
+            ✓ Completed by {(r.forName || '').split(' ')[0]} · Review to {(r.byName || '').split(' ')[0]}
+          </Text>
+          {showReviewActions ? (
+            <View className="flex-row gap-2">
+              <Pressable onPress={() => onApprove(r.id)} className="flex-row items-center gap-1" style={{ backgroundColor: colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 }}>
+                <Check size={13} color="#fff" strokeWidth={3} /><Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Approve</Text>
+              </Pressable>
+              <Pressable onPress={() => onReassign(r)} className="flex-row items-center gap-1" style={{ borderColor: colors.orange, borderWidth: 1.5, backgroundColor: colors.card, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 }}>
+                <RotateCcw size={13} color={colors.orange} strokeWidth={2.5} /><Text style={{ color: colors.orange, fontSize: 12, fontWeight: '700' }}>Re-assign</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+export const ReminderCard = memo(ReminderCardBase);

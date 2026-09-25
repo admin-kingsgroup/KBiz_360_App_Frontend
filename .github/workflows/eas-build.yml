@@ -1,0 +1,45 @@
+# EAS build pipeline — builds installable Android APK + iOS (preview profile) on demand,
+# so releases don't depend on someone running eas-cli by hand.
+#
+# ACTIVATION (two one-time steps — this repo currently has NO GitHub remote):
+#   1. Push this repo to GitHub (e.g. github.com/admin-kingsgroup/kb360-app).
+#   2. Repo → Settings → Secrets and variables → Actions → add EXPO_TOKEN
+#      (create at https://expo.dev/accounts/adminkingsgroup/settings/access-tokens).
+#
+# Then: Actions tab → "EAS Build" → Run workflow (or push a tag like v1.2.0).
+name: EAS Build
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        default: all
+        options: [all, android, ios]
+      profile:
+        description: EAS build profile
+        type: choice
+        default: preview
+        options: [preview, production]
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - run: npm run typecheck && npm run lint && npm test
+      - name: Build on EAS
+        run: >
+          eas build
+          --platform ${{ github.event.inputs.platform || 'all' }}
+          --profile ${{ github.event.inputs.profile || 'preview' }}
+          --non-interactive --no-wait

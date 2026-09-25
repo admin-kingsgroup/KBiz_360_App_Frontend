@@ -1,0 +1,62 @@
+import { Building2, CircleDot, Compass, Crown, Gem, Landmark, MapPin, Shield, type LucideIcon } from 'lucide-react-native';
+
+// Design tokens from the iOS Reminders handoff (light theme only — the app is light).
+// Values are exact per the handoff; don't round them to the app theme.
+
+export const T = {
+  bg: '#F2F2F7',
+  card: '#FFFFFF',
+  ink: '#000000',
+  sub: 'rgba(60,60,67,0.6)',
+  sep: 'rgba(60,60,67,0.15)',
+  fill: 'rgba(118,118,128,0.12)',
+  ring: 'rgba(60,60,67,0.3)',
+  accent: '#2f6fed',
+  overdue: '#e8483f',
+  flag: '#f59e0b',
+  allGray: '#8e8e93',
+  placeholder: 'rgba(120,120,128,0.6)',
+} as const;
+
+export interface BranchPaletteEntry {
+  dot: string;
+  bg: string;
+  fg: string;
+}
+
+// Smart-card surfaces. Each card wears the colour its own icon already uses, so the tint reinforces
+// what the card means instead of decorating it. The blue / red / amber triples are BRANCH_PALETTE
+// entries 0-2 verbatim — the cards and the branch badges should speak one colour language; only the
+// grey needed a new pair.
+export const SMART_TINT: Record<'today' | 'scheduled' | 'all' | 'flagged', BranchPaletteEntry> = {
+  today: { dot: '#2f6fed', bg: 'rgba(47,111,237,0.13)', fg: '#1d4ed8' },
+  scheduled: { dot: '#e8483f', bg: 'rgba(232,72,63,0.13)', fg: '#c2382f' },
+  all: { dot: '#8e8e93', bg: 'rgba(142,142,147,0.13)', fg: '#5b5b60' },
+  flagged: { dot: '#f59e0b', bg: 'rgba(245,158,11,0.16)', fg: '#b45309' },
+};
+
+export interface BranchIdentity extends BranchPaletteEntry {
+  Icon: LucideIcon;
+}
+
+// Branch badge colors — assigned in branch order, cycle of 8 (per handoff).
+export const BRANCH_PALETTE: BranchPaletteEntry[] = [
+  { dot: '#2f6fed', bg: 'rgba(47,111,237,0.13)', fg: '#1d4ed8' },
+  { dot: '#e8483f', bg: 'rgba(232,72,63,0.13)', fg: '#c2382f' },
+  { dot: '#f59e0b', bg: 'rgba(245,158,11,0.16)', fg: '#b45309' },
+  { dot: '#7a5af8', bg: 'rgba(122,90,248,0.13)', fg: '#6d28d9' },
+  { dot: '#0f9d76', bg: 'rgba(15,157,118,0.14)', fg: '#047857' },
+  { dot: '#d946a8', bg: 'rgba(217,70,168,0.13)', fg: '#be185d' },
+  { dot: '#0891b2', bg: 'rgba(8,145,178,0.13)', fg: '#0e7490' },
+  { dot: '#ea7317', bg: 'rgba(234,115,23,0.14)', fg: '#9a3412' },
+];
+
+const BRANCH_ICONS: LucideIcon[] = [Building2, MapPin, Compass, Shield, Landmark, Crown, Gem, CircleDot];
+
+// Branch identity is derived from the code, so it stays the same when directory ordering changes.
+export function branchIdentity(code: string): BranchIdentity {
+  let hash = 0;
+  for (const char of code.toUpperCase()) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  const palette = BRANCH_PALETTE[hash % BRANCH_PALETTE.length];
+  return { ...palette, Icon: BRANCH_ICONS[hash % BRANCH_ICONS.length] };
+}

@@ -1,0 +1,174 @@
+import { apiFetch } from './client';
+import { mediaUrl } from './media';
+import { ROLE_DEFS } from '../constants/roles';
+import type { RoleKey, User } from '../types';
+
+// Read-only CRM directory (served by the Mongo backend). Shapes match the directory endpoints.
+export interface DirectoryUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  phone: string | null;
+  role: string; // CRM role name (super_admin…)
+  roleId?: string | null; // CRM role _id (for editing)
+  level: number;
+  status: string | null;
+  branchIds: string[];
+  branches?: string[];
+  branch?: string | null;
+  branchCode?: string | null;
+  businessIds?: string[];   // explicit business access grants (kb360_app), set by super-admins
+  position?: string | null; // app-set job title (kb360_app), distinct from role
+  avatar?: string | null;   // app-set profile picture url (relative or absolute)
+}
+export interface DirectoryCompany {
+  id: string;
+  name: string;
+  status: string | null;
+}
+export interface DirectoryBranch {
+  id: string;
+  code: string | null;
+  name: string | null;
+  city: string | null;
+  country: string | null;
+  isHO: boolean;
+  companyId: string | null;
+}
+export interface DirectoryRole {
+  id: string;
+  name: string;
+  level: number;
+  permissions: string[];
+}
+
+// Deactivated (app-access-off) users are excluded by default so they don't appear in any picker or
+// list. The admin "Team & Users" screen passes { includeDisabled: true } (super-admin only) to still
+// show and re-enable them.
+export const listUsers = (opts?: { includeDisabled?: boolean }): Promise<DirectoryUser[]> =>
+  apiFetch(`/api/users${opts?.includeDisabled ? '?includeDisabled=1' : ''}`);
+// One user by id — returned even when deactivated (the edit form needs the record to re-enable).
+export const getUser = (id: string): Promise<DirectoryUser> => apiFetch(`/api/users/${encodeURIComponent(id)}`);
+export const listCompanies = (): Promise<DirectoryCompany[]> => apiFetch('/api/companies');
+export const listBranches = (): Promise<DirectoryBranch[]> => apiFetch('/api/branches');
+export const listRoles = (): Promise<DirectoryRole[]> => apiFetch('/api/roles');
+
+// Super-admin: create a business (written to the CRM companies collection, visible in the ERP too).
+export const createCompany = (name: string): Promise<DirectoryCompany> =>
+  apiFetch('/api/companies', { method: 'POST', body: { name } });
+export const createBranch = (body: { companyId: string; name: string; code: string; city?: string; country?: string; isHO?: boolean; userIds?: string[] }): Promise<DirectoryBranch & { membersAdded?: number }> =>
+  apiFetch('/api/branches', { method: 'POST', body });
+
+// Super-admin deletes (tenant-scoped hard deletes, matching the CRM's own behavior). The server
+// refuses to delete a business that still has branches, and refuses self-deletion.
+export const deleteCompany = (id: string): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/companies/${id}`, { method: 'DELETE' });
+export const deleteBranch = (id: string): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/branches/${id}`, { method: 'DELETE' });
+export const deleteUser = (id: string): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/users/${id}`, { method: 'DELETE' });
+
+// Super-admin: provision users (writes to the CRM users collection so they can log in).
+export interface UserInput { email: string; password?: string; firstName?: string; lastName?: string; phone?: string | null; roleId?: string; branchIds?: string[]; businessIds?: string[]; status?: string }
+export const createUser = (body: UserInput): Promise<DirectoryUser> => apiFetch('/api/users', { method: 'POST', body });
+export const updateUser = (id: string, body: Partial<UserInput>): Promise<DirectoryUser> => apiFetch(`/api/users/${id}`, { method: 'PUT', body });
+// Any user editing their own profile (name / phone).
+export const updateMyProfile = (body: { firstName?: string; lastName?: string; phone?: string | null }): Promise<DirectoryUser> =>
+  apiFetch('/api/me/profile', { method: 'PUT', body });
+// Set own profile picture (url from an /api/uploads result; null clears it).
+export const setMyAvatar = (url: string | null): Promise<{ avatar: string | null }> =>
+  apiFetch('/api/me/avatar', { method: 'PUT', body: { url } });
+// Change own password (verifies the current one).
+export const changeMyPassword = (currentPassword: string, newPassword: string): Promise<{ ok: boolean }> =>
+  apiFetch('/api/me/password', { method: 'PUT', body: { currentPassword, newPassword } });
+// Super-admin: set a role's permission list (writes to the CRM roles collection).
+export const setRolePermissions = (roleId: string, permissions: string[]): Promise<DirectoryRole> =>
+  apiFetch(`/api/roles/${roleId}/permissions`, { method: 'PUT', body: { permissions } });
+
+// Super-admin: KBiz360 · BOM membership (profile → "KBiz360 Members"). The GET also ensures the
+// KBiz360 business has its single BOM branch, creating it on first call.
+export interface KbizMembership {
+  company: DirectoryCompany;
+  branch: DirectoryBranch;
+  users: (DirectoryUser & { member: boolean })[];
+}
+export const getKbizMembership = (): Promise<KbizMembership> => apiFetch('/api/kbiz/membership');
+export const setKbizMembership = (userId: string, member: boolean): Promise<{ id: string; member: boolean }> =>
+  apiFetch(`/api/kbiz/membership/${userId}`, { method: 'PUT', body: { member } });
+
+// ── mapping CRM directory → the frontend display shapes ──
+const ROLE_MAP: Record<string, RoleKey> = {
+  super_admin: 'SUPER_ADMIN',
+  company_manager: 'DIRECTOR',
+  branch_manager: 'BRANCH_MANAGER',
+  hod: 'HOD',
+  employee: 'EMPLOYEE',
+};
+const ROLE_KEYS: RoleKey[] = ['SUPER_ADMIN', 'DIRECTOR', 'GENERAL_MANAGER', 'BRANCH_MANAGER', 'HOD', 'EMPLOYEE'];
+// Human-readable label for the ACTUAL CRM role (so we show "Company Manager", not the mapped tier "Director").
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: 'Super Admin',
+  company_manager: 'Company Manager',
+  branch_manager: 'Branch Manager',
+  general_manager: 'General Manager',
+  hod: 'HOD',
+  employee: 'Employee',
+};
+export function humanizeRole(role: string): string {
+  if (ROLE_LABELS[role]) return ROLE_LABELS[role];
+  return role.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function mapRole(role: string): RoleKey {
+  if (ROLE_MAP[role]) return ROLE_MAP[role];
+  const upper = role.toUpperCase();
+  return (ROLE_KEYS as string[]).includes(upper) ? (upper as RoleKey) : 'EMPLOYEE';
+}
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? parts[0]?.[1] ?? '')).toUpperCase() || 'U';
+}
+
+// Map a directory user → the frontend `User` the Team/admin screens render.
+export function toUser(du: DirectoryUser): User {
+  const role = mapRole(du.role);
+  const rawBranches = (du.branches && du.branches.length > 0)
+    ? du.branches
+    : (du.branchIds && du.branchIds.length > 0)
+    ? du.branchIds
+    : du.branch
+    ? [du.branch]
+    : du.branchCode
+    ? [du.branchCode]
+    : [];
+  const branchCount = rawBranches.length;
+  const scopeLine =
+    role === 'SUPER_ADMIN'
+      ? 'Everything · all companies & branches'
+      : role === 'DIRECTOR'
+        ? 'Company-wide'
+        : branchCount
+          ? `${ROLE_DEFS[role].label} · ${branchCount} branch${branchCount > 1 ? 'es' : ''}`
+          : ROLE_DEFS[role].label;
+  return {
+    id: du.id,
+    name: du.name || du.email,
+    initials: initialsOf(du.name || du.email),
+    color: ROLE_DEFS[role].color,
+    role,
+    email: du.email,
+    bizId: null,
+    branches: rawBranches,
+    businessIds: du.businessIds ?? [],
+    accessGroups: [],
+    accessAlerts: [],
+    scopeLine,
+    phone: du.phone ?? null,
+    status: du.status ?? null,
+    position: du.position ?? null,
+    roleName: humanizeRole(du.role), // actual CRM role label, e.g. "Company Manager"
+    roleId: du.roleId ?? null,
+    avatar: du.avatar ? mediaUrl(du.avatar) : null, // resolved to absolute for <Image>
+  };
+}

@@ -1,0 +1,86 @@
+import { getAccessToken } from './tokens';
+
+// Base URL is configurable at app boot (e.g. from expo-constants extra). Default = local dev API.
+let baseUrl = 'http://localhost:4000';
+export const setApiBaseUrl = (url: string): void => { baseUrl = url; };
+export const getApiBaseUrl = (): string => baseUrl;
+
+// Normalized API error (mirrors the backend `{ error: { code, message, details } }` envelope).
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string,
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+// A refresh handler is registered by `api/auth` to avoid a circular import. On a 401 the client
+// calls it once and retries the original request if the refresh succeeds.
+type Refresher = () => Promise<boolean>;
+let refresher: Refresher | null = null;
+export const registerRefreshHandler = (fn: Refresher | null): void => { refresher = fn; };
+
+export interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  body?: unknown;
+  auth?: boolean;
+  headers?: Record<string, string>;
+  _retried?: boolean;
+}
+
+// Hung-request guard. fetch has NO default timeout in RN: a request the server accepts but never
+// answers (flaky mobile network, dying keep-alive socket) used to hang FOREVER — the caller's
+// .then/.catch never ran, so screens waiting on that data (attendance offices/history) stayed
+// half-empty with no error and no retry. 15s is generous for every API this app calls.
+const TIMEOUT_MS = 15_000;
+
+export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, auth = true, headers = {} } = opts;
+  const token = auth ? getAccessToken() : null;
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (res.status === 401 && auth && refresher && !opts._retried) {
+    const ok = await refresher();
+    if (ok) return apiFetch<T>(path, { ...opts, _retried: true });
+  }
+
+  if (res.status === 204) return undefined as T;
+
+  const text = await res.text();
+  // Defensive parse: a proxy (nginx) 502/504 returns an HTML page, not our JSON envelope. Parsing
+  // that raw would throw SyntaxError and masquerade as an app bug (and, on the refresh path, wipe
+  // the session). Fall back to null so the status-based ApiError below is what callers actually see.
+  let json: { error?: { message?: string; code?: string; details?: unknown } } | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!res.ok) {
+    const err = (json && json.error) || {};
+    throw new ApiError(res.status, err.message ?? res.statusText ?? 'Request failed', err.code, err.details);
+  }
+  return json as T;
+}
