@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 
-// This device's personal arrangement of the Groups tab's branch chips, per business — a UI
+// This device's personal arrangement of the Groups list's branch chips, per business — a UI
 // preference like wallpapers, so it lives on the device and never syncs. Same lazy AsyncStorage
 // adapter as the messaging store (the static import crashes jest / non-RN environments).
 const asyncStorage: StateStorage = {

@@ -1,4 +1,4 @@
-// Personal arrangement of the Groups tab's branch chips. The saved order is per business and
+// Personal arrangement of the Groups list's branch chips. The saved order is per business and
 // device-local (a preference, not org data): branches the user arranged come first in their order,
 // and any branch NOT in the saved list (new branch, or one that gained its first group later)
 // keeps its natural directory position after them — it must never vanish just because it was

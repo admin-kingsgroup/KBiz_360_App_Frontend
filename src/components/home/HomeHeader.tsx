@@ -17,7 +17,7 @@ const hhmm = (iso: string): string => {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 };
 
-// Shared brand bar for the Chats and Groups tabs: logo + title, the single "+" create hub, today's
+// Shared brand bar for the Chats and Alerts tabs: logo + title, the single "+" create hub, today's
 // attendance chip, and the View-As banner. Extracted from Home when Groups/Alerts moved
 // to their own bottom tab so both screens keep the identical header.
 export function HomeHeader() {
