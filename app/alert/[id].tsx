@@ -16,6 +16,7 @@ import { apiFetch } from '../../src/api/client';
 import { mediaUrl } from '../../src/api/media';
 import { dateStamp } from '../../src/utils/time';
 import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
+import { ContactActions } from '../../src/components/common';
 
 // Alert detail — port of source PulseChannelScreen. Opening the channel marks ALL its events read
 // (Home's unread badge clears, like a chat thread); the events that were unread on entry keep their
@@ -190,6 +191,8 @@ export default function AlertDetail() {
             <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700', marginTop: 2 }}>{e.title}</Text>
             {e.body ? <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 2 }}>{e.body}</Text> : null}
             {e.context ? <View style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.coolMuted }}><Text style={{ color: colors.coolText, fontSize: 10.5, fontWeight: '600' }}>{e.context}</Text></View> : null}
+            {/* A converted lead's client: tap the number to WhatsApp them, or Call. */}
+            {e.contact?.phone ? <ContactActions phone={e.contact.phone} onUse={() => { if (!e.read) markEventRead(e.id); }} /> : null}
             {e.attachment ? (
               <Pressable
                 onPress={() => { void openAttachment(e); }}
