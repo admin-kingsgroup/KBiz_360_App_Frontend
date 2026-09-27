@@ -40,16 +40,12 @@ interface Block { id: string; label: string; color: string; subs: Sub[]; }
 // nesting, Unread pinned on top, collapsible. `serverFiltered` skips client access filters (the
 // backend already scoped the rows). View-As-aware otherwise.
 export function GroupsList({
-  activeBizId, access, onOpen, onLongPressGroup, onChipRowTouch,
+  activeBizId, access, onOpen, onLongPressGroup,
   businesses = mockBusinesses, branches = mockBranches, serverFiltered = false, groupConversations = [],
 }: {
   activeBizId: string; access: AccessControl | null; onOpen: (g: GroupOpen) => void;
   /** Long-press a group row → the mute/pin/archive sheet. */
   onLongPressGroup?: (conversationId: string) => void;
-  // Fires true while a finger is on the branch-chip row, false on release. The Home pager uses it
-  // to pause its own horizontal paging so the nested chip row can actually scroll (Android: the
-  // outer horizontal ScrollView otherwise intercepts the drag).
-  onChipRowTouch?: (touching: boolean) => void;
   businesses?: Business[]; branches?: Branch[]; serverFiltered?: boolean; groupConversations?: GroupConv[];
 }) {
   const f = makeAccessFilters(access);
@@ -64,7 +60,7 @@ export function GroupsList({
   const chipOrder = useBranchOrderStore((s) => s.order);
   const [arrangeFor, setArrangeFor] = useState<string | null>(null);
 
-  // The Groups tab lists the real group chats the user belongs to, grouped by branch — opened
+  // The Groups list shows the real group chats the user belongs to, grouped by branch — opened
   // directly by conversation id. New groups are created via the "+" New group action.
   const toItem = (c: GroupConv): GItem => ({ id: c.id, convId: c.id, name: c.name, icon: initialsOf(c.name), color: colorForId(c.id), preview: c.preview, unread: c.unread, pinned: c.pinned, bizId: '', branchId: c.branchId ?? '', branchCode: undefined, time: c.time, members: c.members });
   // Pinned groups float to the top of their chip (stable sort keeps the rest in recency order).
@@ -157,10 +153,7 @@ export function GroupsList({
                 when there is more than one branch: a single chip filters nothing, and its code is
                 already on the context line above and in the group names themselves. */}
             {subs.length > 1 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}
-              onTouchStart={() => onChipRowTouch?.(true)}
-              onTouchEnd={() => onChipRowTouch?.(false)}
-              onTouchCancel={() => onChipRowTouch?.(false)}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 2, paddingVertical: 2 }}>
               {subs.map((s) => {
                 const on = s.code === active.code;
                 const unread = s.items.reduce((n, g) => n + ((g.unread || 0) > 0 ? 1 : 0), 0);

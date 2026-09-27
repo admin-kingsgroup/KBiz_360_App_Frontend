@@ -1,4 +1,4 @@
-// Filing of real group chats under the Groups tab's branch chips.
+// Filing of real group chats under the Groups list's branch chips.
 //
 // A group is stored with the `branchId` it was created under, but the chips come from the org
 // directory, which reads the shared `branches` collection at request time. The two can disagree:

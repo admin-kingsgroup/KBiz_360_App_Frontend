@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, Plus, MessageCircle, Mic, Archive, ClipboardCheck } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
-import { HomeHeader } from '../../src/components/home';
+import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -42,17 +42,17 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
   };
 }
 
-// Home — Chats tab: one WhatsApp-style list of direct chats AND groups. The Groups tab still hosts
-// the branch-organised Groups/Alerts panes; here groups simply ride the recency list.
+// Home — Chats tab: one WhatsApp-style list of direct chats AND groups. Groups also have their own
+// chip here — the branch-organised list that used to be the Groups bottom tab (that slot is now
+// Alerts); in All/Unread they simply ride the recency list.
 // The DM list is NOT access-filtered and not affected by View-As — faithful to source (see Phase 5
 // report); groups come from the same store, which the backend already membership-scopes.
 type ChatFilter = 'all' | 'unread' | 'groups';
 
 export default function Home() {
   const router = useRouter();
-  // Filter chips (client-side): All / Unread / Groups — WhatsApp's chip row. Groups shows ONLY the
-  // groups with unread messages ("show me the unread group messages") — the full group list lives
-  // on the Groups tab, so listing every group here again was just noise.
+  // Filter chips (client-side): All / Unread / Groups — WhatsApp's chip row. Unread = every chat
+  // with unread (direct or group); Groups = every group, filed by business → branch (GroupsPane).
   const [filter, setFilter] = useState<ChatFilter>('all');
   const realUser = useAuthStore((s) => s.user);
   const role = useAccessStore((s) => s.user?.role);
@@ -92,11 +92,8 @@ export default function Home() {
   const unreadGroupChats = active.filter((c) => c.type === 'group' && c.unread > 0).length;
   // Pinned chats sit above everything else, in their own recency order — the list is already sorted
   // by activity, so a stable partition is all that is needed.
-  // Unread = unread DIRECT chats only; Groups = groups with unread. The two chips split the unread
-  // backlog by kind, so nothing shows up under both.
-  const filtered = filter === 'groups' ? active.filter((c) => c.type === 'group' && c.unread > 0)
-    : filter === 'unread' ? active.filter((c) => c.type === 'direct' && c.unread > 0)
-    : active;
+  // Groups renders GroupsPane instead of this list, so only All/Unread filter it.
+  const filtered = filter === 'unread' ? active.filter((c) => c.unread > 0) : active;
   const pinnedFirst = [...filtered.filter((c) => c.pinned), ...filtered.filter((c) => !c.pinned)];
   void realUser;
   const visible = pinnedFirst.map((c) => convToItem(c, presence, myUserId, drafts[c.id]));
@@ -117,8 +114,8 @@ export default function Home() {
         </Pressable>
       </View>
 
-      {/* Filter chips — All / Unread / Groups (WhatsApp's chip row; business pills live on the
-          Groups tab). The Groups chip filters to groups WITH unread and carries their count. */}
+      {/* Filter chips — All / Unread / Groups (WhatsApp's chip row). The Groups chip opens the
+          branch-organised group list and carries the number of groups with unread. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
         {([['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']] as const).map(([k, label]) => {
           const on = filter === k;
@@ -148,33 +145,39 @@ export default function Home() {
 
       {/* Chats — flat full-width white rows on the cool canvas (mockup list), flush under the chips */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
-        {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
-        {hasArchived ? (
-          <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: colors.coolMuted }}
-            className="flex-row items-center gap-3 px-4" style={{ minHeight: 56, backgroundColor: colors.card }}>
-            <Archive size={20} color={colors.coolText} />
-            <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Archived</Text>
-            {archivedCount ? <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>{archivedCount}</Text> : null}
-          </Pressable>
-        ) : null}
-        {visible.length === 0 ? (
-          <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
-            <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-              <MessageCircle size={50} color={colors.primary} />
-            </View>
-            <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'groups' ? 'No unread group messages' : 'No conversations'}</Text>
-            <Text style={{ color: colors.coolText, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'groups' ? 'All groups live on the Groups tab.' : 'Your conversations will appear here.'}</Text>
-            <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: colors.primary }}>
-              <Plus size={20} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
-            </Pressable>
-          </View>
+        {filter === 'groups' ? (
+          <GroupsPane onLongPressGroup={(id) => setActionsFor(conversations.find((c) => c.id === id) ?? null)} />
         ) : (
-          visible.map((c, i) => (
-            <ChatListItem key={c.id} chat={c} topDivider={i > 0}
-              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })}
-              onLongPress={() => setActionsFor(conversations.find((x) => x.id === c.id) ?? null)} />
-          ))
+          <>
+          {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
+          {hasArchived ? (
+            <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: colors.coolMuted }}
+              className="flex-row items-center gap-3 px-4" style={{ minHeight: 56, backgroundColor: colors.card }}>
+              <Archive size={20} color={colors.coolText} />
+              <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Archived</Text>
+              {archivedCount ? <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>{archivedCount}</Text> : null}
+            </Pressable>
+          ) : null}
+          {visible.length === 0 ? (
+            <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
+              <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                <MessageCircle size={50} color={colors.primary} />
+              </View>
+              <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : 'No conversations'}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>Your conversations will appear here.</Text>
+              <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: colors.primary }}>
+                <Plus size={20} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
+              </Pressable>
+            </View>
+          ) : (
+            visible.map((c, i) => (
+              <ChatListItem key={c.id} chat={c} topDivider={i > 0}
+                onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })}
+                onLongPress={() => setActionsFor(conversations.find((x) => x.id === c.id) ?? null)} />
+            ))
+          )}
+          </>
         )}
       </ScrollView>
 

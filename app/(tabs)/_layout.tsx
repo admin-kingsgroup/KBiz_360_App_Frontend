@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { View, Text, Image, Pressable, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, Users, Bell, Mail, ClipboardCheck, RefreshCw, type LucideIcon } from 'lucide-react-native';
+import { MessageCircle, BellRing, Bell, Mail, ClipboardCheck, RefreshCw, type LucideIcon } from 'lucide-react-native';
 import { useOtaUpdate } from '../../src/hooks/useOtaUpdate';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -36,15 +36,13 @@ function ProfileTabIcon({ focused }: { focused: boolean }) {
 }
 
 export default function TabsLayout() {
-  // Tab badges count CHATS with unread, not unread messages — the same unit as the segment badges
-  // inside the Groups tab and the app-icon badge (chatNotifications.ts), so all three always agree.
-  // Chats = direct conversations, Groups = group conversations + unread system-alert events (same
-  // visible-channel gate as the Alerts pane). Archived conversations are hidden from the lists, so
-  // they don't count here either.
-  const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'direct' && !c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
-  const groupUnread = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (c.type === 'group' && !c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
-  const alertUnread = usePulseStore((s) => s.events.reduce((n, e) => n + (!e.read && isVisibleAlertChannel(e.channelId) ? 1 : 0), 0));
-  const groupsBadge = groupUnread + alertUnread;
+  // Tab badges count CHATS with unread, not unread messages — the same unit as the Groups chip and
+  // branch-chip badges and the app-icon badge (chatNotifications.ts), so they always agree.
+  // Chats = direct + group conversations (groups live in the Chats tab); Alerts = unread system-alert
+  // events, with the same visible-channel gate as the alert cards. Archived conversations are hidden
+  // from the lists, so they don't count here either.
+  const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (!c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
+  const alertsBadge = usePulseStore((s) => s.events.reduce((n, e) => n + (!e.read && isVisibleAlertChannel(e.channelId) ? 1 : 0), 0));
   const reminderBadge = useReminderBadgeStore((s) => s.count);
   const emailBadge = useEmailStore((s) => s.inboxUnread); // real Graph inbox unread count
   // Reserve room for the system navigation bar (3-button nav) so the icons + labels never sit under
@@ -76,7 +74,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: ({ color, focused }) => <TabPill Icon={MessageCircle} color={color} focused={focused} />, tabBarBadge: chatsBadge > 0 ? (chatsBadge > 9 ? '9+' : chatsBadge) : undefined }} />
-      <Tabs.Screen name="groups" options={{ title: 'Groups', tabBarIcon: ({ color, focused }) => <TabPill Icon={Users} color={color} focused={focused} />, tabBarBadge: groupsBadge > 0 ? (groupsBadge > 9 ? '9+' : groupsBadge) : undefined }} />
+      <Tabs.Screen name="alerts" options={{ title: 'Alerts', tabBarIcon: ({ color, focused }) => <TabPill Icon={BellRing} color={color} focused={focused} />, tabBarBadge: alertsBadge > 0 ? (alertsBadge > 9 ? '9+' : alertsBadge) : undefined }} />
       <Tabs.Screen name="reminders" options={{ title: 'Reminders', tabBarIcon: ({ color, focused }) => <TabPill Icon={Bell} color={color} focused={focused} />, tabBarBadge: reminderBadge > 0 ? (reminderBadge > 9 ? '9+' : reminderBadge) : undefined }} />
       <Tabs.Screen name="approvals" options={{ title: 'Approvals', tabBarIcon: ({ color, focused }) => <TabPill Icon={ClipboardCheck} color={color} focused={focused} /> }} />
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
