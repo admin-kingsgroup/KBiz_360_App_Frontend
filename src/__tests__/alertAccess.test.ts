@@ -16,8 +16,14 @@ describe('system-alert access — branch channels', () => {
     expect(pulseChannels.some((c) => /^tk_(ar|ap|bc|att|acc|si|bkg)_/.test(c.id))).toBe(false);
     // The grant-visible list is what the app SHOWS: CRM Alerts always; the Finance and CRM pairs
     // only while their flags are on.
+    const six = ['BOM', 'AMD', 'NBO', 'DAR', 'FBM', 'MHUB'];
+    const five = ['BOM', 'AMD', 'NBO', 'DAR', 'FBM'];
     expect(pulseChannels.filter((c) => c.branch).map((c) => `${c.branch}-${channelGrantModule(c)}`)).toEqual([
-      'BOM-leads', 'AMD-leads', 'NBO-leads', 'DAR-leads', 'FBM-leads',
+      ...six.map((b) => `${b}-attendance`),
+      ...five.map((b) => `${b}-leads`),
+      ...six.map((b) => `${b}-erp`),
+      ...five.map((b) => `${b}-crm-reports`),
+      ...six.map((b) => `${b}-erp-reports`),
       ...(CRM_ALERTS_ENABLED ? ['BOM-crm', 'AMD-crm'] : []),
       ...(FINANCE_ALERTS_ENABLED ? ['BOM-accounts', 'AMD-accounts'] : []),
     ]);
@@ -67,8 +73,8 @@ describe('system-alert channel groups', () => {
 
   it('no branch cards are left — every family moved to a group chat', () => {
     expect(pulseGroups.map((g) => g.name)).toEqual([
-      'CRM Alerts',
-      ...(CRM_ALERTS_ENABLED ? ['CRM'] : []),
+      'HR', 'CRM', 'ERP', 'CRM Reports', 'ERP Reports',
+      ...(CRM_ALERTS_ENABLED ? ['CRM Payments'] : []),
       ...(FINANCE_ALERTS_ENABLED ? ['Finance'] : []),
     ]);
     if (!FINANCE_ALERTS_ENABLED) expect(groupById('grp_accounts')).toBeUndefined(); // hidden — no card
@@ -117,7 +123,7 @@ describe('system-alert channel groups', () => {
 
 // CRM Alerts: a lead converted into a query, posted into the query's branch. The backend grants
 // "<BR>-leads" to every user of that branch (alertGrants.effectiveFor), so the app just checks it.
-describe('CRM Alerts — lead conversions, branch-wide', () => {
+describe('CRM (lead conversions) — branch-wide', () => {
   const visibleTo = (alerts: string[], branches: string[] = []) => {
     const f = makeAccessFilters(restricted(alerts, branches));
     return pulseChannels.filter((ch) => f.alertOK(ch.branch ?? null, channelGrantModule(ch))).map((ch) => ch.id);
@@ -125,11 +131,11 @@ describe('CRM Alerts — lead conversions, branch-wide', () => {
 
   it('one channel per branch, granted as <BR>-leads, always visible', () => {
     expect(leadAlertChannels.map((c) => [c.id, c.name, `${c.branch}-${channelGrantModule(c)}`])).toEqual([
-      ['tk_lead_bom', 'CRM Alerts - BOM', 'BOM-leads'],
-      ['tk_lead_amd', 'CRM Alerts - AMD', 'AMD-leads'],
-      ['tk_lead_nbo', 'CRM Alerts - NBO', 'NBO-leads'],
-      ['tk_lead_dar', 'CRM Alerts - DAR', 'DAR-leads'],
-      ['tk_lead_fbm', 'CRM Alerts - FBM', 'FBM-leads'],
+      ['tk_lead_bom', 'CRM - BOM', 'BOM-leads'],
+      ['tk_lead_amd', 'CRM - AMD', 'AMD-leads'],
+      ['tk_lead_nbo', 'CRM - NBO', 'NBO-leads'],
+      ['tk_lead_dar', 'CRM - DAR', 'DAR-leads'],
+      ['tk_lead_fbm', 'CRM - FBM', 'FBM-leads'],
     ]);
     for (const c of leadAlertChannels) expect(isVisibleAlertChannel(c.id)).toBe(true);
   });
@@ -140,17 +146,56 @@ describe('CRM Alerts — lead conversions, branch-wide', () => {
   });
 
   it('the grant-only "BOM-crm" (payments) never opens CRM Alerts, and vice versa', () => {
-    expect(visibleTo(['BOM-crm'])).toEqual(CRM_ALERTS_ENABLED ? ['tk_crm_bom'] : []);
+    expect(visibleTo(['BOM-crm'])).toEqual(CRM_ALERTS_ENABLED ? ['tk_crm_bom'] : []); // legacy CRM Payments only
     expect(visibleTo(['BOM-leads'])).not.toContain('tk_crm_bom');
   });
 
-  it('is never a per-user switch in Team & Users — branch membership grants it', () => {
+  it('CRM is never a per-user switch in Team & Users — branch membership grants it', () => {
     expect(grantableAlertChannels.some((c) => c.branchWide || c.id.startsWith('tk_lead_'))).toBe(false);
   });
 
-  it('a push for tk_lead_bom opens the CRM Alerts card with BOM picked', () => {
+  it('a push for tk_lead_bom opens the CRM card with BOM picked', () => {
     expect(groupForChannel('tk_lead_bom')?.id).toBe('grp_leads');
-    expect(groupById('grp_leads')?.name).toBe('CRM Alerts');
-    expect(channelById('tk_lead_fbm')?.name).toBe('CRM Alerts - FBM');
+    expect(groupById('grp_leads')?.name).toBe('CRM');
+    expect(channelById('tk_lead_fbm')?.name).toBe('CRM - FBM');
+  });
+});
+
+// The five groups (owner, 2026-09-27): HR · CRM · ERP · CRM Reports · ERP Reports.
+describe('Alerts groups — HR · CRM · ERP · CRM Reports · ERP Reports', () => {
+  const visibleTo = (alerts: string[]) => {
+    const f = makeAccessFilters(restricted(alerts));
+    return pulseChannels.filter((ch) => f.alertOK(ch.branch ?? null, channelGrantModule(ch))).map((ch) => ch.id);
+  };
+
+  it('each group is one channel per branch; HR / ERP / ERP Reports include the hub', () => {
+    const ids = (g: string) => groupById(g)?.channels.map((c) => c.id);
+    expect(ids('grp_hr')).toEqual(['tk_hr_bom', 'tk_hr_amd', 'tk_hr_nbo', 'tk_hr_dar', 'tk_hr_fbm', 'tk_hr_mhub']);
+    expect(ids('grp_erp')).toEqual(['tk_erp_bom', 'tk_erp_amd', 'tk_erp_nbo', 'tk_erp_dar', 'tk_erp_fbm', 'tk_erp_mhub']);
+    expect(ids('grp_crm_reports')).toEqual(['tk_crmrep_bom', 'tk_crmrep_amd', 'tk_crmrep_nbo', 'tk_crmrep_dar', 'tk_crmrep_fbm']);
+    expect(ids('grp_erp_reports')).toEqual(['tk_erprep_bom', 'tk_erprep_amd', 'tk_erprep_nbo', 'tk_erprep_dar', 'tk_erprep_fbm', 'tk_erprep_mhub']);
+    expect(channelById('tk_erprep_mhub')?.name).toBe('ERP Reports - MHUB');
+  });
+
+  it('a BOM salesperson (branch-wide grants only) sees CRM + CRM Reports, never money or hours', () => {
+    expect(visibleTo(['BOM-leads', 'BOM-crm-reports'])).toEqual(['tk_lead_bom', 'tk_crmrep_bom']);
+  });
+
+  it('HR / ERP / ERP Reports open only with their own switch, per branch', () => {
+    expect(visibleTo(['BOM-attendance'])).toEqual(['tk_hr_bom']);
+    expect(visibleTo(['NBO-erp', 'MHUB-erp-reports'])).toEqual(['tk_erp_nbo', 'tk_erprep_mhub']);
+    expect(visibleTo(['BOM-erp'])).not.toContain('tk_erprep_bom'); // live feed ≠ the daily reports
+  });
+
+  it('Team & Users switches exactly HR / ERP / ERP Reports (18) — the branch-wide groups are not switches', () => {
+    expect(grantableAlertChannels).toHaveLength(18);
+    expect(new Set(grantableAlertChannels.map(channelGrantModule))).toEqual(new Set(['attendance', 'erp', 'erp-reports']));
+  });
+
+  it('push deep links land on the right card', () => {
+    expect(groupForChannel('tk_hr_dar')?.name).toBe('HR');
+    expect(groupForChannel('tk_erp_fbm')?.name).toBe('ERP');
+    expect(groupForChannel('tk_crmrep_amd')?.name).toBe('CRM Reports');
+    expect(groupForChannel('tk_erprep_bom')?.name).toBe('ERP Reports');
   });
 });

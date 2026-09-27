@@ -27,25 +27,45 @@ export const financeAlertChannels: PulseChannel[] = [
   { id: 'tk_fin_amd', bizId: 'tk', module: 'accounts', branch: 'AMD', name: 'Finance - AMD', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books · Ahmedabad branch', members: [] },
 ];
 export const crmAlertChannels: PulseChannel[] = [
-  { id: 'tk_crm_bom', bizId: 'tk', module: 'crm', branch: 'BOM', name: 'CRM - BOM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Mumbai branch', members: [] },
-  { id: 'tk_crm_amd', bizId: 'tk', module: 'crm', branch: 'AMD', name: 'CRM - AMD', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Ahmedabad branch', members: [] },
+  { id: 'tk_crm_bom', bizId: 'tk', module: 'crm', branch: 'BOM', name: 'CRM Payments - BOM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Payments, ERP pushes, refunds · Mumbai branch', members: [] },
+  { id: 'tk_crm_amd', bizId: 'tk', module: 'crm', branch: 'AMD', name: 'CRM Payments - AMD', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Payments, ERP pushes, refunds · Ahmedabad branch', members: [] },
 ];
 
-// "CRM Alerts" — the CRM posts one when a lead is converted into a query, into the QUERY's
-// branch. Branch-wide: the backend hands every user of that branch the "<BR>-leads" grant, so a
-// BOM user sees CRM Alerts - BOM with no super-admin action. Always visible (no flag).
-const leadChannel = (branch: string, city: string): PulseChannel => ({
-  id: `tk_lead_${branch.toLowerCase()}`, bizId: 'tk', module: 'crm', grantModule: 'leads', branchWide: true, branch,
-  name: `CRM Alerts - ${branch}`, icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF',
-  description: `Leads converted to queries · ${city} branch`, members: [],
-});
-export const leadAlertChannels: PulseChannel[] = [
-  leadChannel('BOM', 'Mumbai'),
-  leadChannel('AMD', 'Ahmedabad'),
-  leadChannel('NBO', 'Nairobi'),
-  leadChannel('DAR', 'Dar es Salaam'),
-  leadChannel('FBM', 'Lubumbashi'),
-];
+// The Alerts section's groups (owner, 2026-09-27), in this order:
+//   HR · CRM · ERP · CRM Reports · ERP Reports — one channel per branch in each, ids and grants
+// matching the backend's alertChannels.ts. HR / ERP / ERP Reports are GRANT-ONLY (supers + the
+// people switched on in Team & Users); CRM / CRM Reports are BRANCH-WIDE — the backend hands every
+// user of a branch its "<BR>-leads" / "<BR>-crm-reports" grants, so no admin step is needed.
+// Always visible (no flag). The ERP's Africa codes HNBO/HDAR/HFBM arrive as NBO/DAR/FBM.
+const CITY: Record<string, string> = {
+  BOM: 'Mumbai', AMD: 'Ahmedabad', NBO: 'Nairobi', DAR: 'Dar es Salaam', FBM: 'Lubumbashi', MHUB: 'Mumbai hub',
+};
+const ALL_BRANCHES = ['BOM', 'AMD', 'NBO', 'DAR', 'FBM', 'MHUB'];
+const CRM_BRANCHES = ['BOM', 'AMD', 'NBO', 'DAR', 'FBM'];
+const branchChannels = (
+  prefix: string, grantModule: string, look: Pick<PulseChannel, 'module' | 'icon' | 'color' | 'tint'>,
+  label: string, what: string, codes: string[], branchWide = false,
+): PulseChannel[] => codes.map((branch) => ({
+  id: `${prefix}_${branch.toLowerCase()}`, bizId: 'tk', ...look, grantModule, branch,
+  ...(branchWide ? { branchWide: true } : {}),
+  name: `${label} - ${branch}`, description: `${what} · ${CITY[branch] ?? branch}`, members: [],
+}));
+const HR_LOOK = { module: 'hr' as ModuleKey, icon: '👥', color: '#9A6CF0', tint: '#EBE2FC' };
+const CRM_LOOK = { module: 'crm' as ModuleKey, icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF' };
+const ERP_LOOK = { module: 'accounts' as ModuleKey, icon: '📒', color: '#E8A13A', tint: '#FBEBD2' };
+const CRM_REPORTS_LOOK = { module: 'crm' as ModuleKey, icon: '📊', color: '#2FB36B', tint: '#DCF5E8' };
+const ERP_REPORTS_LOOK = { module: 'accounts' as ModuleKey, icon: '📑', color: '#D6568D', tint: '#FBE6F0' };
+
+// HR — each check-in / check-out line and the 10 PM attendance summary.
+export const hrAlertChannels = branchChannels('tk_hr', 'attendance', HR_LOOK, 'HR', 'Check-in / check-out & day summary', ALL_BRANCHES);
+// CRM — a lead converted into a query, in the QUERY's branch. (Ids keep their "lead" launch name.)
+export const leadAlertChannels = branchChannels('tk_lead', 'leads', CRM_LOOK, 'CRM', 'Leads converted to queries', CRM_BRANCHES, true);
+// ERP — approved-booking invoices, deal summaries and posted money vouchers from KBiz Books.
+export const erpAlertChannels = branchChannels('tk_erp', 'erp', ERP_LOOK, 'ERP', 'Invoices, deals & vouchers from KBiz Books', ALL_BRANCHES);
+// CRM Reports — the daily 11:00 Query Ageing PDF.
+export const crmReportChannels = branchChannels('tk_crmrep', 'crm-reports', CRM_REPORTS_LOOK, 'CRM Reports', 'Daily query ageing', CRM_BRANCHES, true);
+// ERP Reports — the daily 11:00 Receivables / Payables ageing and Bank & Cash PDFs.
+export const erpReportChannels = branchChannels('tk_erprep', 'erp-reports', ERP_REPORTS_LOOK, 'ERP Reports', 'Daily receivables, payables & bank', ALL_BRANCHES);
 
 // The grant family a channel is checked against: alertOK(ch.branch, channelGrantModule(ch)).
 export const channelGrantModule = (ch: PulseChannel): string => ch.grantModule ?? ch.module;
@@ -56,12 +76,11 @@ export const channelGrantModule = (ch: PulseChannel): string => ch.grantModule ?
 //   approved invoices + SO/PO/GP deals                       → "<BR> - Ticketing" (flights)
 //                                                              "<BR> - Holidays" (everything else)
 //   inter-branch deals                                       → "INB <desk> <A>/<B>"
-// What is left here is the legacy Finance/CRM pair (hidden), CRM Alerts and the personal My Alerts channel,
+// What is left here is the legacy Finance/CRM pair (hidden), the five Alerts groups and My Alerts,
 // which still carries a puncher's own "You checked in".
-// Those daily reports are not alerts any more: the ERP posts them into the branch Finance group
-// chats ("HQ - BOM Finance", …), where they can be replied to and forwarded. The backend channels,
-// their event history and their PDFs were deleted with the same release — re-adding cards here
-// would render three permanently empty groups.
+// REVERSED 2026-09-27 (owner): those feeds are alerts again — attendance in HR, the live ERP feed
+// in ERP, the daily finance PDFs in ERP Reports (below) — with fresh ids; the retired ones above
+// stay retired and the group chats no longer receive them.
 
 // Super-admin-composed announcements. Each EVENT carries its own recipient list server-side
 // ('*' = everyone) — non-supers only ever receive events addressed to them. Id matches the
@@ -84,7 +103,7 @@ export const userAlertsChannel: PulseChannel = {
 
 // Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
 // "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
-// (CRM Alerts and the personal My Alerts channel) stays live.
+// (the five Alerts groups and the personal My Alerts channel) stays live.
 // The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
 // true restores that family's cards/grants with zero data loss.
 export const FINANCE_ALERTS_ENABLED = false;
@@ -97,7 +116,11 @@ export const ANNOUNCEMENTS_ENABLED = false;
 // (Backend src/mongo/alerts/alertChannels.ts) and emits their events.
 export const pulseChannels: PulseChannel[] = [
   ...(ANNOUNCEMENTS_ENABLED ? [announcementsChannel] : []),
+  ...hrAlertChannels,
   ...leadAlertChannels,
+  ...erpAlertChannels,
+  ...crmReportChannels,
+  ...erpReportChannels,
   ...(CRM_ALERTS_ENABLED ? crmAlertChannels : []),
   ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
 ];
@@ -118,7 +141,11 @@ export const isVisibleAlertChannel = (channelId: string): boolean => visibleAler
 // Finance push notification or old deep link never crashes the alert detail screen.
 const allChannels: PulseChannel[] = [
   announcementsChannel,
+  ...hrAlertChannels,
   ...leadAlertChannels,
+  ...erpAlertChannels,
+  ...crmReportChannels,
+  ...erpReportChannels,
   ...crmAlertChannels,
   ...financeAlertChannels,
 ];
@@ -140,13 +167,22 @@ const financeGroup: PulseChannelGroup =
   { id: 'grp_accounts', module: 'accounts', name: 'Finance', icon: '📒', color: '#E8A13A', tint: '#FBEBD2', description: 'Live finance alerts from KBiz Books', channels: financeAlertChannels };
 
 const crmGroup: PulseChannelGroup =
-  { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels };
+  { id: 'grp_crm', module: 'crm', name: 'CRM Payments', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Payments, ERP pushes & refunds (legacy)', channels: crmAlertChannels };
 
-const leadGroup: PulseChannelGroup =
-  { id: 'grp_leads', module: 'crm', name: 'CRM Alerts', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Leads converted to queries in your branch', channels: leadAlertChannels };
+const group = (id: string, name: string, look: { module: ModuleKey; icon: string; color: string; tint: string }, description: string, channels: PulseChannel[]): PulseChannelGroup =>
+  ({ id, name, ...look, description, channels });
+
+// The five groups, in the owner's order.
+export const alertGroups: PulseChannelGroup[] = [
+  group('grp_hr', 'HR', HR_LOOK, 'Check-in / check-out & the 10 PM attendance summary', hrAlertChannels),
+  group('grp_leads', 'CRM', CRM_LOOK, 'Leads converted to queries in your branch', leadAlertChannels),
+  group('grp_erp', 'ERP', ERP_LOOK, 'Approved invoices, deals & vouchers from KBiz Books', erpAlertChannels),
+  group('grp_crm_reports', 'CRM Reports', CRM_REPORTS_LOOK, 'Daily 11:00 query ageing PDF', crmReportChannels),
+  group('grp_erp_reports', 'ERP Reports', ERP_REPORTS_LOOK, 'Daily receivables, payables & bank-and-cash PDFs', erpReportChannels),
+];
 
 export const pulseGroups: PulseChannelGroup[] = [
-  leadGroup,
+  ...alertGroups,
   ...(CRM_ALERTS_ENABLED ? [crmGroup] : []),
   ...(FINANCE_ALERTS_ENABLED ? [financeGroup] : []),
 ];
