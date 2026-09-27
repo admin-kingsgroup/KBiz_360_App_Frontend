@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Bell, Paperclip } from 'lucide-react-native';
 import { colors } from '../../theme';
-import { announcementsChannel, userAlertsChannel, pulseGroups, ANNOUNCEMENTS_ENABLED, type PulseEvent } from '../../data/pulse';
+import { announcementsChannel, userAlertsChannel, pulseGroups, channelGrantModule, ANNOUNCEMENTS_ENABLED, type PulseEvent } from '../../data/pulse';
 import { usePulseStore } from '../../store/pulseStore';
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { dateStamp } from '../../utils/time';
@@ -44,7 +44,7 @@ export function SystemAlertsList({ activeBizId, access, onOpen }: { activeBizId:
   // One card per module the user can see any branch of. Branch-scoped channels match their branch
   // grant ("BOM-hr"); a user granted only BOM gets a card that means BOM alone.
   pulseGroups.forEach((g) => {
-    const mine = g.channels.filter((ch) => bizOK(ch.bizId) && (activeBizId === 'all' || ch.bizId === activeBizId) && alertOK(ch.branch ?? null, ch.module));
+    const mine = g.channels.filter((ch) => bizOK(ch.bizId) && (activeBizId === 'all' || ch.bizId === activeBizId) && alertOK(ch.branch ?? null, channelGrantModule(ch)));
     if (mine.length === 0) return;
     const evs = pulseEvents.filter((e) => mine.some((ch) => ch.id === e.channelId));
     // Single granted branch → name it on the card ("BOM · Attendance"); several → chips inside.

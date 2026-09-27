@@ -5,6 +5,12 @@ export interface PulseChannel {
   id: string; bizId: string; module: ModuleKey;
   name: string; icon: string; color: string; tint: string; description: string; members: string[];
   branch?: string; // branch CODE (e.g. 'BOM') for branch-scoped channels — drives access grants `${branch}-${module}`
+  // The grant family when it differs from the display module: CRM Alerts render as 'crm' but are
+  // granted as "BOM-leads", apart from the grant-only "BOM-crm" pair. Read via channelGrantModule.
+  grantModule?: string;
+  // Every user of the branch sees it — the server grants it by branch membership, so it is not a
+  // per-user switch in Team & Users.
+  branchWide?: boolean;
 }
 export interface PulseEvent {
   id: string; channelId: string; source: string; title: string; body: string;
@@ -25,13 +31,32 @@ export const crmAlertChannels: PulseChannel[] = [
   { id: 'tk_crm_amd', bizId: 'tk', module: 'crm', branch: 'AMD', name: 'CRM - AMD', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts · Ahmedabad branch', members: [] },
 ];
 
+// "CRM Alerts" — the CRM posts one when a lead is converted into a query, into the QUERY's
+// branch. Branch-wide: the backend hands every user of that branch the "<BR>-leads" grant, so a
+// BOM user sees CRM Alerts - BOM with no super-admin action. Always visible (no flag).
+const leadChannel = (branch: string, city: string): PulseChannel => ({
+  id: `tk_lead_${branch.toLowerCase()}`, bizId: 'tk', module: 'crm', grantModule: 'leads', branchWide: true, branch,
+  name: `CRM Alerts - ${branch}`, icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF',
+  description: `Leads converted to queries · ${city} branch`, members: [],
+});
+export const leadAlertChannels: PulseChannel[] = [
+  leadChannel('BOM', 'Mumbai'),
+  leadChannel('AMD', 'Ahmedabad'),
+  leadChannel('NBO', 'Nairobi'),
+  leadChannel('DAR', 'Dar es Salaam'),
+  leadChannel('FBM', 'Lubumbashi'),
+];
+
+// The grant family a channel is checked against: alertOK(ch.branch, channelGrantModule(ch)).
+export const channelGrantModule = (ch: PulseChannel): string => ch.grantModule ?? ch.module;
+
 // RETIRED 2026-08-19 — every branch-fed alert family. They all post into branch GROUP CHATS now:
 //   daily finance reports + the day-close attendance summary → "HQ - <BR> Finance"
 //   per-voucher money movements                              → "<BR> - Branch Accounts"
 //   approved invoices + SO/PO/GP deals                       → "<BR> - Ticketing" (flights)
 //                                                              "<BR> - Holidays" (everything else)
 //   inter-branch deals                                       → "INB <desk> <A>/<B>"
-// What is left here is the legacy Finance/CRM pair (hidden) and the personal My Alerts channel,
+// What is left here is the legacy Finance/CRM pair (hidden), CRM Alerts and the personal My Alerts channel,
 // which still carries a puncher's own "You checked in".
 // Those daily reports are not alerts any more: the ERP posts them into the branch Finance group
 // chats ("HQ - BOM Finance", …), where they can be replied to and forwarded. The backend channels,
@@ -59,7 +84,7 @@ export const userAlertsChannel: PulseChannel = {
 
 // Channel families HIDDEN for now per the owner's call ahead of the Play Store rollout:
 // "Finance" (the raw KBiz Books voucher feed), "CRM" and "Announcements". Every other family
-// (nothing but the personal My Alerts channel) stays live.
+// (CRM Alerts and the personal My Alerts channel) stays live.
 // The backend keeps ingesting events for hidden channels untouched, so flipping a flag back to
 // true restores that family's cards/grants with zero data loss.
 export const FINANCE_ALERTS_ENABLED = false;
@@ -72,9 +97,14 @@ export const ANNOUNCEMENTS_ENABLED = false;
 // (Backend src/mongo/alerts/alertChannels.ts) and emits their events.
 export const pulseChannels: PulseChannel[] = [
   ...(ANNOUNCEMENTS_ENABLED ? [announcementsChannel] : []),
+  ...leadAlertChannels,
   ...(CRM_ALERTS_ENABLED ? crmAlertChannels : []),
   ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
 ];
+
+// The channels a super-admin switches per user in Team & Users — branch-wide ones are granted
+// by branch membership instead, so a switch there could only disagree with what the user sees.
+export const grantableAlertChannels: PulseChannel[] = pulseChannels.filter((c) => c.branch && !c.branchWide);
 
 // Can this channel's events reach the user through the alerts UI? The server keeps sending events
 // for hidden-family channels (their grants survive the flags), but the cards render only from the
@@ -88,6 +118,7 @@ export const isVisibleAlertChannel = (channelId: string): boolean => visibleAler
 // Finance push notification or old deep link never crashes the alert detail screen.
 const allChannels: PulseChannel[] = [
   announcementsChannel,
+  ...leadAlertChannels,
   ...crmAlertChannels,
   ...financeAlertChannels,
 ];
@@ -111,7 +142,11 @@ const financeGroup: PulseChannelGroup =
 const crmGroup: PulseChannelGroup =
   { id: 'grp_crm', module: 'crm', name: 'CRM', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Live CRM alerts across branches', channels: crmAlertChannels };
 
+const leadGroup: PulseChannelGroup =
+  { id: 'grp_leads', module: 'crm', name: 'CRM Alerts', icon: '🎯', color: '#4F8BFF', tint: '#E4EDFF', description: 'Leads converted to queries in your branch', channels: leadAlertChannels };
+
 export const pulseGroups: PulseChannelGroup[] = [
+  leadGroup,
   ...(CRM_ALERTS_ENABLED ? [crmGroup] : []),
   ...(FINANCE_ALERTS_ENABLED ? [financeGroup] : []),
 ];

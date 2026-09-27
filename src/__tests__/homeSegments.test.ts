@@ -1,7 +1,7 @@
 import { makeAccessFilters } from '../logic/accessFilters';
 import { deriveAccess } from '../logic/access';
 import { branches } from '../data/businesses';
-import { pulseChannels, CRM_ALERTS_ENABLED } from '../data/pulse';
+import { pulseChannels, channelGrantModule, CRM_ALERTS_ENABLED } from '../data/pulse';
 import { adminUsers } from '../data/users';
 
 const byId = (id: string) => adminUsers.find((u) => u.id === id)!;
@@ -20,13 +20,13 @@ describe('Home segments — access filtering (View-As)', () => {
 
   it('System Alerts: Employee(Nurul, BOM-crm) sees only the CRM - BOM channel (none while CRM alerts are hidden)', () => {
     const f = makeAccessFilters(deriveAccess(byId('a8'))); // Nurul: BOM, BOM-crm — no hr/accounts grant
-    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, ch.module));
+    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, channelGrantModule(ch)));
     expect(visible.map((ch) => ch.id)).toEqual(CRM_ALERTS_ENABLED ? ['tk_crm_bom'] : []);
   });
 
   it('Super sees every registered alert channel', () => {
     const f = makeAccessFilters(deriveAccess(byId('a1')));
-    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, ch.module));
+    const visible = pulseChannels.filter((ch) => f.bizOK(ch.bizId) && f.alertOK(ch.branch ?? null, channelGrantModule(ch)));
     expect(visible.length).toBe(pulseChannels.length);
   });
 });

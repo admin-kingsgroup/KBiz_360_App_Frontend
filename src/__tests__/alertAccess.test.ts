@@ -1,5 +1,5 @@
 import { makeAccessFilters } from '../logic/accessFilters';
-import { financeAlertChannels, crmAlertChannels, pulseChannels, pulseGroups, groupById, groupForChannel, channelById, FINANCE_ALERTS_ENABLED, CRM_ALERTS_ENABLED } from '../data/pulse';
+import { financeAlertChannels, crmAlertChannels, leadAlertChannels, grantableAlertChannels, channelGrantModule, pulseChannels, pulseGroups, groupById, groupForChannel, channelById, isVisibleAlertChannel, FINANCE_ALERTS_ENABLED, CRM_ALERTS_ENABLED } from '../data/pulse';
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
@@ -14,9 +14,10 @@ describe('system-alert access — branch channels', () => {
     // Attendance, Accounts, Sales Invoice and SO/PO/GP. They post into branch group chats now.
     // My Alerts (the puncher's own check-in) is unaffected: it is not in this registry.
     expect(pulseChannels.some((c) => /^tk_(ar|ap|bc|att|acc|si|bkg)_/.test(c.id))).toBe(false);
-    // The grant-visible list is what the app SHOWS: only the "Finance" (accounts) channels are
-    // hidden from pulseChannels while FINANCE_ALERTS_ENABLED is false — every other family stays.
-    expect(pulseChannels.filter((c) => c.branch).map((c) => `${c.branch}-${c.module}`)).toEqual([
+    // The grant-visible list is what the app SHOWS: CRM Alerts always; the Finance and CRM pairs
+    // only while their flags are on.
+    expect(pulseChannels.filter((c) => c.branch).map((c) => `${c.branch}-${channelGrantModule(c)}`)).toEqual([
+      'BOM-leads', 'AMD-leads', 'NBO-leads', 'DAR-leads', 'FBM-leads',
       ...(CRM_ALERTS_ENABLED ? ['BOM-crm', 'AMD-crm'] : []),
       ...(FINANCE_ALERTS_ENABLED ? ['BOM-accounts', 'AMD-accounts'] : []),
     ]);
@@ -24,7 +25,7 @@ describe('system-alert access — branch channels', () => {
 
   it('super admin sees every channel', () => {
     const f = makeAccessFilters(null);
-    for (const ch of pulseChannels) expect(f.alertOK(ch.branch ?? null, ch.module)).toBe(true);
+    for (const ch of pulseChannels) expect(f.alertOK(ch.branch ?? null, channelGrantModule(ch))).toBe(true);
   });
 
   it('a BOM-accounts grant shows only the BOM Finance channel', () => {
@@ -66,6 +67,7 @@ describe('system-alert channel groups', () => {
 
   it('no branch cards are left — every family moved to a group chat', () => {
     expect(pulseGroups.map((g) => g.name)).toEqual([
+      'CRM Alerts',
       ...(CRM_ALERTS_ENABLED ? ['CRM'] : []),
       ...(FINANCE_ALERTS_ENABLED ? ['Finance'] : []),
     ]);
@@ -108,7 +110,47 @@ describe('system-alert channel groups', () => {
   it('a super admin sees every branch of every group', () => {
     const f = makeAccessFilters(null);
     for (const g of pulseGroups) {
-      expect(g.channels.filter((ch) => f.alertOK(ch.branch ?? null, ch.module))).toHaveLength(g.channels.length);
+      expect(g.channels.filter((ch) => f.alertOK(ch.branch ?? null, channelGrantModule(ch)))).toHaveLength(g.channels.length);
     }
+  });
+});
+
+// CRM Alerts: a lead converted into a query, posted into the query's branch. The backend grants
+// "<BR>-leads" to every user of that branch (alertGrants.effectiveFor), so the app just checks it.
+describe('CRM Alerts — lead conversions, branch-wide', () => {
+  const visibleTo = (alerts: string[], branches: string[] = []) => {
+    const f = makeAccessFilters(restricted(alerts, branches));
+    return pulseChannels.filter((ch) => f.alertOK(ch.branch ?? null, channelGrantModule(ch))).map((ch) => ch.id);
+  };
+
+  it('one channel per branch, granted as <BR>-leads, always visible', () => {
+    expect(leadAlertChannels.map((c) => [c.id, c.name, `${c.branch}-${channelGrantModule(c)}`])).toEqual([
+      ['tk_lead_bom', 'CRM Alerts - BOM', 'BOM-leads'],
+      ['tk_lead_amd', 'CRM Alerts - AMD', 'AMD-leads'],
+      ['tk_lead_nbo', 'CRM Alerts - NBO', 'NBO-leads'],
+      ['tk_lead_dar', 'CRM Alerts - DAR', 'DAR-leads'],
+      ['tk_lead_fbm', 'CRM Alerts - FBM', 'FBM-leads'],
+    ]);
+    for (const c of leadAlertChannels) expect(isVisibleAlertChannel(c.id)).toBe(true);
+  });
+
+  it('a BOM user sees CRM Alerts - BOM and no other branch', () => {
+    expect(visibleTo(['BOM-leads'], ['bom-branch-id'])).toEqual(['tk_lead_bom']);
+    expect(visibleTo(['BOM-leads', 'NBO-leads'])).toEqual(['tk_lead_bom', 'tk_lead_nbo']);
+  });
+
+  it('the grant-only "BOM-crm" (payments) never opens CRM Alerts, and vice versa', () => {
+    expect(visibleTo(['BOM-crm'])).toEqual(CRM_ALERTS_ENABLED ? ['tk_crm_bom'] : []);
+    expect(visibleTo(['BOM-leads'])).not.toContain('tk_crm_bom');
+  });
+
+  it('is never a per-user switch in Team & Users — branch membership grants it', () => {
+    expect(grantableAlertChannels.some((c) => c.branchWide || c.id.startsWith('tk_lead_'))).toBe(false);
+  });
+
+  it('a push for tk_lead_bom opens the CRM Alerts card with BOM picked', () => {
+    expect(groupForChannel('tk_lead_bom')?.id).toBe('grp_leads');
+    expect(groupById('grp_leads')?.name).toBe('CRM Alerts');
+    expect(channelById('tk_lead_fbm')?.name).toBe('CRM Alerts - FBM');
   });
 });

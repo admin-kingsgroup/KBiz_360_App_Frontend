@@ -5,7 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { ChevronLeft, MoreVertical, FileText } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
-import { channelById, groupById, groupForChannel, type PulseChannel } from '../../src/data/pulse';
+import { channelById, channelGrantModule, groupById, groupForChannel, type PulseChannel } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
 import { reminderPeople } from '../../src/data/reminders';
 import { usePulseStore } from '../../src/store/pulseStore';
@@ -38,7 +38,7 @@ export default function AlertDetail() {
   // The branches of this group the viewer may actually see. Grants stay per branch, so grouping
   // never widens access — a BOM-only user's Attendance group is the BOM channel alone.
   const memberChannels: PulseChannel[] = group
-    ? group.channels.filter((ch) => bizOK(ch.bizId) && alertOK(ch.branch ?? null, ch.module))
+    ? group.channels.filter((ch) => bizOK(ch.bizId) && alertOK(ch.branch ?? null, channelGrantModule(ch)))
     : (channel ? [channel] : []);
 
   const [branchPick, setBranchPick] = useState<string>(group && rid !== group.id ? rid : 'all');
