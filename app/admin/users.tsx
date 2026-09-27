@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { User as UserIcon, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X, Trash2 } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { colors } from '../../src/theme';
-import { pulseChannels } from '../../src/data/pulse';
+import { channelGrantModule, grantableAlertChannels } from '../../src/data/pulse';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { listUsers, toUser, deleteUser } from '../../src/api/directory';
@@ -38,10 +38,10 @@ export default function Users() {
   const [alertGrants, setAlertGrants] = useState<Record<string, string[]>>({}); // userId → grants like "BOM-accounts"
 
   // The grantable channels — every branch-scoped channel in the registry ("BOM-hr",
-  // "BOM-accounts", "BOM-crm", …). Announcements are recipient-addressed, not granted.
-  const channelOptions = pulseChannels
-    .filter((c) => c.branch)
-    .map((c) => ({ grant: `${c.branch}-${c.module}`, name: c.name, icon: c.icon }));
+  // "BOM-accounts", "BOM-crm", …). Announcements are recipient-addressed, not granted, and
+  // CRM Alerts come with branch membership.
+  const channelOptions = grantableAlertChannels
+    .map((c) => ({ grant: `${c.branch}-${channelGrantModule(c)}`, name: c.name, icon: c.icon }));
 
   // Hydrate the full user list (incl. deactivated) from the CRM directory into LOCAL state only.
   // Re-pulled after every mutation on this screen AND every time the screen regains focus, so a
