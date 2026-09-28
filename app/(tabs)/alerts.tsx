@@ -18,7 +18,7 @@ export default function Alerts() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
-      <HomeHeader />
+      <HomeHeader title="Alerts" />
       <ScrollView style={{ flex: 1 }}>
         {/* Alert creation moved to the "+" create hub — no inline create button here. */}
         <SystemAlertsList activeBizId="tk" access={access} onOpen={(id) => router.push({ pathname: '/alert/[id]', params: { id } })} />

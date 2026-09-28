@@ -1,23 +1,32 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, Plus, MessageCircle, Mic, Archive, ClipboardCheck } from 'lucide-react-native';
+import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
-import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
-import { getPendingRegularizations } from '../../src/api/hr';
+import { useDirectoryStore } from '../../src/store/directoryStore';
 import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
 import { relTime } from '../../src/utils/time';
 import type { PresenceInfo } from '../../src/store/messagingStore';
 
-// Map a real conversation → the row shape ChatListItem renders.
-function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>, myUserId: string | null, draft?: string) {
+// Media types whose preview gets the small image glyph in the approved row.
+const PICTORIAL = new Set(['image', 'video']);
+
+// Map a real conversation → the row shape ChatListItem renders. `codes` resolves the conversation's
+// branch/business id to the short code the tile shows (chatTile.ts picks which one wins).
+function convToItem(
+  c: ChatConversation,
+  presence: Record<string, PresenceInfo>,
+  myUserId: string | null,
+  codes: { branch: Map<string, string>; company: Map<string, string> },
+  draft?: string,
+) {
   const last = c.lastMessage;
   // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
   // no live entry has arrived at all.
@@ -39,6 +48,9 @@ function convToItem(c: ChatConversation, presence: Record<string, PresenceInfo>,
     muted: !!c.muted,
     pinned: !!c.pinned,
     draft: draft ? oneLine(draft) : null,
+    branchCode: (c.branchId && codes.branch.get(c.branchId)) || null,
+    companyCode: (c.companyId && codes.company.get(c.companyId)) || null,
+    isImage: !!last && PICTORIAL.has(last.type),
   };
 }
 
@@ -51,13 +63,10 @@ type ChatFilter = 'all' | 'unread' | 'groups';
 
 export default function Home() {
   const router = useRouter();
-  // Filter chips (client-side): All / Unread / Groups — WhatsApp's chip row. Unread = every chat
-  // with unread (direct or group); Groups = every group, filed by business → branch (GroupsPane).
+  // Filter chips (client-side): All / Unread / Groups — the approved chip row. Unread = every chat
+  // with unread (direct or group); Groups = every group, filed by business -> branch (GroupsPane).
   const [filter, setFilter] = useState<ChatFilter>('all');
   const realUser = useAuthStore((s) => s.user);
-  const role = useAccessStore((s) => s.user?.role);
-  const isSuper = role === 'SUPER_ADMIN';
-  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   // Real conversations from the messaging store. Refetch every time Home gains focus so the list is
   // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
@@ -65,11 +74,16 @@ export default function Home() {
   const presence = useMessagingStore((s) => s.presence);
   const myUserId = useMessagingStore((s) => s.myUserId);
   const drafts = useMessagingStore((s) => s.drafts);
-  useFocusEffect(useCallback(() => {
-    if (!isSuper) return;
-    getPendingRegularizations().then((rows) => setPendingApprovals(rows.length)).catch(() => undefined);
-  }, [isSuper]));
-  // Long-pressed row → the mute/pin/archive sheet.
+  // Branch/business short codes for the row tiles. The directory is already loaded by GroupsPane
+  // and cached in the store; until it lands, tiles simply fall back to initials.
+  const dirBranches = useDirectoryStore((s) => s.branches);
+  const dirBusinesses = useDirectoryStore((s) => s.businesses);
+  const codes = useMemo(() => ({
+    branch: new Map(dirBranches.filter((b) => b.code).map((b) => [b.id, b.code])),
+    company: new Map(dirBusinesses.filter((b) => b.code).map((b) => [b.id, b.code])),
+  }), [dirBranches, dirBusinesses]);
+  useFocusEffect(useCallback(() => { void useDirectoryStore.getState().load(); }, []));
+  // Long-pressed row -> the mute/pin/archive sheet.
   const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
   useFocusEffect(useCallback(() => {
     void useMessagingStore.getState().loadConversations().then(() => {
@@ -88,7 +102,8 @@ export default function Home() {
   const active = conversations.filter((c) => !c.archived && (c.type === 'group' || !!c.lastMessage));
   const archivedCount = conversations.filter((c) => c.archived && c.unread > 0).length;
   const hasArchived = conversations.some((c) => c.archived);
-  // Chip badge — number of GROUPS with unread (chats, not messages: the badge unit everywhere).
+  // Chip badges — number of CHATS with unread, not messages: the badge unit everywhere.
+  const unreadChats = active.filter((c) => c.unread > 0).length;
   const unreadGroupChats = active.filter((c) => c.type === 'group' && c.unread > 0).length;
   // Pinned chats sit above everything else, in their own recency order — the list is already sorted
   // by activity, so a stable partition is all that is needed.
@@ -96,55 +111,48 @@ export default function Home() {
   const filtered = filter === 'unread' ? active.filter((c) => c.unread > 0) : active;
   const pinnedFirst = [...filtered.filter((c) => c.pinned), ...filtered.filter((c) => !c.pinned)];
   void realUser;
-  const visible = pinnedFirst.map((c) => convToItem(c, presence, myUserId, drafts[c.id]));
+  const visible = pinnedFirst.map((c) => convToItem(c, presence, myUserId, codes, drafts[c.id]));
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
-      <HomeHeader />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top']}>
+      <HomeHeader title="Chats" />
 
-      {/* Search bar — grey pill (mockup), whole bar opens the search screen (people + chat messages). */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
-        <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ height: 50, borderRadius: 999, backgroundColor: colors.coolMuted, paddingHorizontal: 16, gap: 12 }}>
-          <Search size={20} color={colors.coolText3} strokeWidth={2.2} />
-          <Text style={{ color: colors.coolText3, fontSize: 15, flex: 1 }}>Search chats...</Text>
-          {/* Mic goes straight to voice search — the search screen starts listening on arrival */}
-          <Pressable onPress={() => router.push({ pathname: '/chat/search', params: { voice: '1' } })} hitSlop={10}>
-            <Mic size={19} color={colors.coolText} strokeWidth={2.2} />
-          </Pressable>
+      {/* Search — a grey field that opens the search screen, with voice as its own button beside it
+          (the approved header row), so the mic is a full 44px target rather than an inset glyph. */}
+      <View className="flex-row" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 10 }}>
+        <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: colors.coolMuted, paddingHorizontal: 14, gap: 10 }}>
+          <Search size={18} color={colors.coolText} strokeWidth={2} />
+          <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 15, flex: 1 }}>Search chats, people, tickets</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push({ pathname: '/chat/search', params: { voice: '1' } })}
+          accessibilityRole="button" accessibilityLabel="Voice search"
+          style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}>
+          <Mic size={18} color={colors.coolText} strokeWidth={2} />
         </Pressable>
       </View>
 
-      {/* Filter chips — All / Unread / Groups (WhatsApp's chip row). The Groups chip opens the
-          branch-organised group list and carries the number of groups with unread. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}>
-        {([['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']] as const).map(([k, label]) => {
+      {/* Filter chips — All / Unread / Groups. Selected is a solid green pill; the rest are outlined,
+          so the row reads as one control instead of three grey blocks. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12, gap: 8 }}>
+        {([['all', 'All', 0], ['unread', 'Unread', unreadChats], ['groups', 'Groups', unreadGroupChats]] as const).map(([k, label, count]) => {
           const on = filter === k;
           return (
-            <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center" style={[chip, { gap: 6, backgroundColor: on ? colors.primary : colors.coolMuted }]}>
-              <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{label}</Text>
-              {k === 'groups' && unreadGroupChats > 0 ? (
+            <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center"
+              accessibilityRole="button" accessibilityState={{ selected: on }}
+              style={[chip, on ? chipOn : chipOff]}>
+              <Text style={{ color: on ? '#fff' : colors.textBody, fontSize: 13, fontWeight: on ? '700' : '600' }}>{label}</Text>
+              {count > 0 ? (
                 <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? '#fff' : colors.primary }}>
-                  <Text style={{ color: on ? colors.primary : '#fff', fontSize: 10.5, fontWeight: '700' }}>{unreadGroupChats}</Text>
+                  <Text style={{ color: on ? colors.primary : '#fff', fontSize: 11, fontWeight: '700' }}>{count > 99 ? '99+' : count}</Text>
                 </View>
               ) : null}
             </Pressable>
           );
         })}
-        {isSuper ? (
-          <Pressable onPress={() => router.push('/admin/regularizations')} className="flex-row items-center" style={[chip, { gap: 6, backgroundColor: colors.coolMuted }]} accessibilityRole="button" accessibilityLabel="Pending leave approval">
-            <ClipboardCheck size={15} color={colors.coolText} />
-            <Text style={{ color: colors.coolText, fontSize: 13, fontWeight: '600' }}>Pending leave approval</Text>
-            {pendingApprovals > 0 ? (
-              <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}>
-                <Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '700' }}>{pendingApprovals > 9 ? '9+' : pendingApprovals}</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        ) : null}
       </ScrollView>
 
-      {/* Chats — flat full-width white rows on the cool canvas (mockup list), flush under the chips */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
+      {/* Chats — flat full-width rows under a hairline, per the approved list */}
+      <ScrollView style={{ flex: 1, borderTopWidth: 1, borderTopColor: colors.coolMuted }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
         {filter === 'groups' ? (
           <GroupsPane onLongPressGroup={(id) => setActionsFor(conversations.find((c) => c.id === id) ?? null)} />
         ) : (
@@ -152,7 +160,7 @@ export default function Home() {
           {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
           {hasArchived ? (
             <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: colors.coolMuted }}
-              className="flex-row items-center gap-3 px-4" style={{ minHeight: 56, backgroundColor: colors.card }}>
+              className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: colors.card }}>
               <Archive size={20} color={colors.coolText} />
               <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Archived</Text>
               {archivedCount ? <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>{archivedCount}</Text> : null}
@@ -188,5 +196,7 @@ export default function Home() {
   );
 }
 
-// 34px filter chip (mockup dimensions).
-const chip = { height: 34, paddingHorizontal: 16, borderRadius: 999, alignItems: 'center' as const, justifyContent: 'center' as const };
+// 34px filter chip (approved dimensions): selected = solid green, the rest outlined.
+const chip = { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 };
+const chipOn = { backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary };
+const chipOff = { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.borderStrong };

@@ -1,8 +1,7 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Eye, Plus, UserCheck, UserX } from 'lucide-react-native';
-import { KBLogo } from '../ui';
+import { Eye, SquarePen, UserCheck, UserX } from 'lucide-react-native';
 import { CreateMenu } from './CreateMenu';
 import { colors } from '../../theme';
 import { useAccessStore } from '../../store/accessStore';
@@ -17,10 +16,14 @@ const hhmm = (iso: string): string => {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 };
 
-// Shared brand bar for the Chats and Alerts tabs: logo + title, the single "+" create hub, today's
-// attendance chip, and the View-As banner. Extracted from Home when Groups/Alerts moved
-// to their own bottom tab so both screens keep the identical header.
-export function HomeHeader() {
+// Shared brand bar for the Chats and Alerts tabs, per the approved design canvas (2026-09-28):
+// a small brand eyebrow over a large screen title, then the compose button.
+// The title is a prop because the two tabs share every other part of this bar.
+//
+// Layout note: today's attendance rides the eyebrow line rather than the main row. It is a STATUS
+// ("In 09:12" / "Absent"), not a peer action, so that is where it belongs; it stays tappable into
+// the Attendance screen with hitSlop making up the touch target.
+export function HomeHeader({ title }: { title: string }) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false); // Super-Admin "+" create hub
   // Today's attendance for the header Present/Absent chip. Refetched every time the screen gains
@@ -40,37 +43,43 @@ export function HomeHeader() {
   const isSuper = !!access?.isSuper;
   // Delegated group creators (allow-listed emails) get the "+" hub too, but limited to New group.
   const mayCreateGroup = canCreateGroups(useAccessStore((s) => s.effUser()), access);
+  // One compose button, as drawn. For anyone who may create groups it opens the create hub
+  // (group / user / business / branch); for everyone else it starts a new chat — previously they
+  // had no create affordance here at all.
+  const mayCreate = isSuper || mayCreateGroup;
 
   return (
     <>
-      {/* Brand bar — white, sans-serif title, transparent icon buttons (mockup header) */}
-      <View className="flex-row items-center justify-between" style={{ backgroundColor: colors.card, paddingHorizontal: 16, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      <View style={{ backgroundColor: colors.card, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
         <View className="flex-row items-center" style={{ gap: 12 }}>
-          <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-            <KBLogo size={24} />
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <View className="flex-row items-center" style={{ gap: 8 }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.primary, fontSize: 12, fontWeight: '600', letterSpacing: 0.7, textTransform: 'uppercase' }}>KBiz 360 · Smart Connect</Text>
+              {/* Today's attendance at a glance — tap to open Attendance. Hidden for exempt users
+                  (attendance not tracked) and until the first fetch resolves. */}
+              {attToday && !attToday.exempt ? (
+                <Pressable onPress={() => router.navigate('/attendance')} hitSlop={12} className="flex-row items-center"
+                  accessibilityRole="button" accessibilityLabel="Today's attendance"
+                  style={{ height: 22, paddingHorizontal: 8, gap: 4, borderRadius: 999, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
+                  {attToday.present ? <UserCheck size={12} color={colors.primary} /> : <UserX size={12} color={colors.danger} />}
+                  <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 11, fontWeight: '700' }}>
+                    {attToday.inTime
+                      ? (attToday.outTime ? `${hhmm(attToday.inTime)} – ${hhmm(attToday.outTime)}` : `In ${hhmm(attToday.inTime)}`)
+                      : 'Absent'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.6 }}>{title}</Text>
           </View>
-          <View>
-            <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3, lineHeight: 24 }}>KBiz 360</Text>
-            <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 1 }}>Smart Connect</Text>
-          </View>
-        </View>
-        <View className="flex-row items-center" style={{ gap: 6 }}>
-          {/* Single "+" create hub — group / user / business / branch. Super-Admin only;
-              every individual "New …" button was removed in favour of this menu. */}
-          {(isSuper || mayCreateGroup) ? <Pressable onPress={() => setCreateOpen(true)} style={ibtn}><Plus size={24} color={colors.ink} strokeWidth={2.4} /></Pressable> : null}
-          {/* Today's attendance at a glance — green Present / red Absent; tap to open Attendance.
-              Hidden for exempt users (attendance not tracked) and until the first fetch resolves. */}
-          {attToday && !attToday.exempt ? (
-            <Pressable onPress={() => router.navigate('/attendance')} className="flex-row items-center" style={{ height: 36, paddingHorizontal: 12, gap: 6, borderRadius: 999, marginLeft: 2, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
-              {attToday.present ? <UserCheck size={16} color={colors.primary} /> : <UserX size={16} color={colors.danger} />}
-              {/* Show today's check-in → check-out times when present; "Absent" until the first punch. */}
-              <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 13, fontWeight: '700' }}>
-                {attToday.inTime
-                  ? (attToday.outTime ? `${hhmm(attToday.inTime)} – ${hhmm(attToday.outTime)}` : `In ${hhmm(attToday.inTime)}`)
-                  : 'Absent'}
-              </Text>
-            </Pressable>
-          ) : null}
+          {/* Compose only. There is no profile avatar here: Profile is a bottom tab, and the same
+              destination twice on one screen is a wasted 44px, not a convenience. */}
+          <Pressable
+            onPress={() => (mayCreate ? setCreateOpen(true) : router.push('/chat/search'))}
+            accessibilityRole="button" accessibilityLabel={mayCreate ? 'Create' : 'New chat'}
+            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+            <SquarePen size={20} color={colors.primary} strokeWidth={2} />
+          </Pressable>
         </View>
       </View>
 
@@ -87,10 +96,7 @@ export function HomeHeader() {
         </View>
       ) : null}
 
-      {(isSuper || mayCreateGroup) ? <CreateMenu groupOnly={!isSuper} visible={createOpen} onClose={() => setCreateOpen(false)} /> : null}
+      {mayCreate ? <CreateMenu groupOnly={!isSuper} visible={createOpen} onClose={() => setCreateOpen(false)} /> : null}
     </>
   );
 }
-
-// Transparent 40px header icon button (mockup dimensions).
-const ibtn = { width: 40, height: 40, borderRadius: 20, alignItems: 'center' as const, justifyContent: 'center' as const };
