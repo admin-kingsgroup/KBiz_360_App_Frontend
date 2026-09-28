@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { ChevronLeft, MoreVertical, FileText } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, FileText, Users } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
 import { channelById, channelGrantModule, groupById, groupForChannel, type PulseChannel } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
@@ -27,6 +27,7 @@ export default function AlertDetail() {
   const rid = id ?? '';
   const access = useAccessStore((s) => s.access());
   const { bizOK, alertOK } = makeAccessFilters(access);
+  const isRealSuper = access?.isSuper === true; // makeAccessFilters treats a missing access as super — not here
 
   // The route id is either a module GROUP ('grp_hr' — what the Home cards link to), or a real
   // backend channel id: 'tk_att_bom' from a push deep link (→ its group, that branch preselected),
@@ -150,6 +151,17 @@ export default function AlertDetail() {
               <Text style={{ color: colors.ink, opacity: 0.7, fontSize: 12, marginTop: 2 }}>{channel.description}</Text>
             </View>
           </View>
+          {/* Super-admin: decide who gets this alert, per branch (admin/alert-audience). */}
+          {isRealSuper && group ? (
+            <Pressable
+              onPress={() => router.push({ pathname: '/admin/alert-audience', params: { group: group.id, pick: picked === 'all' ? '' : picked } })}
+              className="flex-row items-center gap-1.5"
+              style={{ alignSelf: 'flex-start', marginTop: 12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: channel.color + '55' }}
+            >
+              <Users size={14} color={colors.ink} />
+              <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '700' }}>Who sees this</Text>
+            </Pressable>
+          ) : null}
           {memberObjs.length > 0 ? <View className="flex-row items-center gap-1.5 mt-3" style={{ flexWrap: 'wrap' }}>
             <Text style={{ color: channel.color, fontSize: 10, fontWeight: '800', letterSpacing: 1 }}>VISIBLE TO</Text>
             {memberObjs.slice(0, 6).map((m) => (
