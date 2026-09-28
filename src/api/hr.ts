@@ -174,5 +174,9 @@ export const cancelRegularization = (id: string): Promise<Regularization> =>
   apiFetch(`/api/hr/regularizations/${id}/cancel`, { method: 'PUT' });
 // Manager-only.
 export const getPendingRegularizations = (): Promise<Regularization[]> => apiFetch('/api/hr/regularizations/pending');
+/** The same admin queue read in one of its three states — the Pending / Approved / Rejected tabs.
+ *  'pending' is the server's default, so an older backend still answers correctly for that tab. */
+export const getRegularizationsForAdmin = (status: 'pending' | 'approved' | 'rejected'): Promise<Regularization[]> =>
+  apiFetch(`/api/hr/regularizations/pending?status=${status}`);
 export const decideRegularization = (id: string, action: 'approve' | 'reject', note?: string): Promise<Regularization> =>
   apiFetch(`/api/hr/regularizations/${id}/decision`, { method: 'PUT', body: { action, ...(note ? { note } : {}) } });

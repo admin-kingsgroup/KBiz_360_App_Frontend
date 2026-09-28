@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { ClipboardCheck, CheckCircle2, ChevronRight, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
+import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
+import { ageLabel, groupByPerson, isStale } from '../../logic/regularizationQueue';
+import { approvalToItem, buildQueue, type QueueItem } from '../../logic/approvalQueue';
+import { ApiError } from '../../api/client';
+import { decideRegularization, getRegularizationsForAdmin, type Regularization } from '../../api/hr';
 import { useAccessStore } from '../../store/accessStore';
+import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
 import { useUiStore } from '../../store/uiStore';
 import type {
   Approval,
@@ -742,46 +747,102 @@ function stepStatusMeta(status: ApprovalStepStatus): { label: string; color: str
   return { label: 'Skipped', color: colors.coolText3 };
 }
 
-function ApprovalRow({ record, onPress }: { record: Approval; onPress: () => void }) {
-  const meta = statusMeta(record.status);
-
-  const waitingOnText = useMemo(() => {
-    if (record.currentApprovers && record.currentApprovers.length > 0) {
-      return `Waiting on: ${record.currentApprovers.map((p) => p.name).join(', ')}`;
-    }
-    if (record.currentApprover) {
-      return `Waiting on: ${record.currentApprover.name}`;
-    }
-    return 'Final decision captured';
-  }, [record.currentApprovers, record.currentApprover]);
+// One queued decision, in the approved Time-corrections row shape: tick box, what is being asked,
+// how long it has waited, and the two decisions right there on the row. The row does not care
+// whether it came from /api/approvals or /api/hr/regularizations — approvalQueue.ts already
+// flattened both to the same shape.
+// Reject/Approve and the tick box appear ONLY where `canAct` is true. Someone who can see a request
+// but is not its current approver gets the status instead of controls they cannot use — the list is
+// shared by requesters, approvers and onlookers.
+function ApprovalRow({ item, selecting, selected, busy, onPress, onToggle, onDecide }: {
+  item: QueueItem;
+  /** Whether the screen is in multi-select. Changes what a tap means and hides the row's own buttons. */
+  selecting: boolean;
+  selected: boolean;
+  busy: boolean;
+  onPress: () => void;
+  onToggle: () => void;
+  onDecide: (item: QueueItem, action: 'approve' | 'reject') => void;
+}) {
+  const meta = statusMeta(item.status);
+  const stale = item.status === 'pending' && isStale(item.at);
+  const when = item.decidedAt ?? item.at;
 
   return (
+    // The WHOLE row is the press target, the way ChatListItem does it — a long press anywhere on it
+    // enters selection. An inner flex child as the target did not receive the gesture at all, and it
+    // made a smaller hit area besides. The Reject/Approve buttons below are nested Pressables and
+    // still win the touch for themselves.
+    // Outside the mode a tap opens the request; inside it a tap toggles. A row this viewer cannot
+    // act on stays inert while selecting rather than opening something mid-selection.
     <Pressable
-      onPress={onPress}
-      style={styles.approvalRow}
+      onPress={selecting ? (item.canAct ? onToggle : undefined) : onPress}
+      onLongPress={item.canAct ? onToggle : undefined}
+      delayLongPress={300}
+      android_ripple={{ color: colors.coolMuted }}
       accessibilityRole="button"
-      accessibilityLabel={`View ${record.title}`}
+      accessibilityLabel={selecting ? `${selected ? 'Deselect' : 'Select'} ${item.title}` : `View ${item.title}`}
+      style={[styles.approvalRow, selected && styles.approvalRowSelected]}
     >
-      <AvatarBadge name={record.requester.name} color={record.requester.color} size={36} />
-      <View style={styles.rowBody}>
-        <View style={styles.cardTop}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {record.title}
-          </Text>
-          <Text style={styles.cardDate}>{fmtDate(record.submittedAt)}</Text>
+      {/* The tick box exists only inside the mode, and only on rows this viewer may decide. */}
+      {selecting && item.canAct ? (
+        <View
+          accessible
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: selected }}
+          style={[styles.checkbox, selected && styles.checkboxOn]}
+        >
+          {selected ? <Check size={14} color="#fff" strokeWidth={3} /> : null}
         </View>
-        <Text style={styles.rowMeta} numberOfLines={1}>
-          {record.requester.name} · {record.category}
+      ) : null}
+      <View style={styles.rowBody}>
+        <Text style={styles.cardTitle} numberOfLines={2}>
+          {item.title}
         </Text>
-        <Text style={styles.rowMetaMuted} numberOfLines={1}>
-          {waitingOnText}
+        <Text style={styles.rowMeta} numberOfLines={2}>
+          {item.meta}
+          {item.metaTail ? (
+            <Text style={item.metaWarn ? styles.rowWarn : styles.rowChain}> · {item.metaTail}</Text>
+          ) : null}
         </Text>
+        {item.note ? (
+          <Text style={styles.rowQuote} numberOfLines={3}>
+            “{item.note}”
+          </Text>
+        ) : null}
       </View>
       <View style={styles.rowRight}>
-        <View style={[styles.statusPill, { backgroundColor: meta.background }]}>
-          <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
+        <View style={[styles.agePill, stale && styles.agePillStale]}>
+          <Text style={[styles.ageText, stale && styles.ageTextStale]}>{ageLabel(when)}</Text>
         </View>
-        <ChevronRight size={17} color={colors.coolText3} />
+        {/* Inside the mode the bulk bar is the only way to act, so the row's own buttons stand down
+            — two live action surfaces at once makes "approve" ambiguous. */}
+        {selecting ? null : item.canAct ? (
+          <View style={styles.rowActions}>
+            <Pressable
+              disabled={busy}
+              onPress={() => onDecide(item, 'reject')}
+              accessibilityRole="button"
+              accessibilityLabel={`Reject ${item.title}`}
+              style={[styles.rejectBtn, busy && styles.btnBusy]}
+            >
+              <Text style={styles.rejectText}>Reject</Text>
+            </Pressable>
+            <Pressable
+              disabled={busy}
+              onPress={() => onDecide(item, 'approve')}
+              accessibilityRole="button"
+              accessibilityLabel={`Approve ${item.title}`}
+              style={[styles.approveBtn, busy && styles.btnBusy]}
+            >
+              <Text style={styles.approveText}>Approve</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={[styles.statusPill, { backgroundColor: meta.background }]}>
+            <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -1017,25 +1078,50 @@ function ApprovalDetail({
   );
 }
 
+const TABS: { key: 'all' | ApprovalStatus; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'rejected', label: 'Rejected' },
+];
+
 function Inbox() {
   const showToast = useUiStore((state) => state.showToast);
-  const [rows, setRows] = useState<Approval[] | null>(null);
+  const [approvals, setApprovals] = useState<Approval[] | null>(null);
+  const [corrections, setCorrections] = useState<Regularization[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | ApprovalStatus>('all');
+  const [filter, setFilter] = useState<'all' | ApprovalStatus>('pending');
   const [selected, setSelected] = useState<Approval | null>(null);
   const [loadError, setLoadError] = useState(false);
+  // Ids ticked for a bulk decision. A reload that settles a request simply stops matching it, so a
+  // decided row can never linger in the count.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Rejecting always takes a reason: the time-correction endpoint requires one, and a refusal
+  // without a stated reason is not much use to the person who asked either way.
+  const [rejecting, setRejecting] = useState<QueueItem | 'bulk' | null>(null);
+  const [note, setNote] = useState('');
 
   const load = useCallback(() => {
     setLoadError(false);
     listApprovals('all')
       .then((response) => {
-        setRows(response.items ?? []);
+        setApprovals(response.items ?? []);
         setLoadError(false);
       })
       .catch(() => {
-        setRows(DEMO_APPROVALS);
+        setApprovals(DEMO_APPROVALS);
         setLoadError(false);
       });
+    // Attendance time corrections belong in this queue too — they are decisions waiting on the same
+    // person. The endpoint is super-admin only and 403s everyone else, so a failure here is the
+    // normal case for most viewers and simply means "no corrections to show".
+    Promise.all([
+      getRegularizationsForAdmin('pending').catch(() => [] as Regularization[]),
+      getRegularizationsForAdmin('approved').catch(() => [] as Regularization[]),
+      getRegularizationsForAdmin('rejected').catch(() => [] as Regularization[]),
+    ])
+      .then((sets) => setCorrections(sets.flat()))
+      .catch(() => setCorrections([]));
   }, []);
 
   useFocusEffect(
@@ -1044,33 +1130,145 @@ function Inbox() {
     }, [load])
   );
 
-  const filteredRows = rows?.filter((row) => filter === 'all' || row.status === filter) ?? [];
+  // One queue out of two unrelated endpoints (approvalQueue.ts).
+  const queue = useMemo(() => buildQueue(approvals ?? [], corrections), [approvals, corrections]);
+  const filteredRows = useMemo(
+    () => queue.filter((row) => filter === 'all' || row.status === filter),
+    [queue, filter]
+  );
+  // The Pending tab's badge stays right while the reviewer reads the settled tabs.
+  const pendingCount = useMemo(() => queue.filter((r) => r.status === 'pending').length, [queue]);
+  // The bottom tab shows the same number. Pushing it from here — rather than letting the store
+  // refetch — means a decision moves the tab badge the instant the list reflects it, with no
+  // window where the two disagree.
+  useEffect(() => {
+    if (approvals !== null) useApprovalBadgeStore.getState().setCount(pendingCount);
+  }, [pendingCount, approvals]);
 
-  const decide = (record: Approval, action: 'approve' | 'reject') => {
-    const message = action === 'approve' ? 'Approve this request?' : 'Reject this request?';
-    Alert.alert(message, record.title, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: action === 'approve' ? 'Approve' : 'Reject',
-        style: action === 'reject' ? 'destructive' : 'default',
-        onPress: () => submitDecision(record, action),
-      },
-    ]);
-  };
+  // Group under the person who raised each request — a reviewer settles one colleague's asks
+  // together instead of hopping between names. groupByPerson keeps the incoming ordering, so the
+  // newest request keeps its place; the QueueItem rides along on `item`.
+  const groups = useMemo(
+    () =>
+      groupByPerson(
+        filteredRows.map((item) => ({
+          id: item.id,
+          userId: item.personId,
+          date: item.at.slice(0, 10),
+          appliedAt: item.at,
+          name: item.personName,
+          branch: item.personSubtitle,
+          item,
+        }))
+      ),
+    [filteredRows]
+  );
 
-  const submitDecision = (record: Approval, action: 'approve' | 'reject') => {
-    setBusyId(record.id);
-    updateApprovalDecision(record.id, action)
-      .then((updated) => {
-        setRows((current) => (current ? current.map((item) => (item.id === updated.id ? updated : item)) : current));
-        setSelected((current) => (current && current.id === updated.id ? updated : current));
+  // Only rows that are BOTH ticked and still on screen can be acted on — switching tabs must never
+  // carry a selection into a decision the reviewer cannot see.
+  const selectedRows = useMemo(
+    () => filteredRows.filter((r) => picked.has(r.id) && r.canAct),
+    [filteredRows, picked]
+  );
+  const actionableRows = useMemo(() => filteredRows.filter((r) => r.canAct), [filteredRows]);
+  // Selection is a MODE, entered by long-pressing a row, not tick boxes that live on every row.
+  // Deriving it from the selection itself is what makes unticking the last row leave the mode —
+  // there is no way to be stranded in an empty selection offering "Approve 0".
+  const selecting = selectedRows.length > 0;
+
+  const toggle = useCallback((id: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => { setPicked(new Set()); }, [filter]);
+
+  // Hardware Back cancels the selection before it leaves the screen. Without this a stray back
+  // press throws away a whole backlog of ticks — the classic multi-select bug.
+  useEffect(() => {
+    if (!selecting) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setPicked(new Set());
+      return true;
+    });
+    return () => sub.remove();
+  }, [selecting]);
+
+  // Each kind goes back to its own endpoint — the one place the two sources diverge again.
+  const sendDecision = (item: QueueItem, action: 'approve' | 'reject', reason?: string): Promise<void> =>
+    item.kind === 'approval'
+      ? updateApprovalDecision(item.sourceId, action, reason).then(() => undefined)
+      : decideRegularization(item.sourceId, action, reason).then(() => undefined);
+
+  const submitDecision = (item: QueueItem, action: 'approve' | 'reject', reason?: string) => {
+    setBusyId(item.id);
+    sendDecision(item, action, reason)
+      .then(() => {
         showToast(action === 'approve' ? 'Approval recorded' : 'Request rejected');
+        setRejecting(null);
+        setNote('');
+        setSelected(null);
+        load();
       })
-      .catch(() => showToast('Could not record the decision'))
+      .catch((error) => showToast(error instanceof ApiError ? error.message : 'Could not record the decision'))
       .finally(() => setBusyId(null));
   };
 
-  if (rows === null) {
+  const decide = (item: QueueItem, action: 'approve' | 'reject') => {
+    if (action === 'reject') {
+      setRejecting(item);
+      setNote('');
+      return;
+    }
+    Alert.alert('Approve this request?', item.title, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Approve', onPress: () => submitDecision(item, 'approve') },
+    ]);
+  };
+
+  // Sequential, so the server applies them in a defined order and one failure does not cancel the
+  // rest. The toast reports what actually landed rather than assuming all of it did.
+  const decideMany = async (list: QueueItem[], action: 'approve' | 'reject', reason?: string) => {
+    setBusyId('bulk');
+    let done = 0;
+    for (const item of list) {
+      try {
+        await sendDecision(item, action, reason);
+        done += 1;
+      } catch {
+        /* keep going — the count below reports the shortfall */
+      }
+    }
+    setBusyId(null);
+    setPicked(new Set());
+    setRejecting(null);
+    setNote('');
+    const verb = action === 'approve' ? 'Approved' : 'Rejected';
+    showToast(done === list.length ? `${verb} ${done}` : `${verb} ${done} of ${list.length}`);
+    load();
+  };
+
+  const confirmMany = (action: 'approve' | 'reject') => {
+    const list = selectedRows;
+    if (action === 'reject') {
+      setRejecting('bulk');
+      setNote('');
+      return;
+    }
+    Alert.alert(
+      `Approve ${list.length} requests?`,
+      list.map((r) => r.title).join('\n'),
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: `Approve ${list.length}`, onPress: () => { void decideMany(list, 'approve'); } },
+      ]
+    );
+  };
+
+  if (approvals === null) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={colors.primary} />
@@ -1078,25 +1276,105 @@ function Inbox() {
     );
   }
 
+  const bulkBusy = busyId === 'bulk';
+
   return (
     <>
-      <ScrollView contentContainerStyle={styles.content}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterBar}>
-          {(['all', 'pending', 'approved', 'rejected'] as const).map((key) => (
+      {/* The bar is the mode: normally the screen's title and Create; inside a selection it
+          becomes the count, the way out, and Select all, on a tinted ground so the changed
+          state reads without a banner. */}
+      {selecting ? (
+        <View style={styles.selHeader}>
+          <Pressable
+            onPress={() => setPicked(new Set())}
+            accessibilityRole="button"
+            accessibilityLabel="Leave selection"
+            style={styles.selClose}
+          >
+            <X size={20} color={colors.primary} strokeWidth={2.4} />
+          </Pressable>
+          <Text style={styles.selCount}>{selectedRows.length} selected</Text>
+          <Pressable
+            onPress={() => setPicked(new Set(actionableRows.map((r) => r.id)))}
+            accessibilityRole="button"
+            accessibilityLabel="Select all requests you can decide"
+            style={styles.selAll}
+          >
+            <Text style={styles.selAllText}>Select all</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Approvals</Text>
+          <Pressable
+            onPress={() => router.push('/approval/new')}
+            style={styles.addButton}
+            accessibilityRole="button"
+            accessibilityLabel="Create new approval request"
+          >
+            <Plus size={16} color="#fff" strokeWidth={2.6} />
+            <Text style={styles.addButtonText}>New request</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Segmented control — one white card slides across a grey track. */}
+      <View style={styles.segment}>
+        {TABS.map((tab) => {
+          const on = filter === tab.key;
+          return (
             <Pressable
-              key={key}
-              onPress={() => setFilter(key)}
-              style={[styles.filterChip, filter === key && styles.filterChipActive]}
+              key={tab.key}
+              onPress={() => setFilter(tab.key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              style={[styles.segmentTab, on && styles.segmentTabOn]}
             >
-              <Text style={[styles.filterChipText, filter === key && styles.filterChipTextActive]}>
-                {key === 'all' ? 'All requests' : statusMeta(key).label}
-              </Text>
+              <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{tab.label}</Text>
+              {tab.key === 'pending' && pendingCount > 0 ? (
+                <View style={styles.segmentBadge}>
+                  <Text style={styles.segmentBadgeText}>{pendingCount > 99 ? '99+' : pendingCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
-          ))}
-        </ScrollView>
-        {filteredRows.length ? (
-          filteredRows.map((record) => (
-            <ApprovalRow key={record.id} record={record} onPress={() => setSelected(record)} />
+          );
+        })}
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {groups.length ? (
+          groups.map((group) => (
+            <View key={group.userId}>
+              {/* Requester header — whose asks this block is. */}
+              <View style={styles.groupHeader}>
+                <AvatarBadge name={group.name} size={32} />
+                <Text style={styles.groupName} numberOfLines={1}>
+                  {group.name}
+                  {group.branch ? <Text style={styles.groupBranch}> · {group.branch}</Text> : null}
+                </Text>
+                <Text style={styles.groupCount}>
+                  {group.rows.length} request{group.rows.length === 1 ? '' : 's'}
+                </Text>
+              </View>
+              {group.rows.map((row) => (
+                <ApprovalRow
+                  key={row.id}
+                  item={row.item}
+                  selecting={selecting}
+                  selected={picked.has(row.id)}
+                  busy={busyId === row.id || bulkBusy}
+                  // Only an approval has a level-by-level chain to open; a time correction is the
+                  // whole story already, so its row body is not a link to anywhere.
+                  onPress={() => {
+                    if (row.item.kind !== 'approval') return;
+                    const record = (approvals ?? []).find((a) => a.id === row.item.sourceId);
+                    if (record) setSelected(record);
+                  }}
+                  onToggle={() => toggle(row.id)}
+                  onDecide={decide}
+                />
+              ))}
+            </View>
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -1109,72 +1387,277 @@ function Inbox() {
                 ? 'We could not load your approvals right now. Please try again.'
                 : filter === 'all'
                 ? 'There are currently no approval requests assigned to you.'
-                : `There are no ${statusMeta(filter).label.toLowerCase()} approval requests at the moment.`}
+                : `There are no ${statusMeta(filter as ApprovalStatus).label.toLowerCase()} approval requests at the moment.`}
             </Text>
           </View>
         )}
       </ScrollView>
+
+      {/* Bulk bar — the only way to act while selecting. The count lives in the header, so both
+          buttons get the full width instead of competing with a label. */}
+      {selecting ? (
+        <View style={styles.bulkBar}>
+          <Pressable
+            disabled={bulkBusy}
+            onPress={() => confirmMany('reject')}
+            accessibilityRole="button"
+            style={[styles.bulkReject, bulkBusy && styles.btnBusy]}
+          >
+            <Text style={styles.bulkRejectText}>Reject {selectedRows.length}</Text>
+          </Pressable>
+          <Pressable
+            disabled={bulkBusy}
+            onPress={() => confirmMany('approve')}
+            accessibilityRole="button"
+            style={[styles.bulkApprove, bulkBusy && styles.btnBusy]}
+          >
+            <Text style={styles.bulkApproveText}>
+              {bulkBusy ? 'Working…' : `Approve ${selectedRows.length}`}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Reject-with-reason. The note is required — the time-correction endpoint rejects without
+          one, and it is what goes back to the person who asked. One note covers a bulk rejection:
+          the reviewer is refusing them for the same stated reason. */}
+      <Modal visible={!!rejecting} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setRejecting(null)}>
+        <Pressable onPress={() => setRejecting(null)} style={styles.modalScrim}>
+          <Pressable onPress={() => undefined} style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>
+                {rejecting === 'bulk' ? `Reject ${selectedRows.length} requests` : 'Reject request'}
+              </Text>
+              <Pressable onPress={() => setRejecting(null)} hitSlop={8} style={styles.modalClose}>
+                <X size={16} color={colors.coolText} />
+              </Pressable>
+            </View>
+            <Text style={styles.modalHint}>
+              {rejecting === 'bulk'
+                ? 'The same reason goes back to everyone selected.'
+                : `${rejecting?.personName ?? 'Requester'} · ${rejecting?.title ?? ''} — the reason goes back to them.`}
+            </Text>
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Why is this refused?"
+              placeholderTextColor={colors.coolText3}
+              multiline
+              maxLength={300}
+              autoFocus
+              style={styles.modalInput}
+            />
+            <Pressable
+              disabled={!note.trim() || busyId !== null}
+              onPress={() => {
+                if (!rejecting) return;
+                if (rejecting === 'bulk') void decideMany(selectedRows, 'reject', note.trim());
+                else submitDecision(rejecting, 'reject', note.trim());
+              }}
+              style={[styles.modalSubmit, !note.trim() && styles.modalSubmitOff]}
+            >
+              <Text style={[styles.modalSubmitText, !note.trim() && styles.modalSubmitTextOff]}>
+                {busyId !== null ? 'Rejecting…' : 'Reject with reason'}
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ApprovalDetail
         record={selected}
         visible={!!selected}
-        busy={busyId === selected?.id}
+        busy={busyId === `approval:${selected?.id}`}
         onClose={() => setSelected(null)}
-        onDecision={(action) => selected && decide(selected, action)}
+        onDecision={(action) => selected && decide(approvalToItem(selected), action)}
       />
     </>
   );
 }
 
 export default function ApprovalsScreen() {
+  // The header swaps between the screen's own bar and the selection bar, and only Inbox knows which
+  // is showing, so it renders both.
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Approvals</Text>
-          <Text style={styles.headerSubtitle}>Requests and pending decisions</Text>
-        </View>
-        <Pressable
-          onPress={() => router.push('/approval/new')}
-          style={styles.addButton}
-          accessibilityRole="button"
-          accessibilityLabel="Create new approval request"
-        >
-          <Plus size={19} color="#fff" strokeWidth={2.6} />
-          <Text style={styles.addButtonText}>New request</Text>
-        </Pressable>
-      </View>
       <Inbox />
     </SafeAreaView>
   );
 }
 
 const styles = {
-  screen: { flex: 1, backgroundColor: colors.coolBg },
+  screen: { flex: 1, backgroundColor: colors.card },
   header: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 14,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
     backgroundColor: colors.card,
   },
   headerCopy: { flex: 1 },
-  headerTitle: { color: colors.ink, fontSize: 24, fontWeight: '800' as const },
+  headerTitle: { flex: 1, color: colors.ink, fontSize: 20, fontWeight: '800' as const },
   headerSubtitle: { color: colors.coolText, fontSize: 12.5, marginTop: 3 },
   addButton: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    gap: 6,
-    minHeight: 40,
-    paddingHorizontal: 13,
-    borderRadius: 13,
+    justifyContent: 'center' as const,
+    gap: 5,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     backgroundColor: colors.primary,
   },
-  addButtonText: { color: '#fff', fontSize: 12.5, fontWeight: '800' as const },
+  addButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' as const },
 
-  content: { padding: 16, paddingBottom: 36, gap: 14 },
+  // Selection bar — same 60px band as the header, tinted so the mode is unmistakable.
+  selHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    backgroundColor: colors.primarySoft,
+  },
+  selClose: {
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+  },
+  selCount: { flex: 1, color: colors.primary, fontSize: 17, fontWeight: '800' as const },
+  selAll: {
+    height: 34, paddingHorizontal: 12, borderRadius: 9,
+    borderWidth: 1, borderColor: colors.primary,
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+  },
+  selAllText: { color: colors.primary, fontSize: 12.5, fontWeight: '700' as const },
+
+  // Segmented control (approved Time-corrections treatment): one white card on a grey track.
+  segment: {
+    flexDirection: 'row' as const,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: colors.coolMuted,
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  // Four tabs in 390px: the type and the badge are a shade tighter than the three-tab
+  // Time-corrections control so "Approved" and "Rejected" keep their own space.
+  segmentTab: {
+    flex: 1,
+    height: 38,
+    borderRadius: 9,
+    paddingHorizontal: 2,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 4,
+  },
+  segmentTabOn: { backgroundColor: colors.card },
+  segmentText: { color: colors.coolText, fontSize: 12.5, fontWeight: '600' as const },
+  segmentTextOn: { color: colors.primary, fontWeight: '800' as const },
+  segmentBadge: {
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: colors.primary,
+  },
+  segmentBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' as const },
+
+  // Requester block header.
+  groupHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.surfaceSubtle,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.coolDivider,
+  },
+  groupName: { flex: 1, color: colors.ink, fontSize: 14, fontWeight: '700' as const },
+  groupBranch: { color: colors.coolText, fontWeight: '500' as const },
+  groupCount: { color: colors.coolText, fontSize: 12 },
+
+  checkbox: {
+    width: 20,
+    height: 20,
+    marginTop: 2,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.card,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  checkboxOn: { borderWidth: 0, backgroundColor: colors.primary },
+
+  agePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.coolMuted },
+  agePillStale: { backgroundColor: colors.warnSoft },
+  ageText: { color: colors.coolText, fontSize: 11, fontWeight: '700' as const },
+  ageTextStale: { color: colors.warn },
+
+  rowActions: { flexDirection: 'row' as const, gap: 6 },
+  rejectBtn: {
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.dangerEdge,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  rejectText: { color: colors.dangerText, fontSize: 12.5, fontWeight: '700' as const },
+  approveBtn: {
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  approveText: { color: '#fff', fontSize: 12.5, fontWeight: '700' as const },
+  btnBusy: { opacity: 0.5 },
+
+  bulkBar: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.coolDivider,
+    backgroundColor: colors.card,
+  },
+  bulkReject: {
+    flex: 1,
+    height: 44,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.dangerEdge,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  bulkRejectText: { color: colors.dangerText, fontSize: 14, fontWeight: '700' as const },
+  bulkApprove: {
+    flex: 1,
+    height: 44,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  bulkApproveText: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
+
+  content: { paddingBottom: 24, flexGrow: 1 },
   heading: { color: colors.ink, fontSize: 17, fontWeight: '800' as const },
   subheading: { color: colors.coolText, fontSize: 12.5, marginTop: 3, textAlign: 'center' as const },
 
@@ -1403,18 +1886,18 @@ const styles = {
   filterChipText: { color: colors.coolText, fontSize: 12, fontWeight: '700' as const },
   filterChipTextActive: { color: '#fff' },
 
+  // Flat full-width row on a hairline, per the approved queue — not a floating card.
   approvalRow: {
-    minHeight: 78,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.coolDivider,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.coolMuted,
     flexDirection: 'row' as const,
-    alignItems: 'center' as const,
+    alignItems: 'flex-start' as const,
     gap: 10,
   },
+  approvalRowSelected: { backgroundColor: colors.rowUnread },
   avatarBadge: {
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
@@ -1422,11 +1905,43 @@ const styles = {
   avatarText: { fontWeight: '800' as const },
   rowBody: { flex: 1, minWidth: 0, gap: 4 },
   cardTop: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const },
-  cardTitle: { color: colors.ink, fontSize: 14.5, fontWeight: '800' as const },
+  cardTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' as const },
   cardDate: { color: colors.coolText, fontSize: 11.5 },
-  rowMeta: { color: colors.coolText, fontSize: 11.5 },
+  rowMeta: { color: colors.textBody, fontSize: 13 },
+  rowChain: { color: colors.coolText },
+  rowWarn: { color: colors.warn, fontWeight: '700' as const },
+  rowQuote: { color: colors.coolText, fontSize: 12.5 },
+
+  modalScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' as const, padding: 24 },
+  modalCard: { backgroundColor: colors.card, borderRadius: 20, padding: 18 },
+  modalHead: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    marginBottom: 6,
+  },
+  modalTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' as const },
+  modalClose: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: colors.coolMuted,
+  },
+  modalHint: { color: colors.coolText, fontSize: 12.5, marginBottom: 10 },
+  modalInput: {
+    minHeight: 64, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider,
+    backgroundColor: colors.coolBg, paddingHorizontal: 12, paddingVertical: 10,
+    color: colors.ink, fontSize: 13.5, textAlignVertical: 'top' as const, marginBottom: 12,
+  },
+  modalSubmit: {
+    height: 48, borderRadius: 999,
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: colors.danger,
+  },
+  modalSubmitOff: { backgroundColor: colors.coolMuted },
+  modalSubmitText: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
+  modalSubmitTextOff: { color: colors.coolText3 },
   rowMetaMuted: { color: colors.coolText3, fontSize: 10.5 },
-  rowRight: { alignItems: 'flex-end' as const, gap: 5 },
+  rowRight: { alignItems: 'flex-end' as const, gap: 8, flexShrink: 0 },
   statusPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   statusText: { fontSize: 10.5, fontWeight: '800' as const },
 

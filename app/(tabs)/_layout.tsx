@@ -8,6 +8,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
+import { useApprovalBadgeStore } from '../../src/store/approvalBadgeStore';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { isVisibleAlertChannel } from '../../src/data/pulse';
 
@@ -45,6 +46,9 @@ export default function TabsLayout() {
   const alertsBadge = usePulseStore((s) => s.events.reduce((n, e) => n + (!e.read && isVisibleAlertChannel(e.channelId) ? 1 : 0), 0));
   const reminderBadge = useReminderBadgeStore((s) => s.count);
   const emailBadge = useEmailStore((s) => s.inboxUnread); // real Graph inbox unread count
+  // Approvals = requests still awaiting a decision, counting BOTH the approval requests and the
+  // attendance time corrections the tab merges — the same number its "Pending" segment shows.
+  const approvalBadge = useApprovalBadgeStore((s) => s.count);
   // Reserve room for the system navigation bar (3-button nav) so the icons + labels never sit under
   // it. We set the height explicitly, which disables React Navigation's auto safe-area, so we add
   // insets.bottom back into both the height and the bottom padding ourselves.
@@ -76,7 +80,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: ({ color, focused }) => <TabPill Icon={MessageCircle} color={color} focused={focused} />, tabBarBadge: chatsBadge > 0 ? (chatsBadge > 9 ? '9+' : chatsBadge) : undefined }} />
       <Tabs.Screen name="alerts" options={{ title: 'Alerts', tabBarIcon: ({ color, focused }) => <TabPill Icon={BellRing} color={color} focused={focused} />, tabBarBadge: alertsBadge > 0 ? (alertsBadge > 9 ? '9+' : alertsBadge) : undefined }} />
       <Tabs.Screen name="reminders" options={{ title: 'Reminders', tabBarIcon: ({ color, focused }) => <TabPill Icon={Bell} color={color} focused={focused} />, tabBarBadge: reminderBadge > 0 ? (reminderBadge > 9 ? '9+' : reminderBadge) : undefined }} />
-      <Tabs.Screen name="approvals" options={{ title: 'Approvals', tabBarIcon: ({ color, focused }) => <TabPill Icon={ClipboardCheck} color={color} focused={focused} /> }} />
+      <Tabs.Screen name="approvals" options={{ title: 'Approvals', tabBarIcon: ({ color, focused }) => <TabPill Icon={ClipboardCheck} color={color} focused={focused} />, tabBarBadge: approvalBadge > 0 ? (approvalBadge > 9 ? '9+' : approvalBadge) : undefined }} />
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused }) => <ProfileTabIcon focused={focused} /> }} />
     </Tabs>

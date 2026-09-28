@@ -5,6 +5,7 @@ import type { ChatMessage } from '../api/chat';
 import { useMessagingStore } from '../store/messagingStore';
 import { useReminderBadgeStore } from '../store/reminderBadgeStore';
 import { usePulseStore } from '../store/pulseStore';
+import { useApprovalBadgeStore } from '../store/approvalBadgeStore';
 
 // Single Socket.IO client for the whole app. Connects with the JWT, wires chat events into the
 // messaging store, and reconnects automatically (socket.io built-in backoff).
@@ -19,7 +20,7 @@ export function connectChatSocket(): void {
   const store = useMessagingStore.getState;
 
   socket.on('connect', () => {
-    void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void usePulseStore.getState().refresh();
+    void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void usePulseStore.getState().refresh(); void useApprovalBadgeStore.getState().refresh();
     // Catch-up: one request for everything that changed anywhere while this device was away — new
     // messages, edits, deletions, reactions, ticks. This is what keeps the local database current, so
     // opening a chat needs no request of its own.
