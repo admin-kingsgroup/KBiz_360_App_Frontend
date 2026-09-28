@@ -36,12 +36,17 @@ export default function Users() {
   const [savingPos, setSavingPos] = useState(false);
   const [alertsUser, setAlertsUser] = useState<User | null>(null); // user whose alert channels are being edited
   const [alertGrants, setAlertGrants] = useState<Record<string, string[]>>({}); // userId → grants like "BOM-accounts"
+  const [grantable, setGrantable] = useState<Record<string, string[]> | null>(null); // userId → grants they may hold (null = server too old to say)
 
   // The grantable channels — every branch-scoped channel in the registry ("BOM-hr",
   // "BOM-accounts", "BOM-crm", …). Announcements are recipient-addressed, not granted, and
   // CRM Alerts come with branch membership.
   const channelOptions = grantableAlertChannels
     .map((c) => ({ grant: `${c.branch}-${channelGrantModule(c)}`, name: c.name, icon: c.icon }));
+  // …narrowed to the branches (and hub) the user being edited has access to — alerts of any other
+  // branch never reach them, so a switch for one would only mislead (owner, 2026-09-28).
+  const mayHold = alertsUser && grantable?.[alertsUser.id];
+  const userChannelOptions = mayHold ? channelOptions.filter((o) => mayHold.includes(o.grant)) : channelOptions;
 
   // Hydrate the full user list (incl. deactivated) from the CRM directory into LOCAL state only.
   // Re-pulled after every mutation on this screen AND every time the screen regains focus, so a
@@ -57,6 +62,7 @@ export default function Users() {
     adminApi.getUserAccess().then(setAppAccess).catch(() => undefined);
     adminApi.getAttendanceTracking().then(setTracking).catch(() => undefined);
     adminApi.getAlertVisibility().then(setAlertGrants).catch(() => undefined);
+    adminApi.getAlertGrantable().then(setGrantable).catch(() => undefined);
   };
   useRefreshOnFocus(() => {
     let active = true;
@@ -254,7 +260,12 @@ export default function Users() {
               {alertsUser?.name}{alertsUser?.roleName ? ` · ${alertsUser.roleName}` : ''}
             </Text>
             <ScrollView style={{ flexGrow: 0 }} showsVerticalScrollIndicator={false}>
-              {channelOptions.map((opt, i) => (
+              {userChannelOptions.length === 0 ? (
+                <Text style={{ color: colors.coolText, fontSize: 13, paddingVertical: 10 }}>
+                  No branch or hub assigned — give this user a branch to switch on its alerts.
+                </Text>
+              ) : null}
+              {userChannelOptions.map((opt, i) => (
                 <View key={opt.grant} className="flex-row items-center gap-3"
                   style={{ paddingVertical: 10, borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
                   <Text style={{ fontSize: 18 }}>{opt.icon}</Text>
@@ -270,7 +281,7 @@ export default function Users() {
               ))}
             </ScrollView>
             <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 10 }}>
-              Changes apply instantly on the user&apos;s phone. Super-admins always see every channel regardless of these switches.
+              Only the user&apos;s own branches and hub are listed. Changes apply instantly on the user&apos;s phone. Super-admins always see every channel regardless of these switches.
             </Text>
           </View>
         </View>

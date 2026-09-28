@@ -14,6 +14,9 @@ export const setUserPosition = (userId: string, position: string): Promise<{ ok:
 export const getAlertVisibility = (): Promise<Record<string, string[]>> => apiFetch('/api/admin/alert-visibility');
 export const setAlertVisibility = (userId: string, alerts: string[]): Promise<{ ok: boolean; alerts: string[] }> =>
   apiFetch('/api/admin/alert-visibility', { method: 'POST', body: { userId, alerts } });
+// The grants each user MAY hold: the channels of the branches (and hub) they have access to. The
+// server drops any other grant on save, so Team & Users lists only these.
+export const getAlertGrantable = (): Promise<Record<string, string[]>> => apiFetch('/api/admin/alert-visibility/grantable');
 
 // Super-admin: whether a user's attendance is taken. { [userId]: tracked }. Exempt = not tracked.
 export const getAttendanceTracking = (): Promise<Record<string, boolean>> => apiFetch('/api/admin/attendance-tracking');
