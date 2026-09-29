@@ -795,52 +795,62 @@ function ApprovalRow({ item, selecting, selected, busy, onPress, onToggle, onDec
           {selected ? <Check size={14} color="#fff" strokeWidth={3} /> : null}
         </View>
       ) : null}
-      <View style={styles.rowBody}>
-        <Text style={styles.cardTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={styles.rowMeta} numberOfLines={2}>
+      {/* The text owns the full row width. Buttons beside it took ~175px of 390, which squeezed
+          every line into a wrap — "Out missing" split mid-phrase and the reason ran to three lines,
+          leaving the right column floating against whatever height the left one reached. */}
+      <View style={styles.rowMain}>
+        <View style={styles.rowTop}>
+          {/* Title and age are both "when this happened", so they share a line and centre on each other. */}
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.title}
+          </Text>
+          <View style={[styles.agePill, stale && styles.agePillStale]}>
+            <Text style={[styles.ageText, stale && styles.ageTextStale]}>{ageLabel(when)}</Text>
+          </View>
+        </View>
+        <Text style={styles.rowMeta} numberOfLines={1}>
           {item.meta}
           {item.metaTail ? (
             <Text style={item.metaWarn ? styles.rowWarn : styles.rowChain}> · {item.metaTail}</Text>
           ) : null}
         </Text>
+        {/* Two lines, so one long reason cannot drag a row to twice its neighbour's height. The
+            whole text is still in the detail sheet. */}
         {item.note ? (
-          <Text style={styles.rowQuote} numberOfLines={3}>
+          <Text style={styles.rowQuote} numberOfLines={2}>
             “{item.note}”
           </Text>
         ) : null}
-      </View>
-      <View style={styles.rowRight}>
-        <View style={[styles.agePill, stale && styles.agePillStale]}>
-          <Text style={[styles.ageText, stale && styles.ageTextStale]}>{ageLabel(when)}</Text>
-        </View>
         {/* Inside the mode the bulk bar is the only way to act, so the row's own buttons stand down
             — two live action surfaces at once makes "approve" ambiguous. */}
-        {selecting ? null : item.canAct ? (
+        {selecting ? null : (
           <View style={styles.rowActions}>
-            <Pressable
-              disabled={busy}
-              onPress={() => onDecide(item, 'reject')}
-              accessibilityRole="button"
-              accessibilityLabel={`Reject ${item.title}`}
-              style={[styles.rejectBtn, busy && styles.btnBusy]}
-            >
-              <Text style={styles.rejectText}>Reject</Text>
-            </Pressable>
-            <Pressable
-              disabled={busy}
-              onPress={() => onDecide(item, 'approve')}
-              accessibilityRole="button"
-              accessibilityLabel={`Approve ${item.title}`}
-              style={[styles.approveBtn, busy && styles.btnBusy]}
-            >
-              <Text style={styles.approveText}>Approve</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={[styles.statusPill, { backgroundColor: meta.background }]}>
-            <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
+            {item.canAct ? (
+              <>
+                <Pressable
+                  disabled={busy}
+                  onPress={() => onDecide(item, 'reject')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reject ${item.title}`}
+                  style={[styles.rejectBtn, busy && styles.btnBusy]}
+                >
+                  <Text style={styles.rejectText}>Reject</Text>
+                </Pressable>
+                <Pressable
+                  disabled={busy}
+                  onPress={() => onDecide(item, 'approve')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Approve ${item.title}`}
+                  style={[styles.approveBtn, busy && styles.btnBusy]}
+                >
+                  <Text style={styles.approveText}>Approve</Text>
+                </Pressable>
+              </>
+            ) : (
+              <View style={[styles.statusPill, { backgroundColor: meta.background }]}>
+                <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -1603,9 +1613,19 @@ const styles = {
   ageText: { color: colors.coolText, fontSize: 11, fontWeight: '700' as const },
   ageTextStale: { color: colors.warn },
 
-  rowActions: { flexDirection: 'row' as const, gap: 6 },
+  // The actions get their own row, right-aligned to the same gutter the text ends on.
+  rowActions: {
+    flexDirection: 'row' as const,
+    justifyContent: 'flex-end' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginTop: 12,
+  },
+  // Both buttons take the SAME width. "Reject" and "Approve" are different lengths, so letting each
+  // hug its text made every row's pair a slightly different size — the loudest part of the raggedness.
   rejectBtn: {
     height: 36,
+    minWidth: 96,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
@@ -1613,16 +1633,17 @@ const styles = {
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
   },
-  rejectText: { color: colors.dangerText, fontSize: 12.5, fontWeight: '700' as const },
+  rejectText: { color: colors.dangerText, fontSize: 13, fontWeight: '700' as const },
   approveBtn: {
     height: 36,
+    minWidth: 96,
     paddingHorizontal: 12,
     borderRadius: 10,
     backgroundColor: colors.primary,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
   },
-  approveText: { color: '#fff', fontSize: 12.5, fontWeight: '700' as const },
+  approveText: { color: '#fff', fontSize: 13, fontWeight: '700' as const },
   btnBusy: { opacity: 0.5 },
 
   bulkBar: {
@@ -1887,17 +1908,21 @@ const styles = {
   filterChipTextActive: { color: '#fff' },
 
   // Flat full-width row on a hairline, per the approved queue — not a floating card.
+  // One spacing scale: 14px row padding, 5px between text lines, 12px before the action row.
+  // A single `gap` spaced text and buttons identically, so nothing read as grouped.
   approvalRow: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.coolMuted,
     flexDirection: 'row' as const,
     alignItems: 'flex-start' as const,
-    gap: 10,
+    gap: 12,
   },
   approvalRowSelected: { backgroundColor: colors.rowUnread },
+  rowMain: { flex: 1, minWidth: 0 },
+  rowTop: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10 },
   avatarBadge: {
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
@@ -1905,12 +1930,12 @@ const styles = {
   avatarText: { fontWeight: '800' as const },
   rowBody: { flex: 1, minWidth: 0, gap: 4 },
   cardTop: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const },
-  cardTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' as const },
+  cardTitle: { flex: 1, minWidth: 0, color: colors.ink, fontSize: 15, fontWeight: '700' as const },
   cardDate: { color: colors.coolText, fontSize: 11.5 },
-  rowMeta: { color: colors.textBody, fontSize: 13 },
+  rowMeta: { color: colors.textBody, fontSize: 13, marginTop: 5 },
   rowChain: { color: colors.coolText },
   rowWarn: { color: colors.warn, fontWeight: '700' as const },
-  rowQuote: { color: colors.coolText, fontSize: 12.5 },
+  rowQuote: { color: colors.coolText, fontSize: 12.5, marginTop: 5 },
 
   modalScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' as const, padding: 24 },
   modalCard: { backgroundColor: colors.card, borderRadius: 20, padding: 18 },
