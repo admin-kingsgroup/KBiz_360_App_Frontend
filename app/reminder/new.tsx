@@ -17,8 +17,8 @@ import { useUiStore } from '../../src/store/uiStore';
 import { secondsUntil } from '../../src/logic/reminderWhen';
 import { activeMention, applyMention, rankMentionMatches } from '../../src/logic/mentions';
 
-// Reminder composer (modal). Dates are selected as calendar days only. The API still receives a
-// stable end-of-day dueAt for compatibility with existing reminder and notification flows.
+// Reminder composer (modal). Dates are optional and selected as calendar days only. When present,
+// the API receives a stable end-of-day dueAt for compatibility with existing reminder flows.
 const PALETTE = [colors.purple, colors.blue, colors.teal, colors.orange, colors.coral, colors.primary];
 const colorFor = (id: string): string => PALETTE[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % PALETTE.length];
 const initialsOf = (name: string): string => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
@@ -51,7 +51,7 @@ export default function NewReminder() {
   const [peopleError, setPeopleError] = useState(false);
   const [forIds, setForIds] = useState<string[]>(meId ? [meId] : []);
   const [text, setText] = useState(editing ? (editText ?? '') : '');
-  const [selectedDay, setSelectedDay] = useState<string | null>(editInitialDue ? dayKey(editInitialDue) : dayKey(new Date()));
+  const [selectedDay, setSelectedDay] = useState<string | null>(editInitialDue ? dayKey(editInitialDue) : null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
@@ -122,21 +122,20 @@ export default function NewReminder() {
     if (!text.trim()) { showToast('Add reminder text'); return; }
     if (!editing && !forIds.length) { showToast('Choose at least one person'); return; }
     const due = dueAt;
-    if (!due || !selectedDay) { showToast('Pick a due date'); return; }
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     if (editing) {
       try {
-        const label = dateLabel(selectedDay);
-        await updateReminder(editId!, { text: text.trim(), when: label, dueAt: due.toISOString() });
+        const label = selectedDay ? dateLabel(selectedDay) : '';
+        await updateReminder(editId!, { text: text.trim(), ...(due && label ? { when: label, dueAt: due.toISOString() } : {}) });
         // A self-reminder's local notification is pinned to the OLD time — re-arm it at the new one.
         if (editForId && editForId === meId) {
           await cancelReminderLocal(editId!);
           void scheduleLocal('⏰ Reminder', text.trim(), { type: 'reminder', id: editId! }, secondsUntil(due))
             .then((notifId) => rememberReminderLocal(editId!, notifId));
         }
-        showToast(`Reminder updated · ${label}`);
+        showToast(label ? `Reminder updated · ${label}` : 'Reminder updated');
         router.back();
       } catch {
         showToast('Could not update reminder');
@@ -146,17 +145,17 @@ export default function NewReminder() {
       return;
     }
     try {
-      const label = dateLabel(selectedDay);
-      const recs = await createReminder({ text: text.trim(), forIds, when: label, dueAt: due.toISOString(), section: 'today' });
+      const label = selectedDay ? dateLabel(selectedDay) : '';
+      const recs = await createReminder({ text: text.trim(), forIds, ...(due && label ? { when: label, dueAt: due.toISOString() } : {}), section: 'today' });
       // My own copy also fires locally at the due time (works offline; the server push is the
       // backup). Remember the notification id so completing the reminder can cancel it.
       const mine = recs.find((r) => r.forId === meId);
-      if (mine) {
+      if (mine && due) {
         void scheduleLocal('⏰ Reminder', mine.text ?? '', { type: 'reminder', id: mine.id }, secondsUntil(due))
           .then((notifId) => rememberReminderLocal(mine.id, notifId));
       }
       const onlySelf = forIds.length === 1 && forIds[0] === meId;
-      showToast(onlySelf ? `Reminder set · ${label}` : `Reminder set for ${forLabel} · ${label}`);
+      showToast(onlySelf ? (label ? `Reminder set · ${label}` : 'Reminder set') : (label ? `Reminder set for ${forLabel} · ${label}` : `Reminder set for ${forLabel}`));
       router.back();
     } catch {
       showToast('Could not save reminder');
@@ -210,17 +209,18 @@ export default function NewReminder() {
         </FormField>
         )}
 
-        <FormField label="Due date" required hint="Choose the day this reminder should be completed.">
+        <FormField label="Due date" hint="Optional — choose a day if this reminder has a deadline.">
           <Pressable onPress={() => setPickerOpen(true)} className="flex-row items-center gap-2"
             style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }}>
             <CalendarDays size={17} color={colors.primary} />
             <Text style={{ flex: 1, color: selectedDay ? colors.ink : colors.coolText, fontSize: 14, fontWeight: '600' }}>{selectedDay ? dateLabel(selectedDay) : 'Choose date'}</Text>
             <ChevronDown size={18} color={colors.coolText} />
           </Pressable>
+          {selectedDay ? <Pressable onPress={() => setSelectedDay(null)} hitSlop={8} style={{ alignSelf: 'flex-start', paddingTop: 8 }}><Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Clear date</Text></Pressable> : null}
           {selectedDay ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Due {dateLabel(selectedDay)}</Text> : null}
         </FormField>
 
-        <SheetSave label={saving ? 'Saving…' : editing ? 'Save changes' : 'Set reminder'} disabled={!text.trim() || !dueAt || saving} onPress={save} />
+        <SheetSave label={saving ? 'Saving…' : editing ? 'Save changes' : 'Set reminder'} disabled={!text.trim() || saving} onPress={save} />
       </ScrollView>
 
       <DaySheet
