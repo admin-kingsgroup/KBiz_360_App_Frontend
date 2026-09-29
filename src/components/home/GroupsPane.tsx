@@ -6,6 +6,10 @@ import { GroupsList } from './GroupsList';
 import { colors } from '../../theme';
 import { oneLine } from '../../logic/text';
 import { relTime } from '../../utils/time';
+import { mediaUrl } from '../../api/media';
+
+// Media types whose preview gets the small image glyph — the same set the Chats tab uses.
+const PICTORIAL = new Set(['image', 'video']);
 import { useDirectoryStore } from '../../store/directoryStore';
 import { useAccessStore } from '../../store/accessStore';
 import { useUiStore } from '../../store/uiStore';
@@ -39,15 +43,26 @@ export function GroupsPane({ onLongPressGroup }: { onLongPressGroup: (conversati
 
   // Real group conversations the user belongs to — they surface under their branch. The Chats tab
   // already refetches conversations on focus, so unread/previews stay current here too.
+  // Groups render the SAME row component as the All/Unread lists, so every field that row reads is
+  // mapped here exactly as the Chats tab maps it — a group must not read differently in two places.
   const conversations = useMessagingStore((s) => s.conversations);
-  const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => ({
-    id: c.id, name: c.name, branchId: c.branchId ?? null, companyId: c.companyId ?? null, unread: c.unread,
-    preview: c.lastMessage ? (c.lastMessage.type === 'text' ? oneLine(c.lastMessage.text) : `[${c.lastMessage.type}]`) : undefined,
-    pinned: !!c.pinned, // pinned groups float to the top of their branch's list
-    // Stamped with the SAME helper as the chat rows, so a conversation reads identically in both views.
-    time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
-    members: c.memberCount,
-  }));
+  const myUserId = useMessagingStore((s) => s.myUserId);
+  const groupConvs = conversations.filter((c) => c.type === 'group' && !c.archived).map((c) => {
+    const last = c.lastMessage;
+    return {
+      id: c.id, name: c.name, branchId: c.branchId ?? null, companyId: c.companyId ?? null, unread: c.unread,
+      preview: last ? (last.type === 'text' ? oneLine(last.text) : `[${last.type}]`) : undefined,
+      pinned: !!c.pinned, // pinned groups float to the top of their branch's list
+      // Stamped with the SAME helper as the chat rows, so a conversation reads identically in both views.
+      time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
+      members: c.memberCount,
+      image: c.image ? mediaUrl(c.image) : null,
+      muted: !!c.muted,
+      isImage: !!last && PICTORIAL.has(last.type),
+      // List ticks — only for MY last message, as on the Chats tab.
+      lastStatus: last && myUserId && last.senderId === myUserId ? last.status ?? null : null,
+    };
+  });
 
   return (
     <View>
