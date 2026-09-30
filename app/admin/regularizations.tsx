@@ -335,7 +335,7 @@ const RequestRow = memo(function RequestRow({ r, decided, selecting, selected, b
       delayLongPress={300}
       android_ripple={{ color: colors.coolMuted }}
       accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${r.name ?? 'request'}, ${fmtD(r.date)}`}
-      style={{ gap: 10, paddingHorizontal: 16, paddingVertical: 12, alignItems: 'flex-start', borderBottomWidth: 1, borderBottomColor: colors.coolMuted, backgroundColor: selected ? colors.rowUnread : colors.card }}>
+      style={{ gap: 12, paddingHorizontal: 16, paddingVertical: 14, alignItems: 'flex-start', borderBottomWidth: 1, borderBottomColor: colors.coolMuted, backgroundColor: selected ? colors.rowUnread : colors.card }}>
       {/* The tick box exists only inside the mode, and only on a row still open for a decision. */}
       {selecting && !decided ? (
         <View accessible accessibilityRole="checkbox" accessibilityState={{ checked: selected }}
@@ -343,32 +343,39 @@ const RequestRow = memo(function RequestRow({ r, decided, selecting, selected, b
           {selected ? <Check size={14} color="#fff" strokeWidth={3} /> : null}
         </View>
       ) : null}
-      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-        <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '700' }}>{fmtD(r.date)}</Text>
-        <Text style={{ color: colors.textBody, fontSize: 13 }}>
+      {/* The text owns the full row width; the buttons get their own line beneath it. Beside the
+          text they took ~175px of 390, which wrapped "Out missing" mid-phrase and left the right
+          column floating against whatever height the left one reached. */}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {/* Date and age are both "when", so they share a line and centre on each other. */}
+        <View className="flex-row items-center" style={{ gap: 10 }}>
+          <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: colors.ink, fontSize: 15, fontWeight: '700' }}>{fmtD(r.date)}</Text>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: stale ? colors.warnSoft : colors.coolMuted }}>
+            <Text style={{ color: stale ? colors.warn : colors.coolText, fontSize: 11, fontWeight: '700' }}>{ageLabel(when)}</Text>
+          </View>
+        </View>
+        <Text numberOfLines={1} style={{ color: colors.textBody, fontSize: 13, marginTop: 5 }}>
           In {fmtT(r.checkInAt)} · {openOut
             ? <Text style={{ color: colors.warn, fontWeight: '700' }}>Out missing</Text>
             : <Text>Out {fmtT(r.checkOutAt)}</Text>}
         </Text>
-        {r.reason ? <Text style={{ color: colors.coolText, fontSize: 12.5 }}>“{r.reason}”</Text> : null}
-        {decided && r.decisionNote ? <Text style={{ color: colors.coolText, fontSize: 12.5 }}>Note: {r.decisionNote}</Text> : null}
-      </View>
-      <View style={{ alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: stale ? colors.warnSoft : colors.coolMuted }}>
-          <Text style={{ color: stale ? colors.warn : colors.coolText, fontSize: 11, fontWeight: '700' }}>{ageLabel(when)}</Text>
-        </View>
+        {/* Two lines, so one long reason cannot drag a row to twice its neighbour's height. */}
+        {r.reason ? <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 5 }}>“{r.reason}”</Text> : null}
+        {decided && r.decisionNote ? <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 5 }}>Note: {r.decisionNote}</Text> : null}
         {/* Inside the mode the bulk bar is the only way to act, so the row's own buttons stand down. */}
         {decided || selecting ? null : (
-          <View className="flex-row" style={{ gap: 6 }}>
+          <View className="flex-row items-center justify-end" style={{ gap: 8, marginTop: 12 }}>
+            {/* Both buttons take the SAME width — letting each hug its text made every row's pair a
+                slightly different size, which is most of what read as ragged. */}
             <Pressable disabled={busy} onPress={() => onReject(r)}
               accessibilityRole="button" accessibilityLabel={`Reject ${r.name ?? 'request'}, ${fmtD(r.date)}`}
-              style={{ height: 36, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.dangerEdge, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.5 : 1 }}>
-              <Text style={{ color: colors.dangerText, fontSize: 12.5, fontWeight: '700' }}>Reject</Text>
+              style={{ height: 36, minWidth: 96, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.dangerEdge, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.5 : 1 }}>
+              <Text style={{ color: colors.dangerText, fontSize: 13, fontWeight: '700' }}>Reject</Text>
             </Pressable>
             <Pressable disabled={busy} onPress={() => onApprove(r)}
               accessibilityRole="button" accessibilityLabel={`Approve ${r.name ?? 'request'}, ${fmtD(r.date)}`}
-              style={{ height: 36, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.5 : 1 }}>
-              <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '700' }}>Approve</Text>
+              style={{ height: 36, minWidth: 96, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.5 : 1 }}>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Approve</Text>
             </Pressable>
           </View>
         )}
