@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Pressable, View, Text, Image, StyleSheet } from 'react-native';
 import { Check, CheckCheck, BellOff, Pin, Image as ImageIcon } from 'lucide-react-native';
 import { colors } from '../../theme';
-import { categoryForChat, tileCodeFor, tileColorsFor } from '../../logic/chatTile';
+import { tileCodeFor, tintForCode } from '../../logic/chatTile';
 import type { DirectChatItem } from '../../data/chats';
 
 // WhatsApp list ticks: shown before the preview when the last message is MINE (caller sets lastStatus).
@@ -19,16 +19,17 @@ export type ChatRowItem = DirectChatItem & {
   isImage?: boolean;
 };
 
-// Row per the approved design canvas (2026-09-28): a 48px ROUNDED-SQUARE code tile tinted by what
-// the conversation is for (support / ticket / marketing / ERP), not a circular avatar — the code is
-// how people refer to these rooms, and the tint sorts a long list at a glance. An unread row is
+// Row per the approved design canvas (2026-09-28): a 48px ROUNDED-SQUARE code tile, not a circular
+// avatar — the code is how people refer to these rooms. The tint is keyed on that same code, so
+// every room in a group (all the KGD rooms, say) carries one colour and the list groups at a glance. An unread row is
 // carried by weight and a faint tinted ground rather than by a louder badge.
 // NOTE: keep the style a plain static array — a ({pressed}) => … function style on a Pressable gets
 // dropped by the NativeWind interop here (the row un-cards and stacks vertically). Ripple = feedback.
 function ChatListItemBase({ chat, onPress, onLongPress, topDivider = false }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void; topDivider?: boolean }) {
   const unread = !!chat.unread;
-  const tile = tileColorsFor(categoryForChat(chat.name));
   const code = tileCodeFor({ name: chat.name, branchCode: chat.branchCode, companyCode: chat.companyCode });
+  // Tint follows the CODE, so two rooms in the same group share a tile — see chatTile.tintForCode.
+  const tile = tintForCode(code);
   return (
     <Pressable
       onPress={onPress}

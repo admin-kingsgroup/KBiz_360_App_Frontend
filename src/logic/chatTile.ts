@@ -35,6 +35,40 @@ const TINTS: Record<ChatTileCategory, { bg: string; fg: string }> = {
 
 export const tileColorsFor = (cat: ChatTileCategory): { bg: string; fg: string } => TINTS[cat];
 
+export interface TileTint { bg: string; fg: string }
+
+// Tints for the CODE-keyed tile. Every pair clears 4.5:1 (asserted in chatTile.test.ts, not just
+// claimed here), so a bold 12px code stays readable on its own ground.
+// The near-white slate is NOT in here — it is the fallback only. Hashing onto it gave a room a tile
+// that reads as "no background at all", which is half of the bug this replaced.
+const TILE_TINTS: readonly TileTint[] = [
+  { bg: colors.primarySoft, fg: colors.primary }, // green
+  { bg: '#E8F0FD', fg: '#1D4ED8' },               // blue
+  { bg: '#EFEAFD', fg: '#5B34C9' },               // purple
+  { bg: colors.warnSoft, fg: colors.warn },       // amber
+  { bg: '#FDE8EA', fg: '#B42318' },               // rose
+  { bg: '#E0F2F6', fg: '#0E6B7D' },               // cyan
+  { bg: '#FCE7F3', fg: '#9D174D' },               // magenta
+];
+/** Only for a row with no code at all — never reached by hashing, so no room looks untinted. */
+const FALLBACK_TINT: TileTint = { bg: colors.coolMuted, fg: colors.textBody };
+
+/**
+ * The tile's tint, keyed on the CODE it displays — so every room carrying the same code reads as
+ * one family down the list. "KGD- ERP KBiz360" and "KGD - WFH Team" are both KGD and must match.
+ *
+ * Deliberately NOT keyed on the category: tinting by a keyword in the name split those two apart
+ * (one said "ERP", the other didn't), which is the bug this replaced. The code is the room's
+ * identity — it survives a rename, where a keyword does not.
+ */
+export function tintForCode(code: string): TileTint {
+  const k = String(code ?? '').trim().toUpperCase();
+  if (!k) return FALLBACK_TINT;
+  let h = 0;
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
+  return TILE_TINTS[Math.abs(h) % TILE_TINTS.length] ?? FALLBACK_TINT;
+}
+
 /** Initials for a person or an uncoded group: one letter per word, at most two. */
 export function initialsFor(name: string): string {
   const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
