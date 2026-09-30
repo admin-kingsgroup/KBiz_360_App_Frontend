@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { ChevronLeft, MoreVertical, FileText } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, FileText, Bell, BellOff } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
 import { channelById, channelGrantModule, groupById, groupForChannel, type PulseChannel } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
@@ -11,6 +11,8 @@ import { reminderPeople } from '../../src/data/reminders';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { makeAccessFilters } from '../../src/logic/accessFilters';
+import { isAlertMuted, muteLabel, muteStateOf } from '../../src/logic/alertMutes';
+import { AlertMuteSheet, type AlertMuteTarget } from '../../src/components/home/AlertMuteSheet';
 import { useUiStore } from '../../src/store/uiStore';
 import { apiFetch } from '../../src/api/client';
 import { mediaUrl } from '../../src/api/media';
@@ -54,6 +56,11 @@ export default function AlertDetail() {
   // Reading a group marks every branch it currently shows — one call per real backend channel.
   const markShownRead = (): void => shownIds.forEach(markChannelRead);
   const showToast = useUiStore((s) => s.showToast);
+  // The header bell mutes what is on screen for this user: the picked branch, or every branch
+  // under "All" (logic/alertMutes).
+  const mutes = usePulseStore((s) => s.mutes);
+  const shownMute = muteStateOf(mutes, shownIds);
+  const [muteTarget, setMuteTarget] = useState<AlertMuteTarget | null>(null);
   // Pull the latest feed every time this screen is shown (a deep link / cold start can land here
   // before the store has today's events; a newly sent announcement shows without going back).
   useRefreshOnFocus(() => { void usePulseStore.getState().refresh(); });
@@ -105,11 +112,22 @@ export default function AlertDetail() {
     ? ` · ${memberChannels.length} branches`
     : (memberChannels[0]?.branch ? ` · ${memberChannels[0].branch} branch` : '');
   const memberObjs = channel.members.map((mid) => reminderPeople.find((p) => p.id === mid) || { id: mid, name: mid, initials: mid.slice(0, 2).toUpperCase(), color: colors.coolText3 });
+  const pickedBranch = picked === 'all' ? null : memberChannels.find((c) => c.id === picked)?.branch;
+  const muteName = pickedBranch ? `${channel.name} · ${pickedBranch}` : channel.name;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
-      <Header title={channel.name} subtitle={channel.members.length ? `${biz?.name || 'System'} · ${channel.members.length} member${channel.members.length === 1 ? '' : 's'}` : `${biz?.name || 'System'}${branchSubtitle}`}
-        onBack={() => router.back()} right={<Pressable onPress={() => { markShownRead(); showToast('Marked all read'); }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={20} color={colors.ink} /></Pressable>} />
+      <Header title={channel.name} subtitle={`${channel.members.length ? `${biz?.name || 'System'} · ${channel.members.length} member${channel.members.length === 1 ? '' : 's'}` : `${biz?.name || 'System'}${branchSubtitle}`}${shownMute.all ? ` · ${muteLabel(shownMute.until)}` : ''}`}
+        onBack={() => router.back()} right={<>
+          {shownIds.length > 0 ? (
+            <Pressable onPress={() => setMuteTarget({ name: muteName, channelIds: shownIds })} accessibilityLabel={shownMute.all ? 'Unmute alerts' : 'Mute alerts'}
+              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+              {shownMute.all ? <BellOff size={20} color={colors.coolText} /> : <Bell size={20} color={colors.ink} />}
+            </Pressable>
+          ) : null}
+          <Pressable onPress={() => { markShownRead(); showToast('Marked all read'); }} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={20} color={colors.ink} /></Pressable>
+        </>} />
+      <AlertMuteSheet target={muteTarget} onClose={() => setMuteTarget(null)} />
 
       {/* Branch chips — this is what replaces one card per branch on Home. Only shown when the
           viewer is granted more than one branch of the module. */}
@@ -120,6 +138,7 @@ export default function AlertDetail() {
           {([{ id: 'all', label: 'All' }, ...memberChannels.map((c) => ({ id: c.id, label: c.branch || c.name }))]).map((chip) => {
             const on = picked === chip.id;
             const n = allEvents.filter((e) => (chip.id === 'all' ? memberChannels.some((c) => c.id === e.channelId) : e.channelId === chip.id) && !e.read).length;
+            const chipMuted = chip.id !== 'all' && isAlertMuted(mutes, chip.id);
             return (
               // Selected = solid `primary` + white, the same pill treatment as every other
               // selected chip/tab in the app. (The channel colour is too light behind white text,
@@ -129,8 +148,9 @@ export default function AlertDetail() {
                 // the cross-axis stretch squashes padding-sized pills and clips the label.
                 style={{ height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 14, borderRadius: 999, backgroundColor: on ? colors.primary : colors.coolMuted, borderWidth: 1, borderColor: on ? colors.primary : colors.coolDivider }}>
                 <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 12.5, fontWeight: '700' }}>{chip.label}</Text>
+                {chipMuted ? <BellOff size={12} color={on ? '#fff' : colors.coolText3} /> : null}
                 {n > 0 ? (
-                  <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: on ? '#fff' : colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: on ? '#fff' : chipMuted ? colors.coolText3 : colors.primary, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ color: on ? colors.primary : '#fff', fontSize: 10.5, fontWeight: '800' }}>{n}</Text>
                   </View>
                 ) : null}
