@@ -11,6 +11,7 @@ import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
 import { useApprovalBadgeStore } from '../../src/store/approvalBadgeStore';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { isVisibleAlertChannel } from '../../src/data/pulse';
+import { countsTowardBadge } from '../../src/logic/alertMutes';
 
 // Pill that highlights behind the active tab's icon (WhatsApp-style bottom bar).
 function TabPill({ Icon, color, focused }: { Icon: LucideIcon; color: ColorValue; focused: boolean }) {
@@ -41,9 +42,9 @@ export default function TabsLayout() {
   // branch-chip badges and the app-icon badge (chatNotifications.ts), so they always agree.
   // Chats = direct + group conversations (groups live in the Chats tab); Alerts = unread system-alert
   // events, with the same visible-channel gate as the alert cards. Archived conversations are hidden
-  // from the lists, so they don't count here either.
+  // from the lists, so they don't count here either; nor do the alert channels the user muted.
   const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (!c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
-  const alertsBadge = usePulseStore((s) => s.events.reduce((n, e) => n + (!e.read && isVisibleAlertChannel(e.channelId) ? 1 : 0), 0));
+  const alertsBadge = usePulseStore((s) => s.events.reduce((n, e) => n + (isVisibleAlertChannel(e.channelId) && countsTowardBadge(e, s.mutes) ? 1 : 0), 0));
   const reminderBadge = useReminderBadgeStore((s) => s.count);
   const emailBadge = useEmailStore((s) => s.inboxUnread); // real Graph inbox unread count
   // Approvals = requests still awaiting a decision, counting BOTH the approval requests and the
