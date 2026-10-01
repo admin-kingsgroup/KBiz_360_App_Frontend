@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, useWindowDimensions, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -55,6 +55,9 @@ const colors = {
   ink: '#0F1418',
 };
 const TICK_MUTED = '#B6BEC6'; // sent/delivered ticks + pending clock
+// Composer metrics, named so the max height stays a whole number of lines.
+const COMPOSER_LINE = 20;  // lineHeight of the input text
+const COMPOSER_PAD = 20;   // its vertical padding, top + bottom
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 // Disappearing-message durations, matching WhatsApp's menu.
@@ -108,6 +111,15 @@ export default function ChatDetail() {
   const watermarkOn = useMessagingStore((s) => s.chatWatermark);
   // The header tile must match the Chats list exactly — same code, same tint. Both read the
   // branch/business short code out of the directory; until it loads, both fall back to initials.
+  // Composer growth. The pill grows a line at a time and then scrolls inside, WhatsApp-style.
+  // The cap is a share of the window rather than a fixed number, so a long draft never swallows
+  // the conversation on a short screen; COMPOSER_LINE keeps the cap a whole number of lines, so it
+  // never stops mid-line and looks clipped.
+  const { height: windowH } = useWindowDimensions();
+  const composerMaxH = Math.max(
+    COMPOSER_LINE * 4 + COMPOSER_PAD,
+    Math.min(COMPOSER_LINE * 10 + COMPOSER_PAD, Math.round(windowH * 0.3 / COMPOSER_LINE) * COMPOSER_LINE + COMPOSER_PAD),
+  );
   const dirBranches = useDirectoryStore((s) => s.branches);
   const dirBusinesses = useDirectoryStore((s) => s.businesses);
 
@@ -1017,7 +1029,7 @@ export default function ChatDetail() {
               <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder="Message" placeholderTextColor={theme.mute} multiline
                 selection={sel}
                 onSelectionChange={(e) => { const r = e.nativeEvent.selection; setCursor(r.start); setSelRange({ start: r.start, end: r.end }); if (sel) setSel(undefined); }}
-                style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: theme.themText, maxHeight: 110 }} />
+                style={{ flex: 1, paddingVertical: COMPOSER_PAD / 2, fontSize: 15, lineHeight: COMPOSER_LINE, color: theme.themText, maxHeight: composerMaxH, textAlignVertical: 'top' }} />
               <Pressable onPress={() => void takePhoto()} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Camera size={21} color={theme.mute} />
               </Pressable>
