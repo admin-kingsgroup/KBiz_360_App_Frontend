@@ -1,0 +1,102 @@
+import { CHAT_THEMES, chatThemeFor, DEFAULT_CHAT_THEME, type ChatTheme } from '../theme/chatThemes';
+
+// The colour rules these palettes were built to, asserted rather than eyeballed.
+//
+// This exists because the first draft was judged by eye and nine of ten themes failed: the default
+// had its sent and received bubbles 2.2 ΔE apart, which reads as a single surface. A theme added by
+// eye later would reintroduce exactly that, and nobody would notice until it shipped.
+
+// ── sRGB → OKLab, for perceptual distance between two large fills ──
+const lin = (c: number): number => {
+  const x = c / 255;
+  return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+};
+const rgb = (hex: string): [number, number, number] =>
+  [lin(parseInt(hex.slice(1, 3), 16)), lin(parseInt(hex.slice(3, 5), 16)), lin(parseInt(hex.slice(5, 7), 16))];
+
+function oklab(hex: string): [number, number, number] {
+  const [r, g, b] = rgb(hex);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+/** Perceptual distance ×100. Counts a hue change as separation the way the eye does. */
+export function deltaE(a: string, b: string): number {
+  const x = oklab(a), y = oklab(b);
+  return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) * 100;
+}
+
+/** WCAG relative luminance contrast ratio. */
+function contrast(a: string, b: string): number {
+  const lum = (hex: string): number => {
+    const [r, g, bl] = rgb(hex);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const x = lum(a), y = lum(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** The three big fills a conversation shows at once, as pairs. */
+const surfacePairs = (t: ChatTheme): [string, number][] => [
+  ['canvas/received', deltaE(t.canvas, t.them)],
+  ['canvas/sent', deltaE(t.canvas, t.mine)],
+  ['received/sent', deltaE(t.them, t.mine)],
+];
+
+describe('chat themes', () => {
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s keeps all three surfaces separable (min 8 ΔE)',
+    (_label, theme) => {
+      for (const [pair, dist] of surfacePairs(theme)) {
+        // Below ~8 the two fills start reading as one; below 4 they are indistinguishable.
+        expect({ pair, dist: Number(dist.toFixed(1)) }).toMatchObject({ pair });
+        expect(dist).toBeGreaterThanOrEqual(8);
+      }
+    },
+  );
+
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s keeps body text legible on both bubbles (WCAG 4.5:1)',
+    (_label, theme) => {
+      expect(contrast(theme.them, theme.themText)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.mine, theme.meText)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s keeps the sender name readable on the received bubble',
+    (_label, theme) => {
+      // Group chats print the sender inside the received bubble — on Eclipse that bubble is dark
+      // while the accent is tuned for a light app bar, which is why senderName is its own token.
+      expect(contrast(theme.them, theme.senderName)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it('every theme carries a unique key and a label', () => {
+    const keys = CHAT_THEMES.map((t) => t.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const t of CHAT_THEMES) expect(t.label.length).toBeGreaterThan(0);
+  });
+
+  describe('chatThemeFor', () => {
+    it('resolves a known key', () => {
+      expect(chatThemeFor('midnight').label).toBe('Midnight');
+    });
+
+    it('falls back for null, undefined and the seven retired wallpaper keys', () => {
+      const fallback = CHAT_THEMES.find((t) => t.key === DEFAULT_CHAT_THEME)!;
+      expect(chatThemeFor(null)).toBe(fallback);
+      expect(chatThemeFor(undefined)).toBe(fallback);
+      // Anyone who themed a chat before this change still holds one of these.
+      for (const retired of ['default', 'mint', 'sand', 'rose', 'sky', 'lilac', 'paper']) {
+        expect(chatThemeFor(retired)).toBe(fallback);
+      }
+    });
+  });
+});

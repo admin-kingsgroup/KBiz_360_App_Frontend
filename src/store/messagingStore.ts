@@ -42,8 +42,13 @@ interface MessagingState {
   lastSyncId: string | null;
   /** Unsent composer text per conversation — WhatsApp keeps what you typed when you back out. */
   drafts: Record<string, string>;
-  /** Per-chat wallpaper choice (a key from theme/wallpapers). Local to this device, like WhatsApp's. */
+  /** Per-chat theme override (a key from theme/chatThemes). Local to this device, like WhatsApp's.
+   *  Kept under the old `wallpapers` name so choices made before themes existed still resolve. */
   wallpapers: Record<string, string>;
+  /** The theme every chat uses unless it has its own override. Null until the user picks one. */
+  chatTheme: string | null;
+  /** Whether the KBiz 360 brand mark is drawn behind conversations. */
+  chatWatermark: boolean;
   /** Account-level privacy + block list, mirrored from the server. */
   privacy: { readReceipts: boolean; lastSeen: 'everyone' | 'nobody'; blocked: string[] };
 
@@ -58,7 +63,12 @@ interface MessagingState {
   prefetchMessages: (limit?: number) => Promise<void>;
   forgetConversation: (conversationId: string) => Promise<void>;
   setDraft: (conversationId: string, text: string) => void;
-  setWallpaper: (conversationId: string, key: string) => void;
+  /** Pass null to clear a chat's override and drop it back to the global theme. */
+  setWallpaper: (conversationId: string, key: string | null) => void;
+  setChatTheme: (key: string) => void;
+  setChatWatermark: (on: boolean) => void;
+  /** Drop every per-chat override so the global theme applies everywhere. */
+  clearThemeOverrides: () => void;
   setConversationSettings: (conversationId: string, patch: { muted?: boolean; muteHours?: number | null; archived?: boolean; pinned?: boolean }) => Promise<void>;
   setDisappearing: (conversationId: string, seconds: number | null) => Promise<void>;
   loadPrivacy: () => Promise<void>;
@@ -175,11 +185,15 @@ export const useMessagingStore = create<MessagingState>()(
       lastSyncId: null,
       drafts: {},
       wallpapers: {},
+      chatTheme: null,
+      chatWatermark: true,
       privacy: { readReceipts: true, lastSeen: 'everyone', blocked: [] },
 
       setMyUserId: (myUserId) => set({ myUserId }),
       // Sign-out wipes the on-device history too — the next account on this handset must not inherit
-      // the previous one's chats (WhatsApp does the same when you unlink).
+      // the previous one's chats (WhatsApp does the same when you unlink). `chatTheme` is deliberately
+      // NOT cleared: it is a display preference for this handset, not account data, and resetting it
+      // would silently throw the user back to Slate every time they signed out.
       reset: () => { void chatDb.clearAll(); set({ conversations: [], messages: {}, outbox: [], typing: {}, presence: {}, activeConversationId: null, lastSyncAt: null, lastSyncId: null, drafts: {}, wallpapers: {}, privacy: { readReceipts: true, lastSeen: 'everyone', blocked: [] } }); },
 
       loadConversations: async () => {
@@ -322,7 +336,17 @@ export const useMessagingStore = create<MessagingState>()(
         return { drafts };
       }),
 
-      setWallpaper: (conversationId, key) => set((s) => ({ wallpapers: { ...s.wallpapers, [conversationId]: key } })),
+      setWallpaper: (conversationId, key) => set((s) => {
+        const wallpapers = { ...s.wallpapers };
+        if (key) wallpapers[conversationId] = key; else delete wallpapers[conversationId];
+        return { wallpapers };
+      }),
+
+      setChatTheme: (chatTheme) => set({ chatTheme }),
+
+      setChatWatermark: (chatWatermark) => set({ chatWatermark }),
+
+      clearThemeOverrides: () => set({ wallpapers: {} }),
 
       // Mute / archive / pin. Applied optimistically so the row reacts instantly, then reconciled
       // with the server's copy of the conversation.
@@ -634,7 +658,7 @@ export const useMessagingStore = create<MessagingState>()(
           : { conversations: [], messages: {}, outbox: [] };
       },
       storage: createJSONStorage(() => asyncStorage),
-      partialize: (s) => ({ conversations: s.conversations, outbox: s.outbox, lastSyncAt: s.lastSyncAt, lastSyncId: s.lastSyncId, drafts: s.drafts, wallpapers: s.wallpapers, privacy: s.privacy }),
+      partialize: (s) => ({ conversations: s.conversations, outbox: s.outbox, lastSyncAt: s.lastSyncAt, lastSyncId: s.lastSyncId, drafts: s.drafts, wallpapers: s.wallpapers, chatTheme: s.chatTheme, chatWatermark: s.chatWatermark, privacy: s.privacy }),
     },
   ),
 );

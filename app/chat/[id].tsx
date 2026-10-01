@@ -30,7 +30,8 @@ import { DateJumpSheet } from '../../src/components/chat/DateJumpSheet';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
 import { requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
-import { WALLPAPERS } from '../../src/theme/wallpapers';
+import { useChatTheme, type ChatTheme } from '../../src/theme';
+import { ChatWatermark } from '../../src/components/chat';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
@@ -103,9 +104,10 @@ export default function ChatDetail() {
   const presence = useMessagingStore((s) => s.presence);
   const users = useAccessStore((s) => s.users);
   const privacy = useMessagingStore((s) => s.privacy);
-  // Per-chat wallpaper (this device only, like WhatsApp's) — falls back to the default canvas.
-  const wallpaperKey = useMessagingStore((s) => s.wallpapers[convId]);
-  const wallpaper = WALLPAPERS.find((w) => w.key === wallpaperKey) ?? WALLPAPERS[0];
+  // Palette for this conversation: its own override, else the global theme, else Slate.
+  // Device-local, like the wallpaper it replaces.
+  const theme = useChatTheme(convId);
+  const watermarkOn = useMessagingStore((s) => s.chatWatermark);
 
   const [conv, setConv] = useState<ChatConversation | undefined>(convFromStore);
   // Draft: whatever was left in the composer last time this chat was open (WhatsApp keeps it and
@@ -169,7 +171,6 @@ export default function ChatDetail() {
   // Jump-to-latest button: shown once the user has scrolled up away from the newest message.
   const [showJumpLatest, setShowJumpLatest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [wallpaperOpen, setWallpaperOpen] = useState(false);
   const [pendingJump, setPendingJump] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -759,7 +760,7 @@ export default function ChatDetail() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bar }} edges={['top']}>
       {/* Selection action bar — replaces the header while messages are selected (WhatsApp-style) */}
       {selecting ? (
         <View className="flex-row items-center gap-1 px-2" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
@@ -773,7 +774,7 @@ export default function ChatDetail() {
           <Pressable onPress={() => setForwardMsgs(selectedMsgs)} accessibilityLabel="Forward" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ForwardIcon size={20} color={colors.ink} /></Pressable>
         </View>
       ) : (
-      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: theme.bar, height: 60, borderBottomColor: theme.line, borderBottomWidth: 1 }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
           <View style={{ position: 'relative' }}>
@@ -836,12 +837,16 @@ export default function ChatDetail() {
       })() : null}
 
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+        {/* The canvas carries the brand mark; the list rides transparently on top of it so the
+            watermark sits behind every bubble without re-rendering per row. */}
+        <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+        {watermarkOn ? <ChatWatermark theme={theme} /> : null}
         <FlatList
             ref={listRef}
             data={reversed}
             inverted
             keyExtractor={(m) => m.id}
-            style={{ flex: 1, backgroundColor: wallpaper.bg }}
+            style={{ flex: 1, backgroundColor: 'transparent' }}
             contentContainerStyle={{ padding: 12 }}
             // Paint the visible screenful on the first frame, then fill the rest in — a local-first
             // open shouldn't be spent laying out 40 bubbles before anything appears.
@@ -878,7 +883,7 @@ export default function ChatDetail() {
               const showUnread = unreadDivider?.anchorId === m.id;
               const isSel = selectedIds.includes(m.id);
               const bubble = (
-                <Bubble m={m} isGroup={isGroup} nameOf={nameOf}
+                <Bubble m={m} isGroup={isGroup} nameOf={nameOf} theme={theme}
                   onPress={() => (selecting ? toggleSelect(m) : !m.deletedForEveryone && setActive(m))}
                   onLongPress={() => onMsgLongPress(m)}
                   selecting={selecting}
@@ -913,6 +918,7 @@ export default function ChatDetail() {
               );
             }}
           />
+        </View>
 
         {/* Upload progress */}
         {uploading !== null ? (
@@ -984,7 +990,7 @@ export default function ChatDetail() {
             <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
           </Pressable>
         ) : (
-        <View className="flex-row items-end gap-2" style={{ backgroundColor: '#fff', borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
+        <View className="flex-row items-end gap-2" style={{ backgroundColor: theme.bar, borderTopColor: theme.line, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
           <Pressable onPress={isRecording ? () => void cancel() : () => setAttachOpen((v) => !v)} style={{ width: 44, height: 46, alignItems: 'center', justifyContent: 'center' }}>
             {isRecording ? <Trash2 size={22} color={colors.danger} /> : <Plus size={24} color={colors.coolText} />}
           </Pressable>
@@ -995,7 +1001,7 @@ export default function ChatDetail() {
               <Text style={{ color: colors.coolText, fontSize: 13 }}>Recording…</Text>
             </View>
           ) : (
-            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: colors.coolMuted, paddingLeft: 6, paddingRight: 10 }}>
+            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: theme.input, paddingLeft: 6, paddingRight: 10 }}>
               <Pressable onPress={toggleEmoji} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Smile size={22} color={emojiOpen ? colors.primary : colors.coolText} />
               </Pressable>
@@ -1009,7 +1015,7 @@ export default function ChatDetail() {
             </View>
           )}
           <Pressable onPress={() => { if (text.trim()) return void submitText(); return void onMic(); }}
-            style={{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: isRecording ? colors.danger : colors.primary }}>
+            style={{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: isRecording ? colors.danger : theme.accent }}>
             {text.trim() || isRecording ? <Send size={20} color="#fff" /> : <Mic size={22} color="#fff" />}
           </Pressable>
         </View>
@@ -1052,7 +1058,7 @@ export default function ChatDetail() {
                 onPress: () => { setMenuOpen(false); void useMessagingStore.getState().setConversationSettings(convId, { muted: !conv?.muted, muteHours: conv?.muted ? null : 8 }); },
               },
               { key: 'disappear', label: `Disappearing messages${conv?.disappearAfterSec ? ' · on' : ''}`, Icon: Timer, onPress: chooseDisappearing },
-              { key: 'wallpaper', label: 'Wallpaper', Icon: Palette, onPress: () => { setMenuOpen(false); setWallpaperOpen(true); } },
+              { key: 'theme', label: 'Theme', Icon: Palette, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/theme', params: { conv: convId } }); } },
               { key: 'export', label: 'Export chat', Icon: Share2, onPress: () => void exportChat() },
               ...(isGroup ? [] : [{ key: 'block', label: isBlocked ? 'Unblock' : 'Block', Icon: Ban, danger: !isBlocked, onPress: toggleBlock }]),
             ].map((r, i) => (
@@ -1062,25 +1068,6 @@ export default function ChatDetail() {
                 <Text style={{ color: r.danger ? colors.danger : colors.ink, fontSize: 15.5 }}>{r.label}</Text>
               </Pressable>
             ))}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Wallpaper picker — per chat, stored on this device only (WhatsApp does the same). */}
-      <Modal visible={wallpaperOpen} transparent animationType="fade" onRequestClose={() => setWallpaperOpen(false)}>
-        <Pressable onPress={() => setWallpaperOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: insets.bottom + 24 }}>
-            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>Wallpaper</Text>
-            <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2, marginBottom: 14 }}>Applies to this chat, on this phone.</Text>
-            <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-              {WALLPAPERS.map((w) => (
-                <Pressable key={w.key} onPress={() => { useMessagingStore.getState().setWallpaper(convId, w.key); setWallpaperOpen(false); }}
-                  style={{ alignItems: 'center', gap: 6, width: 66 }}>
-                  <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: w.swatch, borderWidth: w.key === wallpaper.key ? 2.5 : StyleSheet.hairlineWidth, borderColor: w.key === wallpaper.key ? colors.primary : colors.coolDivider }} />
-                  <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11 }}>{w.label}</Text>
-                </Pressable>
-              ))}
-            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1592,12 +1579,15 @@ function SwipeToReply({ onReply, children }: { onReply: () => void; children: Re
   );
 }
 
-function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions, onJumpToReply, highlight }: { m: StoredMessage; isGroup: boolean; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void; onJumpToReply?: (messageId: string) => void; highlight?: string }) {
+function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions, onJumpToReply, highlight }: { m: StoredMessage; isGroup: boolean; theme: ChatTheme; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void; onJumpToReply?: (messageId: string) => void; highlight?: string }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
-  // Tick glyphs on the light cards: pending → clock, sent → ✓, delivered → ✓✓ (muted grey),
-  // read → ✓✓ teal (mockup style).
-  const tickColor = m.status === 'read' ? colors.primary : TICK_MUTED;
+  // Every colour inside a bubble comes from the side it is on: a sent bubble may be near-black
+  // (Ink) while the received one is white, so one shared "muted grey" cannot serve both.
+  const fg = mine ? theme.meText : theme.themText;
+  const faint = mine ? theme.meMute : theme.thMute;
+  // Ticks: read gets the theme's receipt colour, anything earlier stays muted on its own fill.
+  const tickColor = m.status === 'read' ? theme.tick : faint;
   const TickIcon = m.pending ? Clock : m.status === 'sent' ? Check : CheckCheck;
   const hasMedia = !deleted && m.type !== 'text' && m.attachments.length > 0;
   // WhatsApp-style one-tap forward arrow beside media (photo/video/document). Pending messages have
@@ -1613,37 +1603,37 @@ function Bubble({ m, isGroup, nameOf, onPress, onLongPress, selecting, onOpenIma
       <View className="items-center" style={{ flexDirection: mine ? 'row-reverse' : 'row', gap: 6 }}>
       {/* overflow:hidden is the backstop — whatever a child's intrinsic width turns out to be on an
           unusual screen, nothing is ever drawn outside the rounded card. */}
-      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? colors.primarySoft : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: mine ? '#DCEDE9' : colors.coolDivider }}>
-        {isGroup && !mine && !deleted ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
+      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? theme.mine : theme.them, borderWidth: StyleSheet.hairlineWidth, borderColor: mine ? theme.mineBorder : theme.themBorder }}>
+        {isGroup && !mine && !deleted ? <Text style={{ color: theme.senderName, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
         {m.forwardedFrom && !deleted ? (
           <View className="flex-row items-center gap-1" style={{ marginBottom: 2, paddingHorizontal: 4 }}>
-            <ForwardIcon size={12} color={colors.coolText3} />
-            <Text style={{ color: colors.coolText3, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
+            <ForwardIcon size={12} color={faint} />
+            <Text style={{ color: faint, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
           </View>
         ) : null}
         {/* The quote is a link back to what was replied to — tapping it scrolls there and flashes it,
             which is the only way to follow a conversation thread on a phone. */}
         {m.replyTo ? (
-          <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: colors.primary, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
-            <Text numberOfLines={1} style={{ color: colors.primary, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
-            <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{oneLine(m.replyTo.preview)}</Text>
+          <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: theme.senderName, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
+            <Text numberOfLines={1} style={{ color: theme.senderName, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
+            <Text numberOfLines={1} style={{ color: faint, fontSize: 12.5 }}>{oneLine(m.replyTo.preview)}</Text>
           </Pressable>
         ) : null}
         {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} /> : null}
         {deleted ? (
-          <Text style={{ color: colors.coolText, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
+          <Text style={{ color: faint, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
         ) : m.text ? (
           <>
             {/* Link preview card above the text, WhatsApp-style — fetched server-side, cached per URL. */}
             <LinkPreviewCard text={m.text} />
-            <LinkedText text={m.text} linkColor={colors.blue} highlight={highlight}
-              mentionNames={mentionNames} mentionColor={colors.primary} onLongPress={onLongPress}
-              style={{ color: colors.ink, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
+            <LinkedText text={m.text} linkColor={theme.tick} highlight={highlight}
+              mentionNames={mentionNames} mentionColor={theme.senderName} onLongPress={onLongPress}
+              style={{ color: fg, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
           </>
         ) : null}
         <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 3, paddingHorizontal: 4 }}>
-          {m.edited && !deleted ? <Text style={{ color: TIME_FAINT, fontSize: 10 }}>edited</Text> : null}
-          <Text style={{ color: TIME_FAINT, fontSize: 11, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
+          {m.edited && !deleted ? <Text style={{ color: faint, fontSize: 10 }}>edited</Text> : null}
+          <Text style={{ color: faint, fontSize: 11, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
           {mine && !deleted && !m.failed ? <TickIcon size={15} color={tickColor} /> : null}
         </View>
         {mine && m.failed ? (
