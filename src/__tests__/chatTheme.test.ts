@@ -88,6 +88,19 @@ describe('chat themes', () => {
     },
   );
 
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s keeps chrome text legible on the app bar and the composer pill',
+    (_label, theme) => {
+      // The bug this guards: chrome was painted with `themText`, the RECEIVED BUBBLE's ink. On
+      // Eclipse that bubble is dark while the bar and pill are white, so the header title, its
+      // icons and every character typed came out near-white on white.
+      expect(contrast(theme.bar, theme.chromeText)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.pill, theme.chromeText)).toBeGreaterThanOrEqual(4.5);
+      // The placeholder and composer icons ride on the same surfaces at a lower weight.
+      expect(contrast(theme.pill, theme.mute)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
   it('every theme carries a unique key and a label', () => {
     const keys = CHAT_THEMES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);

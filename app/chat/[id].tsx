@@ -793,7 +793,7 @@ export default function ChatDetail() {
         </View>
       ) : (
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: theme.bar, height: 60, borderBottomColor: theme.line, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.themText} /></Pressable>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.chromeText} /></Pressable>
         <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
           <View style={{ position: 'relative' }}>
             <ChatTile name={title} size={40} radius={12}
@@ -803,7 +803,7 @@ export default function ChatDetail() {
               online={otherOnline} dotBorder={theme.bar} />
           </View>
           <View className="flex-1">
-            <Text numberOfLines={1} style={{ color: theme.themText, fontSize: 16, fontWeight: '600' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: theme.chromeText, fontSize: 16, fontWeight: '600' }}>{title}</Text>
             {/* One subtitle line, mockup-style: "Finance Manager · Online" — the presence part goes
                 teal when live (online/typing), the position stays grey. */}
             <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: theme.mute }}>
@@ -812,8 +812,8 @@ export default function ChatDetail() {
             </Text>
           </View>
         </Pressable>
-        <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={theme.themText} /></Pressable>
-        <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={theme.themText} /></Pressable>
+        <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={theme.chromeText} /></Pressable>
+        <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={theme.chromeText} /></Pressable>
       </View>
       )}
 
@@ -1033,7 +1033,7 @@ export default function ChatDetail() {
               <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder="Message" placeholderTextColor={theme.mute} multiline
                 selection={sel}
                 onSelectionChange={(e) => { const r = e.nativeEvent.selection; setCursor(r.start); setSelRange({ start: r.start, end: r.end }); if (sel) setSel(undefined); }}
-                style={{ flex: 1, paddingVertical: COMPOSER_PAD / 2, fontSize: 15, lineHeight: COMPOSER_LINE, color: theme.themText, maxHeight: composerMaxH, textAlignVertical: 'top' }} />
+                style={{ flex: 1, paddingVertical: COMPOSER_PAD / 2, fontSize: 15, lineHeight: COMPOSER_LINE, color: theme.chromeText, maxHeight: composerMaxH, textAlignVertical: 'top' }} />
               <Pressable onPress={() => setAttachOpen((v) => !v)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Attach"
                 style={{ width: 32, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Plus size={22} color={attachOpen ? theme.accent : theme.mute} />
