@@ -32,7 +32,12 @@ export interface ChatTheme {
   /** Sender name inside a group's received bubble. Split from `accent` because the bubble may be
    *  dark while the bar underneath the accent is light (Eclipse) — one value cannot serve both. */
   senderName: string;
-  /** Chrome: app bar + composer fill, their divider, and the input pill. */
+  /** The composer pill. Its own token because the pill sits on the CANVAS, not on the chrome:
+   *  `input` measures only 3.4-7.1 ΔE against the canvas on the light themes, so a pill filled
+   *  with it dissolves into the thread. This is the elevated surface — white on the light themes,
+   *  a lifted grey on Midnight, where a white pill would be the brightest thing on the screen. */
+  pill: string;
+  /** Chrome: app bar fill, dividers, and the sunken input used on chrome surfaces. */
   bar: string;
   line: string;
   input: string;
@@ -51,6 +56,7 @@ export const CHAT_THEMES: ChatTheme[] = [
     them: '#FFFFFF', themBorder: '#0C0E14', themText: '#101519', thMute: '#4A545C',
     mine: '#A8C2CE', mineBorder: '#88A8B7', meText: '#101519', meMute: '#2B444F',
     accent: '#31606F', senderName: '#31606F',
+    pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#CAD2D9', input: '#EDF1F4',
     mute: '#4A545C', tick: '#2F6FD0', watermarkHub: '#101519',
   },
@@ -61,6 +67,7 @@ export const CHAT_THEMES: ChatTheme[] = [
     // A near-black sent bubble takes a white ring — the cut-out card that gives this theme its name.
     mine: '#1B1D24', mineBorder: '#FFFFFF', meText: '#FFFFFF', meMute: '#A7A9B0',
     accent: '#0C0E14', senderName: '#0C0E14',
+    pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#0C0E14', input: '#EFEFEC',
     mute: '#45464B', tick: '#9CC4FF', watermarkHub: '#0C0E14',
   },
@@ -73,6 +80,7 @@ export const CHAT_THEMES: ChatTheme[] = [
     them: '#FFFFFF', themBorder: '#0C0E14', themText: '#0C0E14', thMute: '#45464B',
     mine: '#1B1D24', mineBorder: '#2560BC', meText: '#FFFFFF', meMute: '#A7A9B0',
     accent: '#0C0E14', senderName: '#0C0E14',
+    pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#0C0E14', input: '#EEF3F9',
     mute: '#45464B', tick: '#9CC4FF', watermarkHub: '#0C0E14',
   },
@@ -84,6 +92,7 @@ export const CHAT_THEMES: ChatTheme[] = [
     them: '#232C36', themBorder: '#2E3944', themText: '#E9EDF2', thMute: '#A3ADB6',
     mine: '#0C5B4C', mineBorder: '#147763', meText: '#EAF6F2', meMute: '#9CCBBF',
     accent: '#0E7F66', senderName: '#35D3A6',
+    pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#D3DBE2', input: '#EDF1F4',
     mute: '#4E5862', tick: '#6FB0FF', watermarkHub: '#0C0E14',
   },
@@ -93,6 +102,7 @@ export const CHAT_THEMES: ChatTheme[] = [
     them: '#232C36', themBorder: '#2E3944', themText: '#E9EDF2', thMute: '#A3ADB6',
     mine: '#0C5B4C', mineBorder: '#147763', meText: '#EAF6F2', meMute: '#9CCBBF',
     accent: '#1FB688', senderName: '#1FB688',
+    pill: '#222A33',
     bar: '#141A20', line: '#252D36', input: '#222A33',
     mute: '#A3ADB6', tick: '#6FB0FF', watermarkHub: '#FFFFFF',
   },

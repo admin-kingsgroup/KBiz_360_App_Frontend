@@ -1011,10 +1011,14 @@ export default function ChatDetail() {
             <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
           </Pressable>
         ) : (
-        <View className="flex-row items-end gap-2" style={{ backgroundColor: theme.bar, borderTopColor: theme.line, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
-          <Pressable onPress={isRecording ? () => void cancel() : () => setAttachOpen((v) => !v)} style={{ width: 44, height: 46, alignItems: 'center', justifyContent: 'center' }}>
-            {isRecording ? <Trash2 size={22} color={colors.danger} /> : <Plus size={24} color={colors.coolText} />}
-          </Pressable>
+        <View className="flex-row items-end gap-2" style={{ backgroundColor: theme.canvas, paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
+          {/* Cancel sits outside only while recording, where the pill is replaced by the timer.
+              Attach (+) lives inside the pill — see below. */}
+          {isRecording ? (
+            <Pressable onPress={() => void cancel()} style={{ width: 44, height: 46, alignItems: 'center', justifyContent: 'center' }}>
+              <Trash2 size={22} color={colors.danger} />
+            </Pressable>
+          ) : null}
           {isRecording ? (
             <View className="flex-row items-center gap-2" style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 23, backgroundColor: '#FDECEC' }}>
               <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
@@ -1022,7 +1026,7 @@ export default function ChatDetail() {
               <Text style={{ color: colors.coolText, fontSize: 13 }}>Recording…</Text>
             </View>
           ) : (
-            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: theme.input, paddingLeft: 6, paddingRight: 10 }}>
+            <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: theme.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.line, paddingLeft: 6, paddingRight: 6 }}>
               <Pressable onPress={toggleEmoji} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Smile size={22} color={emojiOpen ? theme.accent : theme.mute} />
               </Pressable>
@@ -1030,7 +1034,12 @@ export default function ChatDetail() {
                 selection={sel}
                 onSelectionChange={(e) => { const r = e.nativeEvent.selection; setCursor(r.start); setSelRange({ start: r.start, end: r.end }); if (sel) setSel(undefined); }}
                 style={{ flex: 1, paddingVertical: COMPOSER_PAD / 2, fontSize: 15, lineHeight: COMPOSER_LINE, color: theme.themText, maxHeight: composerMaxH, textAlignVertical: 'top' }} />
-              <Pressable onPress={() => void takePhoto()} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
+              <Pressable onPress={() => setAttachOpen((v) => !v)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Attach"
+                style={{ width: 32, height: 46, alignItems: 'center', justifyContent: 'center' }}>
+                <Plus size={22} color={attachOpen ? theme.accent : theme.mute} />
+              </Pressable>
+              <Pressable onPress={() => void takePhoto()} hitSlop={6} accessibilityRole="button" accessibilityLabel="Camera"
+                style={{ width: 32, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Camera size={21} color={theme.mute} />
               </Pressable>
             </View>

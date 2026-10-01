@@ -78,6 +78,16 @@ describe('chat themes', () => {
     },
   );
 
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s keeps the composer pill readable against the canvas it floats on',
+    (_label, theme) => {
+      // The composer sits on the canvas with no chrome band behind it, so the pill is a card on
+      // the thread. `input` is NOT usable here — it measures 3.4-7.1 ΔE against these canvases,
+      // which is why `pill` exists. Guard it the same way the bubbles are guarded.
+      expect(deltaE(theme.pill, theme.canvas)).toBeGreaterThanOrEqual(8);
+    },
+  );
+
   it('every theme carries a unique key and a label', () => {
     const keys = CHAT_THEMES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
