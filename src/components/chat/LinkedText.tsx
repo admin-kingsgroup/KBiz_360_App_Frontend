@@ -53,7 +53,9 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor,
   // Block-level content: consecutive quote lines share one box, like WhatsApp.
   const groups = groupQuotes(blocks);
   return (
-    <View>
+    // flexShrink lets this wrapper go below its max-content width, so a long line inside it
+    // wraps to the bubble instead of overflowing and being clipped by its overflow:hidden.
+    <View style={{ flexShrink: 1 }}>
       {groups.map((g, i) => {
         if (g.kind === 'quotes') {
           return (
@@ -70,18 +72,25 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor,
                 <Text style={[style, { fontFamily: MONO, fontSize: 13 }]}>{b.text}</Text>
               </View>
             );
+          // `flexShrink: 1` on the text, never `flex: 1`. The bubble is shrink-to-fit
+          // (maxWidth 80%, width taken from its content), so it first measures how wide the
+          // content wants to be. `flex: 1` implies flexBasis 0, which makes the text report
+          // ZERO intrinsic width — the row then measures as just the marker, the bubble
+          // collapses to ~20px and every word wraps onto its own line. flexShrink keeps
+          // flexBasis auto, so the text reports its natural width, the bubble caps at 80%,
+          // and the line wraps there with the hanging indent intact.
           case 'bullet':
             return (
               <View key={i} style={{ flexDirection: 'row' }}>
                 <Text style={[style, { width: 20 }]}>•</Text>
-                <Text style={[style, { flex: 1 }]}>{runsNode(b.runs, ' ')}</Text>
+                <Text style={[style, { flexShrink: 1 }]}>{runsNode(b.runs, ' ')}</Text>
               </View>
             );
           case 'number':
             return (
               <View key={i} style={{ flexDirection: 'row' }}>
                 <Text style={[style, { minWidth: 26 }]}>{b.n}.</Text>
-                <Text style={[style, { flex: 1 }]}>{runsNode(b.runs, ' ')}</Text>
+                <Text style={[style, { flexShrink: 1 }]}>{runsNode(b.runs, ' ')}</Text>
               </View>
             );
           default:
