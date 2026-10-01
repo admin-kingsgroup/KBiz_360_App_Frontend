@@ -4,13 +4,14 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, FadeIn, FadeInDown,
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, FadeIn, FadeInDown, SlideInDown,
 } from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, Stop, Rect, Circle } from 'react-native-svg';
 import { User, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
 import { KBLogo } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { authApi, ApiError } from '../../src/api';
+import { useSplashStore } from '../../src/store/splashStore';
 
 // Real authentication against the backend (CRM users via /api/auth/login). On success the auth
 // store flips to signed-in and the root gate routes to permissions/app. SSO/forgot are not wired.
@@ -68,6 +69,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  // On launch this screen mounts underneath the animated splash; the sign-in card waits until the
+  // splash has dissolved, then slides up from the bottom (after a sign-out it slides up at once).
+  const cardReady = useSplashStore((s) => s.handedOff);
 
   // Continuous logo spin + a slow breathing halo.
   const spin = useSharedValue(0);
@@ -123,60 +127,70 @@ export default function Login() {
               style={{ color: colors.textMuted2, fontSize: 9.5, fontWeight: '700', letterSpacing: 3, marginTop: 12 }}>THE BUSINESS ENGINE</Animated.Text>
           </View>
 
-          {/* Sign-in card */}
-          <Animated.View entering={FadeInDown.delay(360).duration(700)}
-            style={{ marginTop: 32, borderRadius: 26, padding: 20, backgroundColor: 'rgba(18,22,32,0.62)', borderWidth: 1, borderColor: colors.line }}>
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ color: colors.paper, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 }}>Welcome back</Text>
-              <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 3 }}>Sign in to your workspace</Text>
-            </View>
+          {cardReady ? (
+            <>
+              {/* Sign-in card */}
+              <Animated.View entering={SlideInDown.duration(760).easing(Easing.out(Easing.exp))}
+                style={{ marginTop: 32, borderRadius: 26, padding: 20, backgroundColor: 'rgba(18,22,32,0.62)', borderWidth: 1, borderColor: colors.line }}>
+                <Animated.View entering={FadeInDown.delay(180).duration(480)} style={{ alignItems: 'center', marginBottom: 16 }}>
+                  <Text style={{ color: colors.paper, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 }}>Welcome back</Text>
+                  <Text style={{ color: colors.textMuted2, fontSize: 11.5, marginTop: 3 }}>Sign in to your workspace</Text>
+                </Animated.View>
 
-            {/* User ID */}
-            <View className="flex-row items-center gap-2.5"
-              style={{ borderRadius: 15, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: fieldBorder('id') }}>
-              <User size={17} color={focused === 'id' ? colors.primary : colors.textMuted2} />
-              <TextInput value={userId} onChangeText={(t) => { setUserId(t); if (error) setError(null); }} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!loading}
-                onFocus={() => setFocused('id')} onBlur={() => setFocused(null)} onSubmitEditing={onLogin}
-                placeholder="Email" placeholderTextColor={colors.textMuted}
-                style={{ flex: 1, color: colors.paper, fontSize: 14, fontWeight: '600' }} />
-            </View>
+                {/* User ID */}
+                <Animated.View entering={FadeInDown.delay(260).duration(520)}>
+                  <View className="flex-row items-center gap-2.5"
+                    style={{ borderRadius: 15, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: fieldBorder('id') }}>
+                    <User size={17} color={focused === 'id' ? colors.primary : colors.textMuted2} />
+                    <TextInput value={userId} onChangeText={(t) => { setUserId(t); if (error) setError(null); }} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!loading}
+                      onFocus={() => setFocused('id')} onBlur={() => setFocused(null)} onSubmitEditing={onLogin}
+                      placeholder="Email" placeholderTextColor={colors.textMuted}
+                      style={{ flex: 1, color: colors.paper, fontSize: 14, fontWeight: '600' }} />
+                  </View>
+                </Animated.View>
 
-            {/* Password */}
-            <View className="flex-row items-center gap-2.5" style={{ marginTop: 10, borderRadius: 15, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: fieldBorder('pwd') }}>
-              <Lock size={17} color={focused === 'pwd' ? colors.primary : colors.textMuted2} />
-              <TextInput value={password} onChangeText={(t) => { setPassword(t); if (error) setError(null); }} secureTextEntry={!showPwd} editable={!loading}
-                onFocus={() => setFocused('pwd')} onBlur={() => setFocused(null)} onSubmitEditing={onLogin}
-                placeholder="Password" placeholderTextColor={colors.textMuted}
-                style={{ flex: 1, color: colors.paper, fontSize: 14, fontWeight: '600' }} />
-              <Pressable onPress={() => setShowPwd((v) => !v)} hitSlop={8} accessibilityLabel={showPwd ? 'Hide password' : 'Show password'}>
-                {showPwd ? <EyeOff size={17} color={colors.textMuted2} /> : <Eye size={17} color={colors.textMuted2} />}
-              </Pressable>
-            </View>
+                {/* Password */}
+                <Animated.View entering={FadeInDown.delay(340).duration(520)}>
+                  <View className="flex-row items-center gap-2.5" style={{ marginTop: 10, borderRadius: 15, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: 'rgba(12,14,20,0.7)', borderWidth: 1, borderColor: fieldBorder('pwd') }}>
+                    <Lock size={17} color={focused === 'pwd' ? colors.primary : colors.textMuted2} />
+                    <TextInput value={password} onChangeText={(t) => { setPassword(t); if (error) setError(null); }} secureTextEntry={!showPwd} editable={!loading}
+                      onFocus={() => setFocused('pwd')} onBlur={() => setFocused(null)} onSubmitEditing={onLogin}
+                      placeholder="Password" placeholderTextColor={colors.textMuted}
+                      style={{ flex: 1, color: colors.paper, fontSize: 14, fontWeight: '600' }} />
+                    <Pressable onPress={() => setShowPwd((v) => !v)} hitSlop={8} accessibilityLabel={showPwd ? 'Hide password' : 'Show password'}>
+                      {showPwd ? <EyeOff size={17} color={colors.textMuted2} /> : <Eye size={17} color={colors.textMuted2} />}
+                    </Pressable>
+                  </View>
+                </Animated.View>
 
-            {/* Error */}
-            {error ? (
-              <Text style={{ color: colors.coral, fontSize: 11.5, fontWeight: '700', marginTop: 10 }}>{error}</Text>
-            ) : null}
+                {/* Error */}
+                {error ? (
+                  <Text style={{ color: colors.coral, fontSize: 11.5, fontWeight: '700', marginTop: 10 }}>{error}</Text>
+                ) : null}
 
-            {/* Sign in */}
-            <AnimatedPressable onPress={onLogin} disabled={loading}
-              onPressIn={() => { press.value = withTiming(0.97, { duration: 110 }); }}
-              onPressOut={() => { press.value = withTiming(1, { duration: 160 }); }}
-              className="flex-row items-center justify-center gap-2"
-              style={[btnStyle, { marginTop: 14, borderRadius: 15, paddingVertical: 15, backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}>
-              {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '800' }}>Sign in</Text>
-                  <ArrowRight size={16} color="#fff" strokeWidth={2.6} />
-                </>
-              )}
-            </AnimatedPressable>
+                {/* Sign in */}
+                <Animated.View entering={FadeInDown.delay(420).duration(520)}>
+                  <AnimatedPressable onPress={onLogin} disabled={loading}
+                    onPressIn={() => { press.value = withTiming(0.97, { duration: 110 }); }}
+                    onPressOut={() => { press.value = withTiming(1, { duration: 160 }); }}
+                    className="flex-row items-center justify-center gap-2"
+                    style={[btnStyle, { marginTop: 14, borderRadius: 15, paddingVertical: 15, backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}>
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '800' }}>Sign in</Text>
+                        <ArrowRight size={16} color="#fff" strokeWidth={2.6} />
+                      </>
+                    )}
+                  </AnimatedPressable>
+                </Animated.View>
 
-          </Animated.View>
+              </Animated.View>
 
-          <Text style={{ color: colors.textMuted2, fontSize: 10, textAlign: 'center', marginTop: 14 }}>v1.0 · Build 240</Text>
+              <Animated.Text entering={FadeIn.delay(600).duration(400)} style={{ color: colors.textMuted2, fontSize: 10, textAlign: 'center', marginTop: 14 }}>v1.0 · Build 240</Animated.Text>
+            </>
+          ) : null}
         </KeyboardAwareScrollView>
       </SafeAreaView>
     </View>
