@@ -4,12 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronRight, Users, Shield, LogOut, LogIn, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palmtree, ClipboardCheck, CalendarDays, ReceiptIndianRupee } from 'lucide-react-native';
+import { ChevronRight, Users, Shield, LogOut, LogIn, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palette, Palmtree, ClipboardCheck, CalendarDays, ReceiptIndianRupee } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { ROLE_DEFS } from '../../src/constants/roles';
 import { useUiStore } from '../../src/store/uiStore';
+import { useGlobalChatTheme } from '../../src/theme';
 import { listCompanies, listUsers, listBranches, listRoles, updateMyProfile, setMyAvatar, changeMyPassword, humanizeRole } from '../../src/api/directory';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { uploadFile, mediaUrl } from '../../src/api/media';
@@ -30,6 +31,7 @@ export default function Profile() {
   const user = useAccessStore((s) => s.user);
   const isSuper = !!useAccessStore((s) => s.access())?.isSuper;
   const showToast = useUiStore((s) => s.showToast);
+  const chatTheme = useGlobalChatTheme(); // the row shows which theme is active
   const [counts, setCounts] = useState({ companies: 0, users: 0, branches: 0, roles: 0 });
   const [loaded, setLoaded] = useState(false);
   const [meInfo, setMeInfo] = useState<{ position: string | null; roleName: string } | null>(null); // my position + real CRM role
@@ -248,6 +250,7 @@ export default function Profile() {
             title: 'App & privacy',
             rows: [
               { key: 'password', label: 'Change password', sub: 'Update your sign-in password', Icon: KeyRound, tint: colors.orange, value: null, chip: false, onPress: () => setPwOpen(true) },
+              { key: 'chat-theme', label: 'Chat theme', sub: 'Canvas, bubbles & accent', Icon: Palette, tint: colors.primary, value: chatTheme.label, chip: false, onPress: () => router.push('/chat/theme') },
               { key: 'chat-privacy', label: 'Chat privacy', sub: 'Last seen, read receipts, blocked contacts', Icon: Lock, tint: colors.blue, value: null, chip: false, onPress: () => router.push('/chat/privacy') },
               { key: 'storage', label: 'Storage', sub: 'Chats and downloads kept on this phone', Icon: HardDrive, tint: colors.teal, value: null, chip: false, onPress: () => router.push('/storage') },
             ],

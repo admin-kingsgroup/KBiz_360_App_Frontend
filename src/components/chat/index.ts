@@ -6,3 +6,5 @@ export { ChatActionsSheet } from './ChatActionsSheet';
 export { LinkPreviewCard } from './LinkPreviewCard';
 export { ZoomableImage } from './ZoomableImage';
 export { FormatToolbar } from './FormatToolbar';
+export { ChatWatermark } from './ChatWatermark';
+export { ChatTile } from './ChatTile';
