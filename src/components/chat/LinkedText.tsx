@@ -51,6 +51,9 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor,
   }
 
   // Block-level content: consecutive quote lines share one box, like WhatsApp.
+  // List-item text takes flexShrink, NOT flex:1 — the bubble is content-sized, and flex:1 (basis 0)
+  // gives the text no intrinsic width, so the bubble shrank to the sender name and the items wrapped
+  // a few letters per line. flexShrink keeps the natural width and only wraps at the bubble's max.
   const groups = groupQuotes(blocks);
   return (
     <View>
@@ -74,14 +77,14 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor,
             return (
               <View key={i} style={{ flexDirection: 'row' }}>
                 <Text style={[style, { width: 20 }]}>•</Text>
-                <Text style={[style, { flex: 1 }]}>{runsNode(b.runs, ' ')}</Text>
+                <Text style={[style, { flexShrink: 1 }]}>{runsNode(b.runs, ' ')}</Text>
               </View>
             );
           case 'number':
             return (
               <View key={i} style={{ flexDirection: 'row' }}>
                 <Text style={[style, { minWidth: 26 }]}>{b.n}.</Text>
-                <Text style={[style, { flex: 1 }]}>{runsNode(b.runs, ' ')}</Text>
+                <Text style={[style, { flexShrink: 1 }]}>{runsNode(b.runs, ' ')}</Text>
               </View>
             );
           default:
