@@ -5,7 +5,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { isRunningInExpoGo } from 'expo';
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary, OfflineBanner } from '../src/components/common';
@@ -201,7 +201,10 @@ export default function RootLayout() {
     // Disabled in Expo Go: the native module only exists in dev/EAS builds (same rule as notifications).
     <ShareIntentProvider options={{ disabled: isRunningInExpoGo() }}>
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+      {/* initialMetrics: render children on the very first frame. Without it the provider renders
+          nothing until native insets arrive, and that empty frame shows the bare root view between
+          the native launch screen and the animated splash. */}
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <KeyboardProvider>
           <ErrorBoundary>
             <OfflineBanner />

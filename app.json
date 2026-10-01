@@ -96,7 +96,15 @@
           "appleTeamId": "9GPR588XWH"
         }
       ],
-      "expo-splash-screen"
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0C0E14",
+          "image": "./assets/splash-blank.png",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": false,
