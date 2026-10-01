@@ -1,8 +1,8 @@
 import { memo } from 'react';
-import { Pressable, View, Text, Image, StyleSheet } from 'react-native';
+import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Check, CheckCheck, BellOff, Pin, Image as ImageIcon } from 'lucide-react-native';
 import { colors } from '../../theme';
-import { tileCodeFor, tintForCode } from '../../logic/chatTile';
+import { ChatTile } from './ChatTile';
 import type { DirectChatItem } from '../../data/chats';
 
 // WhatsApp list ticks: shown before the preview when the last message is MINE (caller sets lastStatus).
@@ -27,9 +27,6 @@ export type ChatRowItem = DirectChatItem & {
 // dropped by the NativeWind interop here (the row un-cards and stacks vertically). Ripple = feedback.
 function ChatListItemBase({ chat, onPress, onLongPress, topDivider = false }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void; topDivider?: boolean }) {
   const unread = !!chat.unread;
-  const code = tileCodeFor({ name: chat.name, branchCode: chat.branchCode, companyCode: chat.companyCode });
-  // Tint follows the CODE, so two rooms in the same group share a tile — see chatTile.tintForCode.
-  const tile = tintForCode(code);
   return (
     <Pressable
       onPress={onPress}
@@ -43,12 +40,9 @@ function ChatListItemBase({ chat, onPress, onLongPress, topDivider = false }: { 
     >
       {topDivider ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.coolDivider }} /> : null}
       {/* A real photo still wins over the code — a group with an image is recognised by it. */}
-      <View style={{ width: 48, height: 48, borderRadius: 14, backgroundColor: tile.bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {chat.image
-          ? <Image source={{ uri: chat.image }} style={{ width: 48, height: 48, borderRadius: 14 }} />
-          : <Text numberOfLines={1} style={{ color: tile.fg, fontWeight: '800', fontSize: 12, letterSpacing: 0.2 }}>{code}</Text>}
-        {chat.online ? <View style={{ position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.accent, borderWidth: 2.5, borderColor: colors.card }} /> : null}
-      </View>
+      <ChatTile name={chat.name} branchCode={chat.branchCode} companyCode={chat.companyCode}
+        image={chat.image} size={48} radius={14} online={chat.online}
+        dotBorder={unread ? colors.rowUnread : colors.card} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: unread ? '800' : '600', flex: 1 }}>{chat.name}</Text>

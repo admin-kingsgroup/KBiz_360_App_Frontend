@@ -31,8 +31,8 @@ import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
 import { requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
 import { useChatTheme, type ChatTheme } from '../../src/theme';
-import { ChatWatermark } from '../../src/components/chat';
-import { refreshDirectoryUsers } from '../../src/store/directoryStore';
+import { ChatWatermark, ChatTile } from '../../src/components/chat';
+import { refreshDirectoryUsers, useDirectoryStore } from '../../src/store/directoryStore';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
@@ -55,8 +55,6 @@ const colors = {
   ink: '#0F1418',
 };
 const TICK_MUTED = '#B6BEC6'; // sent/delivered ticks + pending clock
-const TIME_FAINT = '#A2AAB2'; // in-bubble timestamps
-const ONLINE_DOT = '#2BC48A'; // avatar presence dot
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 // Disappearing-message durations, matching WhatsApp's menu.
@@ -108,6 +106,10 @@ export default function ChatDetail() {
   // Device-local, like the wallpaper it replaces.
   const theme = useChatTheme(convId);
   const watermarkOn = useMessagingStore((s) => s.chatWatermark);
+  // The header tile must match the Chats list exactly — same code, same tint. Both read the
+  // branch/business short code out of the directory; until it loads, both fall back to initials.
+  const dirBranches = useDirectoryStore((s) => s.branches);
+  const dirBusinesses = useDirectoryStore((s) => s.businesses);
 
   const [conv, setConv] = useState<ChatConversation | undefined>(convFromStore);
   // Draft: whatever was left in the composer last time this chat was open (WhatsApp keeps it and
@@ -223,6 +225,10 @@ export default function ChatDetail() {
     setPinIdx(0); setPendingJump(null); setHighlightId(null);
     getPinned(convId).then(setPinned).catch(() => setPinned([]));
     void refreshDirectoryUsers(); // throttled — member names/photos stay current
+    // Branch/business codes for the header tile. Usually already in memory from the Chats list,
+    // but a notification deep-link opens this screen first — without this the tile would fall
+    // back to initials and stop matching the row the user tapped.
+    void useDirectoryStore.getState().load();
     return () => { leaveConversation(convId); useMessagingStore.getState().setActive(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId]);
@@ -778,8 +784,11 @@ export default function ChatDetail() {
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
           <View style={{ position: 'relative' }}>
-            <Avatar initials={(title[0] ?? '?').toUpperCase()} color={isGroup ? colors.purple : colors.primary} size={40} uri={conv?.image ? mediaUrl(conv.image) : null} />
-            {otherOnline ? <View style={{ position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, backgroundColor: ONLINE_DOT, borderWidth: 2.5, borderColor: '#fff' }} /> : null}
+            <ChatTile name={title} size={40} radius={12}
+              branchCode={(conv?.branchId && dirBranches.find((b) => b.id === conv.branchId)?.code) || null}
+              companyCode={(conv?.companyId && dirBusinesses.find((b) => b.id === conv.companyId)?.code) || null}
+              image={conv?.image ? mediaUrl(conv.image) : null}
+              online={otherOnline} dotBorder={theme.bar} />
           </View>
           <View className="flex-1">
             <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>{title}</Text>
