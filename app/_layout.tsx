@@ -1,5 +1,5 @@
 import '../global.css';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { View, AppState } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { isRunningInExpoGo } from 'expo';
@@ -11,6 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary, OfflineBanner } from '../src/components/common';
 import { GlobalToast } from '../src/components/ui';
 import { LocationDisclosureHost } from '../src/components/LocationDisclosureHost';
+import { AnimatedSplash } from '../src/components/splash/AnimatedSplash';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
 import { useAttendanceStore } from '../src/store/attendanceStore';
@@ -176,6 +177,10 @@ export default function RootLayout() {
   // straight in the app (signed in until explicit logout) and previously-granted permissions are not
   // re-requested ("asked once" preserved across restart).
   const [hydrated, setHydrated] = useState(false);
+  // Animated launch splash: covers the restore, then hands off to the app (signed in) or into the
+  // login screen (signed out). Cold start only — this layout mounts once per launch.
+  const [splashDone, setSplashDone] = useState(false);
+  const endSplash = useCallback(() => setSplashDone(true), []);
   useEffect(() => {
     // Crash reporting: catch fatal JS errors (stashed and flushed next launch) + send any
     // report left behind by a previous crash.
@@ -219,6 +224,9 @@ export default function RootLayout() {
                 (not per-screen) so showToast() from any screen is actually visible. */}
             <GlobalToast />
             <StatusBar style="dark" />
+            {/* Launch splash — after the StatusBar so its light status bar wins while it shows, and
+                last so it covers banners and toasts until it hands off. */}
+            {splashDone ? null : <AnimatedSplash ready={hydrated} onDone={endSplash} />}
           </ErrorBoundary>
         </KeyboardProvider>
       </SafeAreaProvider>
