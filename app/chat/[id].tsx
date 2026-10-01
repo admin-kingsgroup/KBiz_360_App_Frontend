@@ -781,7 +781,7 @@ export default function ChatDetail() {
         </View>
       ) : (
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: theme.bar, height: 60, borderBottomColor: theme.line, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
+        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.themText} /></Pressable>
         <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
           <View style={{ position: 'relative' }}>
             <ChatTile name={title} size={40} radius={12}
@@ -791,17 +791,17 @@ export default function ChatDetail() {
               online={otherOnline} dotBorder={theme.bar} />
           </View>
           <View className="flex-1">
-            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: '600' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: theme.themText, fontSize: 16, fontWeight: '600' }}>{title}</Text>
             {/* One subtitle line, mockup-style: "Finance Manager · Online" — the presence part goes
                 teal when live (online/typing), the position stays grey. */}
-            <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: colors.coolText3 }}>
+            <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: theme.mute }}>
               {!isGroup && otherPosition ? `${otherPosition} · ` : ''}
-              <Text style={{ color: typingUsers.length || otherOnline ? colors.primary : colors.coolText3, fontStyle: typingUsers.length ? 'italic' : 'normal' }}>{subtitle}</Text>
+              <Text style={{ color: typingUsers.length || otherOnline ? theme.accent : theme.mute, fontStyle: typingUsers.length ? 'italic' : 'normal' }}>{subtitle}</Text>
             </Text>
           </View>
         </Pressable>
-        <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={colors.ink} /></Pressable>
-        <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={colors.ink} /></Pressable>
+        <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={theme.themText} /></Pressable>
+        <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={theme.themText} /></Pressable>
       </View>
       )}
 
@@ -931,21 +931,21 @@ export default function ChatDetail() {
 
         {/* Upload progress */}
         {uploading !== null ? (
-          <View className="px-3 py-2" style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
-            <Text style={{ color: colors.coolText, fontSize: 11.5, fontWeight: '600', marginBottom: 4 }}>Uploading… {Math.round(uploading * 100)}%</Text>
-            <View style={{ height: 4, borderRadius: 2, backgroundColor: colors.coolMuted }}><View style={{ height: 4, borderRadius: 2, width: `${Math.max(5, uploading * 100)}%`, backgroundColor: colors.primary }} /></View>
+          <View className="px-3 py-2" style={{ backgroundColor: theme.bar, borderTopColor: theme.line, borderTopWidth: 1 }}>
+            <Text style={{ color: theme.mute, fontSize: 11.5, fontWeight: '600', marginBottom: 4 }}>Uploading… {Math.round(uploading * 100)}%</Text>
+            <View style={{ height: 4, borderRadius: 2, backgroundColor: theme.input }}><View style={{ height: 4, borderRadius: 2, width: `${Math.max(5, uploading * 100)}%`, backgroundColor: theme.accent }} /></View>
           </View>
         ) : null}
 
         {/* Reply / edit banner */}
         {replyTo || editing ? (
-          <View className="flex-row items-center gap-2 px-3 py-2" style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: 1 }}>
-            <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: colors.primary }} />
+          <View className="flex-row items-center gap-2 px-3 py-2" style={{ backgroundColor: theme.bar, borderTopColor: theme.line, borderTopWidth: 1 }}>
+            <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: theme.accent }} />
             <View className="flex-1">
-              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{editing ? 'Editing' : `Reply to ${nameOf((replyTo as StoredMessage).senderId)}`}</Text>
-              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12.5 }}>{(editing ?? replyTo)?.text || '[media]'}</Text>
+              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{editing ? 'Editing' : `Reply to ${nameOf((replyTo as StoredMessage).senderId)}`}</Text>
+              <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 12.5 }}>{(editing ?? replyTo)?.text || '[media]'}</Text>
             </View>
-            <Pressable onPress={() => { setReplyTo(null); setEditing(null); setText(''); }} hitSlop={8}><X size={18} color={colors.coolText} /></Pressable>
+            <Pressable onPress={() => { setReplyTo(null); setEditing(null); setText(''); }} hitSlop={8}><X size={18} color={theme.mute} /></Pressable>
           </View>
         ) : null}
 
@@ -1012,14 +1012,14 @@ export default function ChatDetail() {
           ) : (
             <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: theme.input, paddingLeft: 6, paddingRight: 10 }}>
               <Pressable onPress={toggleEmoji} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
-                <Smile size={22} color={emojiOpen ? colors.primary : colors.coolText} />
+                <Smile size={22} color={emojiOpen ? theme.accent : theme.mute} />
               </Pressable>
-              <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder={isGroup ? 'Message — @ to mention' : 'Message'} placeholderTextColor={colors.coolText3} multiline
+              <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder="Message" placeholderTextColor={theme.mute} multiline
                 selection={sel}
                 onSelectionChange={(e) => { const r = e.nativeEvent.selection; setCursor(r.start); setSelRange({ start: r.start, end: r.end }); if (sel) setSel(undefined); }}
-                style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: colors.ink, maxHeight: 110 }} />
+                style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: theme.themText, maxHeight: 110 }} />
               <Pressable onPress={() => void takePhoto()} hitSlop={6} style={{ width: 34, height: 46, alignItems: 'center', justifyContent: 'center' }}>
-                <Camera size={21} color={colors.coolText} />
+                <Camera size={21} color={theme.mute} />
               </Pressable>
             </View>
           )}
