@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import { useMessagingStore } from '../store/messagingStore';
 import { chatThemeFor, DEFAULT_CHAT_THEME, type ChatTheme } from './chatThemes';
+import { chatListPalette, type ChatListPalette } from './chatListPalette';
 
 // Which palette a conversation paints with, resolved in one place.
 //
@@ -19,6 +20,11 @@ export function useChatTheme(conversationId?: string): ChatTheme {
 /** The globally chosen theme, ignoring any per-chat override — for Profile and the picker preview. */
 export function useGlobalChatTheme(): ChatTheme {
   return chatThemeFor(useMessagingStore((s) => s.chatTheme));
+}
+
+/** The Chats list's colours — always the global theme (see chatListPalette.ts). */
+export function useChatListPalette(): ChatListPalette {
+  return chatListPalette(useGlobalChatTheme());
 }
 
 // The chat screen resolves the theme once and publishes it here, so the message bubble — which is a

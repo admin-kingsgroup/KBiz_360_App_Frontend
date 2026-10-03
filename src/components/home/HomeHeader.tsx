@@ -3,7 +3,7 @@ import { View, Text, Pressable } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Eye, SquarePen, UserCheck, UserX } from 'lucide-react-native';
 import { CreateMenu } from './CreateMenu';
-import { colors } from '../../theme';
+import { colors, type ChatListPalette } from '../../theme';
 import { useAccessStore } from '../../store/accessStore';
 import { useUiStore } from '../../store/uiStore';
 import { canCreateGroups } from '../../logic/groupCreate';
@@ -19,11 +19,16 @@ const hhmm = (iso: string): string => {
 // Shared brand bar for the Chats and Alerts tabs, per the approved design canvas (2026-09-28):
 // a small brand eyebrow over a large screen title, then the compose button.
 // The title is a prop because the two tabs share every other part of this bar.
+// `palette` paints the bar with the chat theme (Chats tab); without it, the app colours (Alerts).
 //
 // Layout note: today's attendance rides the eyebrow line rather than the main row. It is a STATUS
 // ("In 09:12" / "Absent"), not a peer action, so that is where it belongs; it stays tappable into
 // the Attendance screen with hitSlop making up the touch target.
-export function HomeHeader({ title }: { title: string }) {
+export function HomeHeader({ title, palette }: { title: string; palette?: ChatListPalette }) {
+  const bar = palette?.bar ?? colors.card;
+  const ink = palette?.text ?? colors.ink;
+  const brand = palette?.accent ?? colors.primary;
+  const button = palette?.field ?? colors.primarySoft;
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false); // Super-Admin "+" create hub
   // Today's attendance for the header Present/Absent chip. Refetched every time the screen gains
@@ -50,11 +55,11 @@ export function HomeHeader({ title }: { title: string }) {
 
   return (
     <>
-      <View style={{ backgroundColor: colors.card, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+      <View style={{ backgroundColor: bar, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
         <View className="flex-row items-center" style={{ gap: 12 }}>
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
             <View className="flex-row items-center" style={{ gap: 8 }}>
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.primary, fontSize: 12, fontWeight: '600', letterSpacing: 0.7, textTransform: 'uppercase' }}>KBiz 360 · Smart Connect</Text>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: brand, fontSize: 12, fontWeight: '600', letterSpacing: 0.7, textTransform: 'uppercase' }}>KBiz 360 · Smart Connect</Text>
               {/* Today's attendance at a glance — tap to open Attendance. Hidden for exempt users
                   (attendance not tracked) and until the first fetch resolves. */}
               {attToday && !attToday.exempt ? (
@@ -70,15 +75,15 @@ export function HomeHeader({ title }: { title: string }) {
                 </Pressable>
               ) : null}
             </View>
-            <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.6 }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.6 }}>{title}</Text>
           </View>
           {/* Compose only. There is no profile avatar here: Profile is a bottom tab, and the same
               destination twice on one screen is a wasted 44px, not a convenience. */}
           <Pressable
             onPress={() => (mayCreate ? setCreateOpen(true) : router.push('/chat/search'))}
             accessibilityRole="button" accessibilityLabel={mayCreate ? 'Create' : 'New chat'}
-            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-            <SquarePen size={20} color={colors.primary} strokeWidth={2} />
+            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: button, alignItems: 'center', justifyContent: 'center' }}>
+            <SquarePen size={20} color={brand} strokeWidth={2} />
           </Pressable>
         </View>
       </View>

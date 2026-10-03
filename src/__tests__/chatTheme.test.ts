@@ -1,4 +1,5 @@
 import { CHAT_THEMES, chatThemeFor, DEFAULT_CHAT_THEME, type ChatTheme } from '../theme/chatThemes';
+import { chatListPalette } from '../theme/chatListPalette';
 
 // The colour rules these palettes were built to, asserted rather than eyeballed.
 //
@@ -100,6 +101,48 @@ describe('chat themes', () => {
       expect(contrast(theme.pill, theme.mute)).toBeGreaterThanOrEqual(4.5);
     },
   );
+
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s keeps the Chats list legible when it wears the theme',
+    (_label, theme) => {
+      const p = chatListPalette(theme);
+      // Read rows sit on a light tint, unread rows on the full canvas — names and previews on both.
+      for (const ground of [p.list, p.rowUnread]) {
+        expect(contrast(ground, p.text)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(ground, p.mute)).toBeGreaterThanOrEqual(4.5);
+        // Read ticks are icons on either row ground (WCAG non-text 3:1). This is why they use the
+        // accent: the theme's own `tick` is tuned for the sent bubble and is 1.4:1 on Ink's canvas.
+        expect(contrast(ground, p.accent)).toBeGreaterThanOrEqual(3);
+      }
+      // There are no row dividers, so the two grounds alone must tell read from unread.
+      expect(deltaE(p.list, p.rowUnread)).toBeGreaterThanOrEqual(theme.dark ? 2 : 4);
+      // The unread row's time.
+      expect(contrast(p.rowUnread, p.unreadTime)).toBeGreaterThanOrEqual(4.5);
+      // Selected chips, unread and muted badges.
+      expect(contrast(p.accent, p.onAccent)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(p.mute, p.onAccent)).toBeGreaterThanOrEqual(4.5);
+      // Search placeholder on its field.
+      expect(contrast(p.field, p.mute)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it.each(CHAT_THEMES.filter((t) => t.meQuote || t.themLink || t.bubbleBorderWidth).map((t) => [t.label, t] as const))(
+    '%s overrides keep quotes, mentions and links readable on their bubble',
+    (_label, theme) => {
+      // The overrides exist only because the shared colours vanished on this theme's bubbles, so an
+      // override that is itself unreadable would defeat its purpose.
+      if (theme.meQuote) expect(contrast(theme.mine, theme.meQuote)).toBeGreaterThanOrEqual(4.5);
+      if (theme.themLink) expect(contrast(theme.them, theme.themLink)).toBeGreaterThanOrEqual(4.5);
+      if (theme.bubbleBorderWidth) expect(theme.bubbleBorderWidth).toBeGreaterThan(0);
+    },
+  );
+
+  it('Royal rings both bubbles in visible gold', () => {
+    const royal = chatThemeFor('royal');
+    expect(royal.themBorder).toBe('#C9A227');
+    expect(royal.mineBorder).toBe('#C9A227');
+    expect(royal.bubbleBorderWidth).toBe(1.5);
+  });
 
   it('every theme carries a unique key and a label', () => {
     const keys = CHAT_THEMES.map((t) => t.key);
