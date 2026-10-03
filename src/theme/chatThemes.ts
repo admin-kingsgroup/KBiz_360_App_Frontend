@@ -53,6 +53,16 @@ export interface ChatTheme {
   tick: string;
   /** Centre hub of the brand mark. The six blades always keep the brand palette. */
   watermarkHub: string;
+
+  // ── Optional overrides. Omitted = the long-standing behaviour, so the older themes are untouched. ──
+  /** Bubble border width. Default: a hairline. Royal draws its gold ring at 1.5 so it actually shows. */
+  bubbleBorderWidth?: number;
+  /** Reply-quote rail/name and @mentions inside the SENT bubble. Default: `senderName`, which is tuned
+   *  for the received bubble and can vanish on a dark sent fill (Royal: dark gold on navy, 2.7:1). */
+  meQuote?: string;
+  /** Links inside the RECEIVED bubble. Default: `tick`, which is tuned for the sent bubble and can
+   *  vanish on a white received fill (Royal: bright gold on white, 1.9:1). */
+  themLink?: string;
 }
 
 export const CHAT_THEMES: ChatTheme[] = [
@@ -116,6 +126,27 @@ export const CHAT_THEMES: ChatTheme[] = [
     pill: '#222A33',
     bar: '#141A20', line: '#252D36', input: '#222A33',
     mute: '#A3ADB6', tick: '#6FB0FF', watermarkHub: '#FFFFFF',
+  },
+  {
+    key: 'royal', label: 'Royal', dark: false,
+    // The brand theme: a navy sent bubble with a gold ring on an ivory canvas. Bright gold never
+    // carries text on ivory or white — it is only the ring, the watermark hub and the ticks on navy;
+    // text-weight gold is the darker #7A5F0E (4.73:1 on the canvas).
+    // The design's ivory #EFE8D6 measured 7.3 ΔE against the white received bubble — under the floor
+    // (the design page quoted 12.4 from a different ΔE formula). #EAE3D1 is 3 steps darker: 8.7 ΔE.
+    canvas: '#EAE3D1',
+    // Both bubbles wear the gold ring, at 1.5 — a hairline of it (and the old beige #D8CFB8 on the
+    // received side) did not show on a phone. Approved on the Royal Chat Screen demo, 2026-10-03.
+    them: '#FFFFFF', themBorder: '#C9A227', themText: '#1B1F3B', thMute: '#6B6450',
+    mine: '#1B1F3B', mineBorder: '#C9A227', meText: '#F5EFD9', meMute: '#C9B98A',
+    accent: '#7A5F0E', senderName: '#7A5F0E',
+    chromeText: '#1B1F3B',
+    pill: '#FFFFFF',
+    bar: '#FFFFFF', line: '#DDD4BF', input: '#F5F1E6',
+    mute: '#5E5640', tick: '#E0B84A', watermarkHub: '#C9A227',
+    bubbleBorderWidth: 1.5,
+    // Light gold for quotes/mentions on the navy bubble (8.5:1); dark gold for links on white (6.0:1).
+    meQuote: '#E0B84A', themLink: '#7A5F0E',
   },
 ];
 

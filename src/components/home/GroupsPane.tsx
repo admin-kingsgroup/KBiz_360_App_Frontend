@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SkeletonList } from '../ui';
 import { GroupsList } from './GroupsList';
-import { colors } from '../../theme';
+import { colors, useChatListPalette } from '../../theme';
 import { oneLine } from '../../logic/text';
 import { relTime } from '../../utils/time';
 import { mediaUrl } from '../../api/media';
@@ -20,6 +20,7 @@ import { useMessagingStore } from '../../store/messagingStore';
 // business pills and branch filing moved here unchanged.
 export function GroupsPane({ onLongPressGroup }: { onLongPressGroup: (conversationId: string) => void }) {
   const router = useRouter();
+  const pal = useChatListPalette(); // the Chats tab's theme — this pane lives inside its list
   const access = useAccessStore((s) => s.access());
   const activeBizId = useUiStore((s) => s.activeBizId);
   const setBiz = useUiStore((s) => s.setBiz);
@@ -74,8 +75,8 @@ export function GroupsPane({ onLongPressGroup }: { onLongPressGroup: (conversati
           {pills.map((p) => {
             const on = activeBizId === p.id;
             return (
-              <Pressable key={p.id} onPress={() => setBiz(p.id)} style={[chip, { backgroundColor: on ? colors.ink : colors.card, borderWidth: 1, borderColor: on ? colors.ink : colors.coolDivider }]}>
-                <Text style={{ color: on ? '#fff' : colors.coolText, fontSize: 13, fontWeight: '600' }}>{p.id === 'all' ? 'All' : p.code}</Text>
+              <Pressable key={p.id} onPress={() => setBiz(p.id)} style={[chip, { backgroundColor: on ? pal.text : pal.bar, borderWidth: 1, borderColor: on ? pal.text : pal.line }]}>
+                <Text style={{ color: on ? pal.bar : pal.mute, fontSize: 13, fontWeight: '600' }}>{p.id === 'all' ? 'All' : p.code}</Text>
               </Pressable>
             );
           })}

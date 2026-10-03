@@ -5,4 +5,6 @@ export { fonts, textSizes } from './typography';
 export { spacing, radius } from './spacing';
 export { CHAT_THEMES, DEFAULT_CHAT_THEME, chatThemeFor } from './chatThemes';
 export type { ChatTheme } from './chatThemes';
-export { useChatTheme, useGlobalChatTheme, ChatThemeContext, useChatThemeCtx } from './useChatTheme';
+export { useChatTheme, useGlobalChatTheme, useChatListPalette, ChatThemeContext, useChatThemeCtx } from './useChatTheme';
+export { chatListPalette } from './chatListPalette';
+export type { ChatListPalette } from './chatListPalette';

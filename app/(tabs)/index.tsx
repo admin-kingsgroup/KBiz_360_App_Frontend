@@ -2,10 +2,11 @@ import { useState, useCallback, useMemo } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { setStatusBarStyle } from 'expo-status-bar';
 import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
-import { colors } from '../../src/theme';
+import { colors, useChatListPalette, type ChatListPalette } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useDirectoryStore } from '../../src/store/directoryStore';
@@ -67,6 +68,14 @@ export default function Home() {
   // with unread (direct or group); Groups = every group, filed by business -> branch (GroupsPane).
   const [filter, setFilter] = useState<ChatFilter>('all');
   const realUser = useAuthStore((s) => s.user);
+  // The whole list wears the GLOBAL chat theme (Profile -> Chat theme), like the chats it opens.
+  const p = useChatListPalette();
+  // A dark theme (Midnight) needs light status-bar content while this tab is in front; hand the
+  // app default back on blur so the other tabs are unaffected.
+  useFocusEffect(useCallback(() => {
+    setStatusBarStyle(p.dark ? 'light' : 'dark');
+    return () => setStatusBarStyle('dark');
+  }, [p.dark]));
 
   // Real conversations from the messaging store. Refetch every time Home gains focus so the list is
   // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
@@ -114,20 +123,20 @@ export default function Home() {
   const visible = pinnedFirst.map((c) => convToItem(c, presence, myUserId, codes, drafts[c.id]));
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.card }} edges={['top']}>
-      <HomeHeader title="Chats" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
+      <HomeHeader title="Chats" palette={p} />
 
       {/* Search — a grey field that opens the search screen, with voice as its own button beside it
           (the approved header row), so the mic is a full 44px target rather than an inset glyph. */}
       <View className="flex-row" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 10 }}>
-        <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: colors.coolMuted, paddingHorizontal: 14, gap: 10 }}>
-          <Search size={18} color={colors.coolText} strokeWidth={2} />
-          <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 15, flex: 1 }}>Search chats, people, tickets</Text>
+        <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: p.field, paddingHorizontal: 14, gap: 10 }}>
+          <Search size={18} color={p.mute} strokeWidth={2} />
+          <Text numberOfLines={1} style={{ color: p.mute, fontSize: 15, flex: 1 }}>Search chats, people, tickets</Text>
         </Pressable>
         <Pressable onPress={() => router.push({ pathname: '/chat/search', params: { voice: '1' } })}
           accessibilityRole="button" accessibilityLabel="Voice search"
-          style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}>
-          <Mic size={18} color={colors.coolText} strokeWidth={2} />
+          style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: p.field, alignItems: 'center', justifyContent: 'center' }}>
+          <Mic size={18} color={p.mute} strokeWidth={2} />
         </Pressable>
       </View>
 
@@ -139,11 +148,11 @@ export default function Home() {
           return (
             <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center"
               accessibilityRole="button" accessibilityState={{ selected: on }}
-              style={[chip, on ? chipOn : chipOff]}>
-              <Text style={{ color: on ? '#fff' : colors.textBody, fontSize: 13, fontWeight: on ? '700' : '600' }}>{label}</Text>
+              style={[chip, on ? chipOn(p) : chipOff(p)]}>
+              <Text style={{ color: on ? p.onAccent : p.text, fontSize: 13, fontWeight: on ? '700' : '600' }}>{label}</Text>
               {count > 0 ? (
-                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? '#fff' : colors.primary }}>
-                  <Text style={{ color: on ? colors.primary : '#fff', fontSize: 11, fontWeight: '700' }}>{count > 99 ? '99+' : count}</Text>
+                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.onAccent : p.accent }}>
+                  <Text style={{ color: on ? p.accent : p.onAccent, fontSize: 11, fontWeight: '700' }}>{count > 99 ? '99+' : count}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -152,35 +161,40 @@ export default function Home() {
       </ScrollView>
 
       {/* Chats — flat full-width rows under a hairline, per the approved list */}
-      <ScrollView style={{ flex: 1, borderTopWidth: 1, borderTopColor: colors.coolMuted }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
+      <ScrollView style={{ flex: 1, backgroundColor: p.list, borderTopWidth: 1, borderTopColor: p.line }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
         {filter === 'groups' ? (
           <GroupsPane onLongPressGroup={(id) => setActionsFor(conversations.find((c) => c.id === id) ?? null)} />
         ) : (
           <>
           {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
           {hasArchived ? (
-            <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: colors.coolMuted }}
-              className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: colors.card }}>
-              <Archive size={20} color={colors.coolText} />
-              <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' }}>Archived</Text>
-              {archivedCount ? <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>{archivedCount}</Text> : null}
+            <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: p.line }}
+              className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
+              <Archive size={20} color={p.mute} />
+              <Text style={{ flex: 1, color: p.text, fontSize: 15, fontWeight: '600' }}>Archived</Text>
+              {/* A badge, not bare accent text: accent on the canvas is only 3.8:1 on Eclipse. */}
+              {archivedCount ? (
+                <View style={{ minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: p.onAccent, fontSize: 11, fontWeight: '700' }}>{archivedCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
           ) : null}
           {visible.length === 0 ? (
             <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
-              <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                <MessageCircle size={50} color={colors.primary} />
+              <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>
+                <MessageCircle size={50} color={p.accent} />
               </View>
-              <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : 'No conversations'}</Text>
-              <Text style={{ color: colors.coolText, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>Your conversations will appear here.</Text>
-              <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: colors.primary }}>
-                <Plus size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
+              <Text style={{ color: p.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : 'No conversations'}</Text>
+              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>Your conversations will appear here.</Text>
+              <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: p.accent }}>
+                <Plus size={20} color={p.onAccent} />
+                <Text style={{ color: p.onAccent, fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
               </Pressable>
             </View>
           ) : (
-            visible.map((c, i) => (
-              <ChatListItem key={c.id} chat={c} topDivider={i > 0}
+            visible.map((c) => (
+              <ChatListItem key={c.id} chat={c}
                 onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })}
                 onLongPress={() => setActionsFor(conversations.find((x) => x.id === c.id) ?? null)} />
             ))
@@ -196,7 +210,7 @@ export default function Home() {
   );
 }
 
-// 34px filter chip (approved dimensions): selected = solid green, the rest outlined.
+// 34px filter chip (approved dimensions): selected = solid theme accent, the rest outlined.
 const chip = { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 };
-const chipOn = { backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary };
-const chipOff = { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.borderStrong };
+const chipOn = (p: ChatListPalette) => ({ backgroundColor: p.accent, borderWidth: 1, borderColor: p.accent });
+const chipOff = (p: ChatListPalette) => ({ backgroundColor: p.bar, borderWidth: 1, borderColor: p.line });

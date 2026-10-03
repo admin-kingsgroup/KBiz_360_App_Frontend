@@ -1616,6 +1616,10 @@ function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, on
   // (Ink) while the received one is white, so one shared "muted grey" cannot serve both.
   const fg = mine ? theme.meText : theme.themText;
   const faint = mine ? theme.meMute : theme.thMute;
+  // Quote/mention ink and link ink also follow the side. A theme may omit the overrides, which keeps
+  // the old shared colours (senderName, tick); Royal sets them because those vanish on its bubbles.
+  const quoteInk = mine ? (theme.meQuote ?? theme.senderName) : theme.senderName;
+  const linkInk = mine ? theme.tick : (theme.themLink ?? theme.tick);
   // Ticks: read gets the theme's receipt colour, anything earlier stays muted on its own fill.
   const tickColor = m.status === 'read' ? theme.tick : faint;
   const TickIcon = m.pending ? Clock : m.status === 'sent' ? Check : CheckCheck;
@@ -1633,7 +1637,7 @@ function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, on
       <View className="items-center" style={{ flexDirection: mine ? 'row-reverse' : 'row', gap: 6 }}>
       {/* overflow:hidden is the backstop — whatever a child's intrinsic width turns out to be on an
           unusual screen, nothing is ever drawn outside the rounded card. */}
-      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? theme.mine : theme.them, borderWidth: StyleSheet.hairlineWidth, borderColor: mine ? theme.mineBorder : theme.themBorder }}>
+      <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? theme.mine : theme.them, borderWidth: theme.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderColor: mine ? theme.mineBorder : theme.themBorder }}>
         {isGroup && !mine && !deleted ? <Text style={{ color: theme.senderName, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
         {m.forwardedFrom && !deleted ? (
           <View className="flex-row items-center gap-1" style={{ marginBottom: 2, paddingHorizontal: 4 }}>
@@ -1644,8 +1648,8 @@ function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, on
         {/* The quote is a link back to what was replied to — tapping it scrolls there and flashes it,
             which is the only way to follow a conversation thread on a phone. */}
         {m.replyTo ? (
-          <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: theme.senderName, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
-            <Text numberOfLines={1} style={{ color: theme.senderName, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
+          <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: quoteInk, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
+            <Text numberOfLines={1} style={{ color: quoteInk, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
             <Text numberOfLines={1} style={{ color: faint, fontSize: 12.5 }}>{oneLine(m.replyTo.preview)}</Text>
           </Pressable>
         ) : null}
@@ -1656,8 +1660,8 @@ function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, on
           <>
             {/* Link preview card above the text, WhatsApp-style — fetched server-side, cached per URL. */}
             <LinkPreviewCard text={m.text} />
-            <LinkedText text={m.text} linkColor={theme.tick} highlight={highlight}
-              mentionNames={mentionNames} mentionColor={theme.senderName} onLongPress={onLongPress}
+            <LinkedText text={m.text} linkColor={linkInk} highlight={highlight}
+              mentionNames={mentionNames} mentionColor={quoteInk} onLongPress={onLongPress}
               style={{ color: fg, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
           </>
         ) : null}

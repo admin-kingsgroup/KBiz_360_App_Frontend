@@ -70,12 +70,12 @@ export default function ChatThemePicker() {
             itself rather than on a swatch. */}
         <View style={{ backgroundColor: preview.canvas, paddingHorizontal: 14, paddingVertical: 16, overflow: 'hidden' }}>
           {watermark ? <ChatWatermark theme={preview} size={92} /> : null}
-          <View style={{ alignSelf: 'flex-start', maxWidth: '84%', backgroundColor: preview.them, borderColor: preview.themBorder, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, borderBottomLeftRadius: 5, paddingHorizontal: 11, paddingVertical: 8 }}>
+          <View style={{ alignSelf: 'flex-start', maxWidth: '84%', backgroundColor: preview.them, borderColor: preview.themBorder, borderWidth: preview.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderRadius: 16, borderBottomLeftRadius: 5, paddingHorizontal: 11, paddingVertical: 8 }}>
             <Text style={{ color: preview.senderName, fontSize: 11.5, fontWeight: '700', marginBottom: 1 }}>Anubhav Maurya</Text>
             <Text style={{ color: preview.themText, fontSize: 14.5, lineHeight: 20 }}>Sales register for BOM is ready</Text>
             <Text style={{ color: preview.thMute, fontSize: 10.5, alignSelf: 'flex-end', marginTop: 2 }}>10:42</Text>
           </View>
-          <View style={{ alignSelf: 'flex-end', maxWidth: '84%', marginTop: 8, backgroundColor: preview.mine, borderColor: preview.mineBorder, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, borderBottomRightRadius: 5, paddingHorizontal: 11, paddingVertical: 8 }}>
+          <View style={{ alignSelf: 'flex-end', maxWidth: '84%', marginTop: 8, backgroundColor: preview.mine, borderColor: preview.mineBorder, borderWidth: preview.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderRadius: 16, borderBottomRightRadius: 5, paddingHorizontal: 11, paddingVertical: 8 }}>
             <Text style={{ color: preview.meText, fontSize: 14.5, lineHeight: 20 }}>Checked — GSTR-1 ties out</Text>
             <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 2 }}>
               <Text style={{ color: preview.meMute, fontSize: 10.5 }}>10:44</Text>
@@ -143,8 +143,8 @@ function Tile({ theme, label, selected, onPress, muted }: {
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }}
       accessibilityLabel={label} style={{ width: 96, gap: 6 }}>
       <View style={{ height: 76, borderRadius: 14, backgroundColor: theme.canvas, padding: 8, justifyContent: 'flex-end', gap: 5, opacity: muted ? 0.55 : 1, borderWidth: selected ? 2.5 : StyleSheet.hairlineWidth, borderColor: selected ? colors.primary : colors.coolDivider }}>
-        <View style={{ alignSelf: 'flex-start', width: '72%', height: 18, borderRadius: 7, backgroundColor: theme.them, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.themBorder }} />
-        <View style={{ alignSelf: 'flex-end', width: '72%', height: 18, borderRadius: 7, backgroundColor: theme.mine, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.mineBorder }} />
+        <View style={{ alignSelf: 'flex-start', width: '72%', height: 18, borderRadius: 7, backgroundColor: theme.them, borderWidth: theme.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderColor: theme.themBorder }} />
+        <View style={{ alignSelf: 'flex-end', width: '72%', height: 18, borderRadius: 7, backgroundColor: theme.mine, borderWidth: theme.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderColor: theme.mineBorder }} />
       </View>
       <Text numberOfLines={1} style={{ color: selected ? colors.primary : colors.coolText, fontSize: 11.5, fontWeight: selected ? '700' : '500', textAlign: 'center' }}>{label}</Text>
     </Pressable>

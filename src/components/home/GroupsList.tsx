@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { View, Text, Pressable, ScrollView, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowUpDown, ChevronDown, ChevronUp, Lock, MessageCircle, X } from 'lucide-react-native';
-import { colors } from '../../theme';
+import { colors, useChatListPalette } from '../../theme';
 import { ChatListItem } from '../chat';
 import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
 import { makeAccessFilters } from '../../logic/accessFilters';
@@ -46,6 +46,7 @@ export function GroupsList({
   const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
   // Selected branch chip per business (defaults to the first branch that has groups).
   const [selBranch, setSelBranch] = useState<Record<string, string>>({});
+  const p = useChatListPalette(); // painted with the Chats tab's theme, like the rows below
   // Personal chip arrangement (device-local, per business) + the business whose arrange sheet is open.
   const chipOrder = useBranchOrderStore((s) => s.order);
   const [arrangeFor, setArrangeFor] = useState<string | null>(null);
@@ -86,8 +87,8 @@ export function GroupsList({
 
   if (allItems.length === 0) {
     return isSuper
-      ? <Empty icon={<MessageCircle size={36} color={colors.coolText3} />} title="No groups yet" sub="Set up this business in Profile → Businesses" />
-      : <Empty icon={<Lock size={34} color={colors.coolText3} />} title="No groups in your access" sub="Ask your admin to grant the groups you need." />;
+      ? <Empty icon={<MessageCircle size={36} color={p.mute} />} title="No groups yet" sub="Set up this business in Profile → Businesses" />
+      : <Empty icon={<Lock size={34} color={p.mute} />} title="No groups in your access" sub="Ask your admin to grant the groups you need." />;
   }
 
   // A group IS a chat, so it renders as the chat row — the very same component the All and Unread
@@ -96,10 +97,9 @@ export function GroupsList({
   // initials on a colour hashed off the conversation id.
   // The member count has no slot in that row; it lives on the group's own info screen, which is
   // where someone actually goes to ask it.
-  const GroupRow = (g: GItem, i: number) => (
+  const GroupRow = (g: GItem) => (
     <ChatListItem
       key={g.id}
-      topDivider={i > 0}
       chat={{
         id: g.id,
         name: g.name,
@@ -144,11 +144,11 @@ export function GroupsList({
                 return (
                   <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [bl.id]: s.code }))} onLongPress={() => setArrangeFor(bl.id)} className="flex-row items-center"
                     accessibilityRole="button" accessibilityState={{ selected: on }}
-                    style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, gap: 6, borderWidth: 1, backgroundColor: on ? colors.primary : colors.card, borderColor: on ? colors.primary : colors.borderStrong }}>
-                    <Text style={{ color: on ? '#fff' : colors.textBody, fontSize: 13, fontWeight: on ? '700' : '600' }}>{s.code}</Text>
+                    style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, gap: 6, borderWidth: 1, backgroundColor: on ? p.accent : p.bar, borderColor: on ? p.accent : p.line }}>
+                    <Text style={{ color: on ? p.onAccent : p.text, fontSize: 13, fontWeight: on ? '700' : '600' }}>{s.code}</Text>
                     {unread > 0 ? (
-                      <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? '#fff' : colors.primary }}>
-                        <Text style={{ color: on ? colors.primary : '#fff', fontSize: 11, fontWeight: '700' }}>{unread}</Text>
+                      <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.onAccent : p.accent }}>
+                        <Text style={{ color: on ? p.accent : p.onAccent, fontSize: 11, fontWeight: '700' }}>{unread}</Text>
                       </View>
                     ) : null}
                   </Pressable>
@@ -156,21 +156,21 @@ export function GroupsList({
               })}
               {/* Arrange — reorder the chips to taste (long-pressing any chip opens the same sheet). */}
               <Pressable onPress={() => setArrangeFor(bl.id)} accessibilityRole="button" accessibilityLabel="Arrange branches"
-                style={{ height: 34, width: 34, borderRadius: 17, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' }}>
-                <ArrowUpDown size={15} color={colors.textBody} />
+                style={{ height: 34, width: 34, borderRadius: 17, borderWidth: 1, borderColor: p.line, backgroundColor: p.bar, alignItems: 'center', justifyContent: 'center' }}>
+                <ArrowUpDown size={15} color={p.text} />
               </Pressable>
             </ScrollView>
             ) : null}
 
             {/* One band where there used to be two: which branch is being shown, how many groups are
                 in it, and its local time. Same shape as the Approvals queue's requester header. */}
-            <View className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 20, paddingVertical: 9, backgroundColor: colors.surfaceSubtle, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.coolDivider }}>
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>
+            <View className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 20, paddingVertical: 9, backgroundColor: p.bar, borderTopWidth: 1, borderBottomWidth: 1, borderColor: p.line }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: p.text, fontSize: 13.5, fontWeight: '700' }}>
                 {bl.label}
-                {active.code ? <Text style={{ fontWeight: '500', color: colors.coolText }}> · {active.code}</Text> : null}
+                {active.code ? <Text style={{ fontWeight: '500', color: p.mute }}> · {active.code}</Text> : null}
               </Text>
               <View className="flex-1" />
-              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>
+              <Text numberOfLines={1} style={{ color: p.mute, fontSize: 12 }}>
                 {active.items.length} group{active.items.length === 1 ? '' : 's'}
                 {active.time ? ` · ${active.flag} ${active.time}` : ''}
               </Text>
@@ -238,11 +238,12 @@ function ArrangeBranchesSheet({ block, onClose }: { block: Block | null; onClose
 }
 
 function Empty({ icon, title, sub }: { icon: ReactNode; title: string; sub: string }) {
+  const p = useChatListPalette();
   return (
     <View className="items-center px-6" style={{ paddingVertical: 64 }}>
       <View className="mb-3">{icon}</View>
-      <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
+      <Text style={{ color: p.text, fontSize: 16, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ color: p.mute, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
     </View>
   );
 }

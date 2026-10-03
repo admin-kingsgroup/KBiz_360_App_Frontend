@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { setStatusBarStyle } from 'expo-status-bar';
 import { ChevronLeft, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
-import { colors } from '../../src/theme';
+import { colors, useChatListPalette } from '../../src/theme';
 import { oneLine } from '../../src/logic/text';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { mediaUrl } from '../../src/api/media';
@@ -22,6 +23,11 @@ const relTime = (iso: string): string => {
 
 export default function ArchivedChats() {
   const router = useRouter();
+  const p = useChatListPalette(); // part of the Chats list, so it wears the same theme
+  useFocusEffect(useCallback(() => {
+    setStatusBarStyle(p.dark ? 'light' : 'dark');
+    return () => setStatusBarStyle('dark');
+  }, [p.dark]));
   const conversations = useMessagingStore((s) => s.conversations);
   const drafts = useMessagingStore((s) => s.drafts);
   const myUserId = useMessagingStore((s) => s.myUserId);
@@ -30,27 +36,26 @@ export default function ArchivedChats() {
   const archived = conversations.filter((c) => c.archived);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top']}>
-      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: colors.card, height: 56, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
+      <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: p.bar, height: 56, borderBottomColor: p.line, borderBottomWidth: StyleSheet.hairlineWidth }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-          <ChevronLeft size={24} color={colors.ink} />
+          <ChevronLeft size={24} color={p.text} />
         </Pressable>
-        <Text style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: '700' }}>Archived</Text>
+        <Text style={{ flex: 1, color: p.text, fontSize: 17, fontWeight: '700' }}>Archived</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 24, flexGrow: 1 }}>
+      <ScrollView style={{ backgroundColor: p.list }} contentContainerStyle={{ paddingBottom: 24, flexGrow: 1 }}>
         {archived.length === 0 ? (
           <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32 }}>
-            <Archive size={44} color={colors.coolText3} />
-            <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '700', marginTop: 14 }}>No archived chats</Text>
-            <Text style={{ color: colors.coolText, fontSize: 13.5, marginTop: 6, textAlign: 'center', lineHeight: 19 }}>
+            <Archive size={44} color={p.mute} />
+            <Text style={{ color: p.text, fontSize: 17, fontWeight: '700', marginTop: 14 }}>No archived chats</Text>
+            <Text style={{ color: p.mute, fontSize: 13.5, marginTop: 6, textAlign: 'center', lineHeight: 19 }}>
               Long-press any chat and choose Archive to move it here. It keeps receiving messages quietly.
             </Text>
           </View>
-        ) : archived.map((c, i) => (
+        ) : archived.map((c) => (
           <ChatListItem
             key={c.id}
-            topDivider={i > 0}
             chat={{
               id: c.id,
               name: c.name,
