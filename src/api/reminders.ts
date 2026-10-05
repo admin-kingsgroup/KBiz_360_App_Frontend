@@ -28,7 +28,7 @@ export function listReminders(tab: ReminderTab = 'forme', viewAs?: RoleKey): Pro
 // Multi-assignee create: the server fans out one reminder per person. Sends BOTH forIds and a
 // legacy forId (first assignee) so a backend without multi-assignee support still creates one
 // reminder instead of rejecting; the response is normalized to an array either way.
-export const createReminder = async (body: { text: string; forIds: string[]; when?: string; section?: string; dueAt?: string }): Promise<ReminderRecord[]> => {
+export const createReminder = async (body: { text: string; forIds: string[]; when?: string; section?: string; dueAt?: string; imageUrl?: string }): Promise<ReminderRecord[]> => {
   const res = await apiFetch<ReminderRecord | ReminderRecord[]>('/api/reminders', {
     method: 'POST',
     body: { ...body, forId: body.forIds[0] },
