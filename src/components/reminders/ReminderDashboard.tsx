@@ -11,7 +11,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useAccessStore } from '../../store/accessStore';
 import { colors, radius, spacing } from '../../theme';
 import { ReminderScreenshot } from './ReminderScreenshot';
-import { canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isOverdueReminder, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
+import { buildBranchRefMap, canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isOverdueReminder, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
 
 type Tab = 'myself' | 'users' | 'branches' | 'all';
 const tabs: Array<{ key: Tab; label: string; Icon: typeof CalendarDays; color: string }> = [
@@ -46,8 +46,12 @@ export default function ReminderDashboard() {
     if (userBranches.length) {
       return userBranches.map((branch) => branch.code || branch.name || 'Branch').join(' · ');
     }
-    const rBranch = (reminder as any).branch || (reminder as any).branchCode;
-    return rBranch ? String(rBranch).toUpperCase() : undefined;
+    const rBranch = String((reminder as any).branch || (reminder as any).branchCode || '').trim();
+    if (!rBranch) return undefined;
+    const branchMap = buildBranchRefMap(branches);
+    const known = branchMap.get(rBranch) ?? branchMap.get(rBranch.toLowerCase());
+    if (known) return known.code || known.name || undefined;
+    return /^[0-9a-f]{24}$/i.test(rBranch) ? undefined : rBranch.toUpperCase();
   }, [branches, users]);
   const complete = async (id: string) => { try { await completeReminder(id); await load(); } catch { setError('Could not complete reminder.'); } };
   const remove = async (id: string) => { try { await deleteReminder(id); await load(); } catch { setError('Could not delete reminder. Only its creator can delete it.'); } };
