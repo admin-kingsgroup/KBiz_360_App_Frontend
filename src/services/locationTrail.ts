@@ -4,7 +4,7 @@ import type * as LocationModuleT from 'expo-location';
 import type * as TaskManagerModuleT from 'expo-task-manager';
 import { loadSession, updateStoredTokens } from './storage/session';
 import { setTokens } from '../api/tokens';
-import { askLocationDisclosure } from './locationDisclosure';
+import { hasTrailConsent } from './trailConsent';
 import {
   shouldTrackTrail, pingFromFix, thinPings, appendToBuffer, shouldUploadNow, removeUploaded,
   TRAIL_BATCH_MAX, type TrailDayState, type TrailPing, type RawFix,
@@ -14,20 +14,19 @@ import {
 // accurate GPS fixes to the backend so HR/admin can see where on-duty staff are; nothing is
 // collected outside an open attendance day.
 //
-// HOW IT RUNS WITHOUT "Allow all the time". Android background location was dropped from this app
-// (Play rejection, 09-10) and is NOT coming back here. The trail is a USER-INITIATED FOREGROUND
-// SERVICE instead: expo-location's startLocationUpdatesAsync with a `foregroundService` option
-// needs only "While using the app" as long as it is STARTED while the app is on screen — which
-// the check-in tap guarantees. The OS then keeps delivering fixes with the app backgrounded or
-// swiped away, behind a permanent notification. iOS behaves the same with "When In Use" (the
-// `location` background mode + the blue status-bar indicator). Consequences, by design:
+// HOW IT RUNS. Background location ("Allow all the time") is mandatory to enter the app (owner
+// decision 2026-10-05, logic/permissionGate), so the permission is always in hand here. The stream
+// itself is a FOREGROUND SERVICE (expo-location startLocationUpdatesAsync with a `foregroundService`
+// option): Android throttles plain background location to a few fixes an hour, while a foreground
+// service keeps GPS-grade fixes flowing behind a permanent notification. iOS shows the blue
+// status-bar indicator. Consequences, by design:
 //   • it can only START from the foreground (check-in, or opening the app while the day is open);
 //   • if the OS kills it (force-stop, reboot, aggressive battery saver) it resumes the next time
 //     the app is opened during the open day — never silently from the background.
 //
-// CONSENT. Staff were told "nothing is tracked in the background". The trail therefore never
-// starts until this user has accepted the dedicated work-hours disclosure ('trail' purpose) —
-// asked at check-in, remembered per account on this phone.
+// CONSENT. The entry gate shows the background-location disclosure and records this account's
+// "I agree" (services/trailConsent) before the app opens. The trail double-checks that record and
+// never collects for an account that has not accepted it.
 //
 // THE SERVER DECIDES WHEN IT ENDS. Every upload answers `tracking`; `false` (day closed by a
 // check-out on another device, by an admin, or the business day rolled over) stops the task
@@ -37,7 +36,6 @@ export const LOCATION_TRAIL_TASK = 'kb360-location-trail';
 const BUFFER_KEY = 'kb360-trail-buffer'; // TrailPing[] waiting for upload
 const LAST_KEPT_KEY = 'kb360-trail-last-kept'; // last fix that survived thinning (may already be uploaded)
 const LAST_UPLOAD_KEY = 'kb360-trail-last-upload'; // epoch ms of the last successful upload
-const CONSENT_KEY = 'kb360-trail-consent'; // user id that accepted the work-hours disclosure
 
 type LocationModule = typeof LocationModuleT;
 type TaskManagerModule = typeof TaskManagerModuleT;
@@ -194,7 +192,7 @@ export type TrailStart = 'started' | 'already' | 'no-permission' | 'unavailable'
 
 // Start streaming. Must be called with the app in the FOREGROUND (Android refuses to start a
 // foreground service from the background). NEVER requests a permission — the entry gate already
-// holds "While using the app"; if that was revoked we simply do not start.
+// holds it; if location was revoked we simply do not start (and the gate closes the app).
 export async function startLocationTrail(): Promise<TrailStart> {
   if (isRunningInExpoGo()) return 'unavailable';
   try {
@@ -235,40 +233,19 @@ export async function stopLocationTrail(): Promise<void> {
   await flushTrailBuffer(true);
 }
 
-// ── consent (per account, on this phone) ──
-export async function hasTrailConsent(userId: string): Promise<boolean> {
-  try { return (await store().getItem(CONSENT_KEY)) === userId; } catch { return false; }
-}
-
-// 'punch'  — the user just tapped Check in: always ask if consent is missing.
-// 'screen' — the Attendance screen opened with the day already open: ask at most once per app
-//            launch (a person who said "Not now" is not nagged on every visit).
-// omitted  — background reconcile (app open / foreground): never shows UI.
-export type TrailAsk = 'punch' | 'screen';
-let declinedThisLaunch = false;
-
-async function ensureConsent(userId: string, ask: TrailAsk | undefined): Promise<boolean> {
-  if (await hasTrailConsent(userId)) return true;
-  if (!ask || (ask === 'screen' && declinedThisLaunch)) return false;
-  const agreed = await askLocationDisclosure('trail');
-  if (!agreed) { declinedThisLaunch = true; return false; }
-  await store().setItem(CONSENT_KEY, userId).catch(() => undefined);
-  return true;
-}
-
 // Bring the OS task in line with today's attendance record: day open → running (once consent is
 // in hand); anything else → stopped and drained. Idempotent — call it wherever the record is read.
 // Calls are QUEUED, not dropped: the app-open reconcile and the Attendance screen both sync within
-// the same second, and dropping the second would lose its permission to show the disclosure.
+// the same second, and a check-out's stop must never be lost behind an in-flight start.
 let syncChain: Promise<void> = Promise.resolve();
-export function syncLocationTrail(me: TrailDayState, opts: { ask?: TrailAsk } = {}): Promise<void> {
+export function syncLocationTrail(me: TrailDayState): Promise<void> {
   if (isRunningInExpoGo()) return Promise.resolve();
   const run = async (): Promise<void> => {
     try {
       if (!shouldTrackTrail(me)) { await stopLocationTrail(); return; }
       const session = await loadSession();
       if (!session) return;
-      if (!(await ensureConsent(session.myUserId, opts.ask))) { await stopUpdates(); return; }
+      if (!(await hasTrailConsent(session.myUserId))) { await stopUpdates(); return; }
       await startLocationTrail();
       void flushTrailBuffer(); // app is open — good moment to send anything that queued offline
     } catch { /* best-effort — the next sync retries */ }

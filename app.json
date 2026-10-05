@@ -40,8 +40,8 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "KBiz 360 uses your location to auto check-in / check-out when you are at the office, even in the background.",
-          "isAndroidBackgroundLocationEnabled": false,
+          "locationAlwaysAndWhenInUsePermission": "KBiz 360 uses your location in the background to share your work location with your company while you are checked in, from check-in until check-out.",
+          "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
@@ -120,7 +120,7 @@
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true,
         "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to check you in and out at the office and, while you are checked in, to share your work location with your company until you check out.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "KBiz 360 uses your location in the background to auto check-in when you arrive at the office and check out when you leave.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "KBiz 360 uses your location in the background to share your work location with your company while you are checked in, from check-in until check-out.",
         "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance.",
         "NSMicrophoneUsageDescription": "KBiz 360 needs the microphone for voice messages and calls.",
         "NSCameraUsageDescription": "KBiz 360 needs the camera for photos, videos and video calls in chat.",
@@ -152,6 +152,7 @@
         "RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
@@ -167,9 +168,6 @@
         "android.permission.BLUETOOTH",
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
-      ],
-      "blockedPermissions": [
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ]
     },
     "experiments": {

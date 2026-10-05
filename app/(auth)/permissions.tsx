@@ -8,21 +8,20 @@ import type { PermKey } from '../../src/constants/permissions';
 import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { savePerms } from '../../src/services/storage';
 import { requestNotificationPermission, registerPushToken } from '../../src/services/notifications';
-import { getBackgroundLocationStatus, requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
-import { locationPermSatisfied, type BgLocationStatus } from '../../src/logic/permissionGate';
-import { toGateStatus } from '../../src/logic/locationDisclosure';
+import { getLocationGate, requestAlwaysLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
+import type { BgLocationStatus } from '../../src/logic/permissionGate';
 
 // Port of source PermissionGate with ONE deliberate deviation from source: LOCATION is a real
-// OS grant — FOREGROUND ("While using the app") only; that is the only location permission the
-// Android build declares. The OS dialog is ALWAYS preceded by the in-app location disclosure
-// (requestLocationWithDisclosure → LocationDisclosureHost → "I agree" → OS prompt); Google Play
-// rejected the 1.1.0 update on 09-10 because the dialog used to appear straight from this screen.
-// Only a full location deny keeps the row OFF, with a hint that routes to Settings.
+// OS grant, and it must be BACKGROUND location — "Allow all the time" (Android) / "Always" (iOS).
+// Owner decision 2026-10-05: without it the app does not open (logic/permissionGate). The request
+// is ALWAYS preceded by the in-app background-location disclosure
+// (requestAlwaysLocationWithDisclosure → LocationDisclosureHost → "I agree" → OS prompts); Google
+// Play rejected the 1.1.0 update on 09-10 because a dialog used to appear straight from this screen.
+//  - "Not now" on the disclosure, "While using the app", or a deny all keep the row OFF. Anything
+//    short of "all the time" shows a hint that routes to Settings.
 //  - Notifications use the real OS prompt (as before); network has no OS prompt.
-//  - If the OS won't prompt again (hard deny), we show an Open Settings path and auto-recheck when
-//    the app returns to the foreground.
 //  - perms persist (AsyncStorage) so the gate is "asked once" across restarts; the root layout
-//    re-verifies location on every app open and downgrades if it was revoked in Settings.
+//    re-verifies location on every app open and downgrades if it was changed in Settings.
 // The root gate auto-redirects to (tabs) once all perms are granted.
 const ICONS: Record<'navigation' | 'wifi' | 'bell', LucideIcon> = {
   navigation: Navigation, wifi: Wifi, bell: Bell,
@@ -42,13 +41,12 @@ export default function Permissions() {
       setPerm('notifications', ok);
       if (ok) void registerPushToken(); // register Expo push token for message/call/reminder pushes
     } else if (key === 'location') {
-      // Disclosure first, then the OS prompt ("While using the app"). "Not now" on the disclosure
-      // leaves the row OFF without any OS dialog; a hard OS deny shows the Open Settings hint.
-      const result = await requestLocationWithDisclosure('attendance');
-      const st = toGateStatus(result);
-      const ok = locationPermSatisfied(st);
-      setPerm('location', ok);
-      setLocBlocked(ok || result === 'declined' ? null : st);
+      // Disclosure first, then the OS prompts (foreground, then "Allow all the time"). "Not now"
+      // on the disclosure leaves the row OFF without any OS dialog; anything short of the full
+      // background grant shows the Open Settings hint.
+      const gate = await requestAlwaysLocationWithDisclosure();
+      setPerm('location', gate.satisfied);
+      setLocBlocked(gate.satisfied || gate.declined ? null : gate.status);
     } else {
       setPerm(key, true);
     }
@@ -64,8 +62,8 @@ export default function Permissions() {
   useEffect(() => {
     const recheck = async () => {
       if (useAttendanceStore.getState().perms.location) return;
-      const st = await getBackgroundLocationStatus();
-      if (locationPermSatisfied(st)) {
+      const { status: st, satisfied } = await getLocationGate();
+      if (satisfied) {
         useAttendanceStore.getState().setPerm('location', true);
         setLocBlocked(null);
         void savePerms(useAttendanceStore.getState().perms);
@@ -87,7 +85,7 @@ export default function Permissions() {
           </View>
           <Text style={{ color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 }}>Permissions required</Text>
           <Text style={{ color: colors.coolText, fontSize: 13, marginTop: 6, textAlign: 'center', lineHeight: 19 }}>
-            KBiz 360 needs the following to run. Location is used only while the app is open, to confirm you are at your branch when you mark attendance.
+            KBiz 360 needs the following to run. Location must be set to “Allow all the time”: it confirms you are at your branch when you mark attendance and is shared with your company while you are checked in.
           </Text>
         </View>
 
@@ -123,8 +121,11 @@ export default function Permissions() {
         {locBlocked != null && (
           <View className="mx-5 mt-3" style={{ padding: 12, borderRadius: 12, backgroundColor: colors.coral + '14' }}>
             <Text style={{ color: colors.coral, fontSize: 12.5, fontWeight: '700', lineHeight: 17 }}>
-              Location is off. KBiz 360 needs location (“While using the app” is enough) to record
-              attendance check-ins — open Settings · Location and allow it.
+              {locBlocked === 'foreground-only'
+                ? 'Location is set to “While using the app”. KBiz 360 needs “Allow all the time” (“Always” on iPhone) — open Settings · Location and choose it.'
+                : locBlocked === 'granted'
+                  ? 'Tap Allow on Location and agree to the location notice to continue.'
+                  : 'Location is off. KBiz 360 needs location set to “Allow all the time” (“Always” on iPhone) — open Settings · Location and choose it.'}
             </Text>
             <Pressable onPress={openLocationSettings} className="flex-row items-center justify-center gap-1.5 mt-2.5"
               style={{ paddingVertical: 11, borderRadius: 999, backgroundColor: colors.primary }}>
@@ -149,7 +150,7 @@ export default function Permissions() {
             <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{allOn ? 'Enter KBiz 360' : 'Allow all permissions'}</Text>
           </Pressable>
           <Text style={{ color: colors.coolText3, fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 15 }}>
-            You can review these anytime in Profile · Privacy & Security or your phone’s Settings. Location is never tracked in the background.
+            You can review these anytime in Profile · Privacy & Security or your phone’s Settings. Location is shared in the background only while you are checked in.
           </Text>
         </View>
       </ScrollView>

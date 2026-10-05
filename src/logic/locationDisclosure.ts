@@ -14,12 +14,11 @@ import type { BgLocationStatus } from './permissionGate';
 // same fix). The attendance / chat / admin purposes read location only while the app is open and
 // their copy must keep saying so.
 //
-// 'trail' is the ONE purpose that collects in the background: the work-hours location trail
-// (2026-10-05) streams location from check-in to check-out through a foreground service, with the
-// app closed or not in use. It needs no new OS permission, so no OS dialog follows it — but the
-// policy (and plain honesty to staff who were told "nothing is tracked in the background") still
-// requires its own disclosure and an affirmative "I agree" BEFORE the first fix is collected. Its
-// copy must name background collection explicitly; never soften it.
+// 'trail' is the ONE purpose that collects in the background, and it is the ENTRY GATE's
+// disclosure (owner decision 2026-10-05: background location is mandatory to open the app). The
+// work-hours location trail streams location from check-in to check-out with the app closed or
+// not in use. Its copy must name background collection explicitly — the policy requires it, and
+// staff were previously told "nothing is tracked in the background". Never soften it.
 
 export type LocationPurpose = 'attendance' | 'chat' | 'admin' | 'trail';
 
@@ -38,7 +37,7 @@ export const LOCATION_DISCLOSURE: Record<LocationPurpose, LocationDisclosureCopy
     points: [
       'Checking in and out uses your location only while the app is open.',
       'Your distance from the office is recorded with each check-in / check-out.',
-      'Work-hours location sharing is separate — the app explains it and asks you before it starts.',
+      'Work-hours location sharing is explained separately, before the app first opens.',
       'Shared only with your company’s HR and admin team. Never sold, never used for advertising.',
     ],
   },
@@ -51,14 +50,14 @@ export const LOCATION_DISCLOSURE: Record<LocationPurpose, LocationDisclosureCopy
     ],
   },
   trail: {
-    title: 'Work-hours location sharing',
+    title: 'Location access — required',
     body: 'KBiz 360 - Smart Connect collects your location in the background while you are checked in — from your check-in until your check-out — even when the app is closed or not in use, so your company can see where its on-duty staff are.',
     points: [
       'Starts when you check in and stops when you check out. Nothing is collected outside your working day.',
       'A notification stays on your phone the whole time your location is being shared.',
       'Your route and current position for the day are visible only to your company’s HR and admin team. Never sold, never used for advertising.',
     ],
-    footer: 'Tap “I agree” to start sharing your location for today’s working hours. If you choose “Not now”, nothing is shared and the app asks again at your next check-in.',
+    footer: 'Tap “I agree” to continue — your phone will then ask for location access. Choose “Allow all the time” (“Always” on iPhone). KBiz 360 cannot be opened without it.',
   },
   admin: {
     title: 'Use your location',

@@ -64,7 +64,7 @@ describe('disclosure copy (policy checklist)', () => {
   // The work-hours trail DOES collect in the background (foreground service, check-in → check-out).
   // Its disclosure must say so in the words the policy looks for, bound it to the working day,
   // say who sees it, and not promise an OS dialog that never comes.
-  it('trail copy discloses background collection, its bounds and its audience', () => {
+  it('trail (entry gate) copy discloses background collection, its bounds and its audience', () => {
     const c = LOCATION_DISCLOSURE.trail;
     const all = [c.body, ...c.points].join(' ');
     expect(c.body).toMatch(/in the background/);
@@ -73,15 +73,16 @@ describe('disclosure copy (policy checklist)', () => {
     expect(all).toMatch(/check out/i);
     expect(all).toMatch(/notification/i);
     expect(all).toMatch(/HR/);
-    expect(all).not.toMatch(/all the time/i);
-    expect(c.footer).toBeTruthy();
-    expect(c.footer).not.toMatch(/your phone will then ask/);
+    // It is the entry gate's disclosure: it must tell the person which OS option to pick and
+    // that the app does not open without it.
+    expect(c.footer).toMatch(/Allow all the time/);
+    expect(c.footer).toMatch(/cannot be opened without it/);
   });
 
   it('attendance copy no longer denies background tracking outright (the trail exists) but points to its own disclosure', () => {
     const all = [LOCATION_DISCLOSURE.attendance.body, ...LOCATION_DISCLOSURE.attendance.points].join(' ');
     expect(all).not.toMatch(/nothing is tracked in the background/);
-    expect(all).toMatch(/asks you before it starts/);
+    expect(all).toMatch(/explained separately/);
   });
 
   it('attendance copy states the purpose and who it is shared with', () => {

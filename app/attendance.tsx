@@ -145,9 +145,8 @@ export default function Attendance() {
         // Manual punchers get no background geofencing — clear anything an older build left armed.
         // Hidden (director) accounts keep theirs (armed by hiddenAttendance's reconcile).
         if (!m.hidden) { void disarmAttendanceGeofencing(); void clearPendingExit(); }
-        // Work-hours location trail follows the record: day open → streaming (asks for the
-        // work-hours disclosure once if this account has not agreed yet), otherwise stopped.
-        void syncLocationTrail(m, { ask: 'screen' });
+        // Work-hours location trail follows the record: day open → streaming, otherwise stopped.
+        void syncLocationTrail(m);
         useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       }),
       getAttendanceHistory().then(setHistory),
@@ -300,7 +299,7 @@ export default function Attendance() {
       const m = kind === 'in' ? await checkIn(body) : await checkOut(body);
       // Check-in starts the work-hours location trail (the app is on screen — the only moment
       // the OS lets it start); check-out stops it and sends what is still queued.
-      void syncLocationTrail(m, kind === 'in' ? { ask: 'punch' } : {});
+      void syncLocationTrail(m);
       useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       getAttendanceHistory().then(setHistory).catch(() => undefined);
       showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
@@ -505,7 +504,7 @@ const ConsentView = memo(function ConsentView({ onAgree, onBack }: { onAgree: ()
           ['At the office only', 'The button unlocks when your phone is within the office area (about 100 m of your branch).'],
           ['Face photo', 'Each punch opens the camera and captures your face — it is stored with that day’s record.'],
           ['What we record', 'Check-in / check-out time, date, your distance from the office and the face photo.'],
-          ['Work-hours location', 'While you are checked in, your phone shares its location with your HR and admin team until you check out. The app asks you to agree before this starts, and shows a notification the whole time.'],
+          ['Work-hours location', 'While you are checked in, your phone shares its location with your HR and admin team until you check out. This is why the app needs location set to “Allow all the time”. A notification shows the whole time it is sharing.'],
           ['Who can see it', 'You see your own record. Only your Super Admin sees the team dashboard. Times feed your Accounts software.'],
         ] as [string, string][]).map(([t, d]) => (
           <View key={t} className="flex-row gap-3 mb-3">
