@@ -4,11 +4,14 @@ import type * as LocationModuleT from 'expo-location';
 import type * as TaskManagerModuleT from 'expo-task-manager';
 import { loadSession, updateStoredTokens } from './storage/session';
 import { setTokens } from '../api/tokens';
-import { confirmGeofenceExit, confirmGeofenceEntry, type ArmedRegion } from '../logic/attendance';
+import { confirmGeofenceExit, confirmGeofenceEntry, autoMayOpenDay, type ArmedRegion } from '../logic/attendance';
 import { distanceMeters } from '../logic/geo';
 import { notePendingExit, peekPendingExit, clearPendingExit } from './pendingExit';
 
-// Background auto check-in via OS geofencing. When the signed-in user enters/leaves an office region,
+// Background auto check-in / check-out via OS geofencing — armed for EVERY tracked account since
+// the owner's "fully automatic" decision of 2026-10-05 (it had been directors-only since 07-31).
+// The manual face-photo punch on the Attendance screen remains as the fallback.
+// When the signed-in user enters/leaves an office region,
 // the OS wakes the app (even if killed) and we punch in/out. Lazy-required + Expo-Go-guarded exactly
 // like the notifications service: TaskManager/background location aren't available in Expo Go, and a
 // static import there crashes the app at boot. Needs a dev/standalone build + "Always" location.
@@ -80,6 +83,16 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
     // back-dated instant; check-in proves presence at the office (the marker was drift). A 400 on
     // check-out (drift-rejected / already out / not checked in) refutes it just the same.
     if (res.ok || (kind === 'check-out' && res.status === 400)) await clearPendingExit();
+    // The work-hours location trail follows the record this punch just produced: an automatic
+    // check-in starts it (headlessly, without the foreground-service notification until the app
+    // is next opened — see locationTrail), an automatic check-out stops it.
+    if (res.ok) {
+      try {
+        const m = (await res.json()) as { inTime: string | null; outTime: string | null; exempt?: boolean; hidden?: boolean };
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        void (require('./locationTrail') as typeof import('./locationTrail')).syncLocationTrail(m);
+      } catch { /* best-effort — the next app open reconciles the trail */ }
+    }
   } catch {
     // Network failure — the punch never reached the server. For a check-out the exit was already
     // verified, so keep its instant for the retry (next Exit event / reconcile) to back-date to.
@@ -89,13 +102,13 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
 
 // Today's record, fetched headlessly (same cold-start-safe auth as postPunch). null = couldn't
 // read (offline / no session) — callers must treat that as "unknown", not "no punches".
-async function fetchTodayHeadless(): Promise<{ inTime: string | null; outTime: string | null } | null> {
+async function fetchTodayHeadless(): Promise<{ inTime: string | null; outTime: string | null; via?: string | null } | null> {
   try {
     const session = await loadSession();
     if (!session) return null;
     const res = await fetch(`${apiBase()}/api/attendance/me`, { headers: { Authorization: `Bearer ${session.access}` } });
     if (!res.ok) return null;
-    return (await res.json()) as { inTime: string | null; outTime: string | null };
+    return (await res.json()) as { inTime: string | null; outTime: string | null; via?: string | null };
   } catch { return null; }
 }
 
@@ -139,13 +152,12 @@ function ensureTaskRegistered(): void {
       if (eventType === Location.GeofencingEventType.Enter) {
         // Entering a fence refutes any pending-exit marker (a drift Exit that never resolved).
         await clearPendingExit();
-        // Background Enter may only OPEN a fresh day — never re-open a closed one. A returning
-        // GPS fix after a (possibly false) exit used to re-check-in silently, which let the next
-        // noise blip stamp a new, later check-out: rolling bogus punch times while the person sat
-        // at their desk. If today already has any check-in (open or closed), leave it alone; if
+        // Background Enter opens a fresh day, or RE-opens one the phone itself closed (stepped out
+        // for lunch and came back; or the exit was drift). It never re-opens a day the person
+        // closed by hand or an admin corrected (autoMayOpenDay; the server enforces the same). If
         // the record can't be read, do nothing — the foreground reconciles on next open.
         const today = await fetchTodayHeadless();
-        if (!today || today.inTime) return;
+        if (!today || !autoMayOpenDay(today)) return;
         await postPunch('check-in', coords);
       } else if (eventType === Location.GeofencingEventType.Exit) {
         // The OS fires Exit on indoor GPS drift. A fresh fix INSIDE a fence refutes the event
@@ -219,7 +231,7 @@ function ensureRefreshTaskRegistered(): void {
         //   the server re-verifies via its drift guard).
         // An unreadable record means do nothing; a fix is taken only when a punch could result.
         const today = await fetchTodayHeadless();
-        const needIn = !!today && !today.inTime;
+        const needIn = !!today && autoMayOpenDay(today); // fresh day, or one the phone closed (never a manual check-out)
         const dayOpen = !!today && !!today.inTime && !today.outTime;
         if (needIn || dayOpen) {
           let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
