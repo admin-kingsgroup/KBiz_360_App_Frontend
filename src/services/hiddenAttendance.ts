@@ -5,6 +5,7 @@ import { distanceMeters } from '../logic/geo';
 import { autoMayOpenDay, confirmGeofenceEntry, provablyOutside } from '../logic/attendance';
 import { useAttendanceStore } from '../store/attendanceStore';
 import { useUiStore } from '../store/uiStore';
+import { useAuthStore } from '../store/authStore';
 import { syncAttendanceGeofencing, disarmAttendanceGeofencing } from './backgroundAttendance';
 import { syncLocationTrail } from './locationTrail';
 import { peekPendingExit, clearPendingExit } from './pendingExit';
@@ -30,7 +31,9 @@ import type { PunchMethod } from '../types';
 
 let inFlight = false;
 let lastRun = 0;
-let armedFor: boolean | null = null; // last arming state applied (null = not yet checked)
+let armedOk = false; // OS regions armed for this (tracked) account
+let armedUser: string | null = null; // whose offices are armed — a different sign-in must re-arm
+let disarmed = false; // regions cleared for this (exempt) account
 
 const adopt = (m: { inTime: string | null; outTime: string | null; via: string | null } | null): void => {
   if (!m) return;
@@ -42,12 +45,21 @@ const adopt = (m: { inTime: string | null; outTime: string | null; via: string |
 };
 const hhmm = (iso: string | null): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
 
-export async function reconcileAutoAttendance(): Promise<void> {
-  if (inFlight || Date.now() - lastRun < 60_000) return; // debounce foreground flaps
+// `force` skips the debounce. It is for the ONE moment that matters most and has no AppState
+// change to hang on: the permission gate opening. The first reconcile after sign-in runs before
+// "Allow all the time" is granted, so it can neither take a fix nor arm the boundary watch; without
+// a forced re-run the person sat inside the office, fully set up, and was not checked in until
+// they closed and reopened the app.
+export async function reconcileAutoAttendance(opts: { force?: boolean } = {}): Promise<void> {
+  if (inFlight) return;
+  if (!opts.force && Date.now() - lastRun < 45_000) return; // debounce foreground flaps
   lastRun = Date.now();
   inFlight = true;
   try {
     const me = await getMyAttendance();
+    // Every run starts by showing the server's record everywhere (status chip, Profile,
+    // Attendance) — whatever happens below, the screens are never left behind the server.
+    adopt(me);
     const hidden = !!me.hidden;
     const tracked = hidden || !me.exempt;
     // Work-hours location trail: this reconcile runs on every app open / return to foreground,
@@ -55,12 +67,18 @@ export async function reconcileAutoAttendance(): Promise<void> {
     // headlessly is upgraded to the foreground service, and one left running after the day closed
     // elsewhere is stopped. Never shows UI from here.
     void syncLocationTrail(me);
-    // Keep OS geofencing armed for every tracked account (idempotent, applied on state change).
-    if (armedFor !== tracked) {
-      armedFor = tracked;
-      void (tracked ? syncAttendanceGeofencing() : disarmAttendanceGeofencing());
+    // Keep OS geofencing armed for every tracked account. Retried until it actually ARMS — the
+    // first attempt after sign-in predates the location grant and must not count as done.
+    const uid = useAuthStore.getState().user?.id ?? null;
+    if (uid !== armedUser) { armedUser = uid; armedOk = false; disarmed = false; }
+    if (tracked) {
+      disarmed = false;
+      if (!armedOk) armedOk = await syncAttendanceGeofencing(!!opts.force);
+    } else {
+      armedOk = false;
+      if (!disarmed) { disarmed = true; void disarmAttendanceGeofencing(); }
+      return;
     }
-    if (!tracked) return;
 
     const offices = await getOffices();
     if (!offices.length) return; // no office to be at or away from → manual punches only
@@ -71,7 +89,13 @@ export async function reconcileAutoAttendance(): Promise<void> {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Location = require('expo-location') as typeof LocationModuleT;
         if ((await Location.getForegroundPermissionsAsync()).status !== 'granted') return;
-        const pos = await Location.getCurrentPositionAsync({ accuracy: hidden ? Location.Accuracy.Balanced : Location.Accuracy.High });
+        // Bounded: a fix request can wait for ever when the phone has no fresh position (indoors,
+        // GPS cold), and an unfinished run would block every later one behind `inFlight`.
+        const pos = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: hidden ? Location.Accuracy.Balanced : Location.Accuracy.High }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+        ]);
+        if (!pos) return; // no fix in time — the next run retries
         fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
       } catch { return; /* no fix — the next reconcile retries */ }
     }

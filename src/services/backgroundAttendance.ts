@@ -7,6 +7,7 @@ import { setTokens } from '../api/tokens';
 import { confirmGeofenceExit, confirmGeofenceEntry, autoMayOpenDay, type ArmedRegion } from '../logic/attendance';
 import { distanceMeters } from '../logic/geo';
 import { notePendingExit, peekPendingExit, clearPendingExit } from './pendingExit';
+import type { PunchMethod } from '../types';
 
 // Background auto check-in / check-out via OS geofencing — armed for EVERY tracked account since
 // the owner's "fully automatic" decision of 2026-10-05 (it had been directors-only since 07-31).
@@ -88,9 +89,10 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
     // is next opened — see locationTrail), an automatic check-out stops it.
     if (res.ok) {
       try {
-        const m = (await res.json()) as { inTime: string | null; outTime: string | null; exempt?: boolean; hidden?: boolean };
+        const m = (await res.json()) as { inTime: string | null; outTime: string | null; via?: string | null; exempt?: boolean; hidden?: boolean };
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         void (require('./locationTrail') as typeof import('./locationTrail')).syncLocationTrail(m);
+        announceAutoPunch(kind, m);
       } catch { /* best-effort — the next app open reconciles the trail */ }
     }
   } catch {
@@ -98,6 +100,48 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
     // verified, so keep its instant for the retry (next Exit event / reconcile) to back-date to.
     if (kind === 'check-out') await notePendingExit();
   }
+}
+
+// Make an automatic punch VISIBLE the moment it lands, without the person doing anything:
+//   • the shared attendance store is updated, so every open screen (the status chip, Profile,
+//     Attendance) shows "In 9:32" at once — the store lives in this JS runtime whether the punch
+//     came from a screen, the OS boundary event or the server's silent wake;
+//   • app on screen → a toast; app closed/backgrounded → a local notification ("Checked in
+//     automatically · 9:32 AM") that opens Attendance when tapped. Hidden (director) accounts stay
+//     silent, as always.
+function announceAutoPunch(kind: 'check-in' | 'check-out', m: { inTime: string | null; outTime: string | null; via?: string | null; hidden?: boolean }): void {
+  try {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { useAttendanceStore } = require('../store/attendanceStore') as typeof import('../store/attendanceStore');
+    useAttendanceStore.getState().setAtt({
+      inTime: m.inTime ? new Date(m.inTime) : null,
+      outTime: m.outTime ? new Date(m.outTime) : null,
+      via: (m.via ?? null) as PunchMethod | null,
+    });
+    if (m.hidden) return;
+    const at = kind === 'check-in' ? m.inTime : m.outTime;
+    const hhmm = at ? new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    const line = `${kind === 'check-in' ? 'Checked in' : 'Checked out'} automatically · ${hhmm}`;
+    const { AppState } = require('react-native') as typeof import('react-native');
+    if (AppState.currentState === 'active') {
+      (require('../store/uiStore') as typeof import('../store/uiStore')).useUiStore.getState().showToast(line);
+    } else {
+      void (require('./notifications') as typeof import('./notifications')).scheduleLocal('KBiz 360 · Attendance', line, { type: 'attendance' }, 1);
+    }
+    /* eslint-enable @typescript-eslint/no-require-imports */
+  } catch { /* purely cosmetic — never let it break a punch */ }
+}
+
+// Pull today's record into the shared store (used when something OTHER than a punch from this
+// phone changed it — the server's trail-driven check-out, or a punch from another device).
+export async function refreshAttendanceStore(): Promise<void> {
+  const m = await fetchTodayHeadless();
+  if (!m) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useAttendanceStore } = require('../store/attendanceStore') as typeof import('../store/attendanceStore');
+    useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via ?? null) as PunchMethod | null });
+  } catch { /* store unavailable — next open reconciles */ }
 }
 
 // Today's record, fetched headlessly (same cold-start-safe auth as postPunch). null = couldn't
@@ -325,21 +369,30 @@ export async function disarmAttendanceGeofencing(): Promise<void> {
 // is belt-and-braces: even if a future edit re-introduces an activity round-trip here, the
 // AppState echo lands inside the guard window and the loop cannot close.
 let lastSync = 0;
-export async function syncAttendanceGeofencing(): Promise<void> {
-  if (isRunningInExpoGo()) return;
-  if (Date.now() - lastSync < 60_000) return;
+//
+// Returns true once the regions are ARMED. Callers that must not give up (the automatic-attendance
+// reconcile) keep calling until it does: the very first call after sign-in happens BEFORE the
+// person has granted "Allow all the time" on the permissions screen, and treating that attempt as
+// done left the phone un-armed until the next app restart. `force` skips the 60s guard — used
+// only from a non-AppState trigger (the moment the permission gate opens).
+let armed = false;
+export async function syncAttendanceGeofencing(force = false): Promise<boolean> {
+  if (isRunningInExpoGo()) return false;
+  if (!force && Date.now() - lastSync < 60_000) return armed;
   lastSync = Date.now();
   try {
     ensureTaskRegistered();
     ensureRefreshTaskRegistered();
     const Location = loc();
     const fg = await Location.getForegroundPermissionsAsync();
-    if (fg.status !== 'granted') return;
+    if (fg.status !== 'granted') { armed = false; return false; }
     const bg = await Location.getBackgroundPermissionsAsync();
-    if (bg.status !== 'granted') return; // "Always" not granted — background auto-punch can't run
+    if (bg.status !== 'granted') { armed = false; return false; } // "Always" not granted — background auto-punch can't run
     await armOfficeRegions();
     await scheduleRefreshTask(); // reboot/eviction healing once everything is armed
-  } catch { /* geofencing unavailable (Expo Go / perms / no native module) — silently skip */ }
+    armed = true;
+  } catch { armed = false; /* geofencing unavailable (Expo Go / perms / no native module) */ }
+  return armed;
 }
 
 export async function stopAttendanceGeofencing(): Promise<void> {

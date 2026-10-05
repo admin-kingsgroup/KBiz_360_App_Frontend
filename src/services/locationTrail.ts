@@ -145,6 +145,12 @@ export async function flushTrailBuffer(force = false): Promise<void> {
           // duty, so keep draining it (the server keeps only fixes up to the check-out).
           await stopUpdates();
           force = true;
+          // The server may have just checked the person out from the trail — make the open
+          // screens show it now instead of on the next app open.
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            void (require('./backgroundAttendance') as typeof import('./backgroundAttendance')).refreshAttendanceStore();
+          } catch { /* cosmetic */ }
         }
         if (!force) return; // routine upload: one batch per wake-up
         continue;
