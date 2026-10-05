@@ -42,6 +42,10 @@ export const groupByUser = (items: ReminderRecord[], now = new Date()): UserRemi
     timeOf(a.tasks[0]?.dueAt) - timeOf(b.tasks[0]?.dueAt));
 };
 
+// A branch ref that is a raw database id (24 hex chars) names nothing a person can read. When the
+// directory no longer returns that branch it must not be shown as if the id were the branch code.
+const isRawId = (ref: string): boolean => /^[0-9a-f]{24}$/i.test(ref);
+
 export const buildBranchRefMap = (branches: DirectoryBranch[] = []): Map<string, DirectoryBranch> => {
   const map = new Map<string, DirectoryBranch>();
 
@@ -146,6 +150,7 @@ export const resolveUserBranches = (
   for (const ref of cleanRefs) {
     let b = branchMap.get(ref) || branchMap.get(ref.toUpperCase()) || branchMap.get(ref.toLowerCase());
     if (!b) {
+      if (isRawId(ref)) continue;
       b = {
         id: ref,
         code: ref.toUpperCase(),
@@ -186,7 +191,7 @@ export const groupByBranch = (
       const rBranchRef = (r as any).branch || (r as any).branchCode || (r as any).branchId;
       if (rBranchRef) {
         const refStr = String(rBranchRef).trim();
-        const b = branchMap.get(refStr) || branchMap.get(refStr.toUpperCase()) || {
+        const b = branchMap.get(refStr) || branchMap.get(refStr.toUpperCase()) || branchMap.get(refStr.toLowerCase()) || (isRawId(refStr) ? null : {
           id: refStr,
           code: refStr.toUpperCase(),
           name: refStr.toUpperCase(),
@@ -194,8 +199,8 @@ export const groupByBranch = (
           country: null,
           isHO: false,
           companyId: null,
-        };
-        mappedBranches = [b];
+        });
+        if (b) mappedBranches = [b];
       }
     }
 
