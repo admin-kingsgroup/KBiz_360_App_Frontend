@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -17,6 +17,7 @@ import { uploadFile, mediaUrl } from '../../src/api/media';
 import { ApiError } from '../../src/api/client';
 import { authApi } from '../../src/api';
 import { getMyAttendance } from '../../src/api/attendance';
+import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { getMyAttendanceMonth } from '../../src/api/hr';
 
 // "HH:MM" wall-clock for an ISO timestamp (hero attendance stat) — mirrors the Chats header chip.
@@ -39,6 +40,13 @@ export default function Profile() {
   // /attendance/me for today, /hr/my-attendance for the month (it carries leaveBalance AND the
   // present count, so the balance needs no separate /hr/my-leave round trip).
   const [today, setToday] = useState<{ inTime: string | null; outTime: string | null; exempt: boolean } | null>(null);
+  // Follow automatic check-ins/outs live (shared store), between the on-focus fetches below.
+  const liveAtt = useAttendanceStore((st) => st.att);
+  const liveLoaded = useAttendanceStore((st) => st.attLoaded);
+  useEffect(() => {
+    if (!liveLoaded) return;
+    setToday((cur) => (cur ? { ...cur, inTime: liveAtt.inTime ? liveAtt.inTime.toISOString() : null, outTime: liveAtt.outTime ? liveAtt.outTime.toISOString() : null } : cur));
+  }, [liveAtt, liveLoaded]);
   const [month, setMonth] = useState<{ leaveBalance: number | null; present: number; exempt: boolean } | null>(null);
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
