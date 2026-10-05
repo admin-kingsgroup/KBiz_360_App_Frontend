@@ -1,5 +1,5 @@
-import { useState, useCallback, useMemo } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { memo, useState, useCallback, useMemo } from 'react';
+import { View, Text, Pressable, ScrollView, FlatList, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
@@ -14,25 +14,22 @@ import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
 import { relTime } from '../../src/utils/time';
-import type { PresenceInfo } from '../../src/store/messagingStore';
 
 // Media types whose preview gets the small image glyph in the approved row.
 const PICTORIAL = new Set(['image', 'video']);
 
-// Map a real conversation → the row shape ChatListItem renders. `codes` resolves the conversation's
-// branch/business id to the short code the tile shows (chatTile.ts picks which one wins).
+// Map a real conversation → the row shape ChatListItem renders. The caller resolves everything that
+// lives outside the conversation (presence, the branch/business short code the tile shows — see
+// chatTile.ts for which one wins) down to plain values, so a row only repaints when ITS values change.
 function convToItem(
   c: ChatConversation,
-  presence: Record<string, PresenceInfo>,
+  online: boolean,
   myUserId: string | null,
-  codes: { branch: Map<string, string>; company: Map<string, string> },
+  branchCode: string | null,
+  companyCode: string | null,
   draft?: string,
 ) {
   const last = c.lastMessage;
-  // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
-  // no live entry has arrived at all.
-  const live = c.type === 'direct' ? presence[c.otherUserId ?? ''] : undefined;
-  const online = c.type === 'direct' ? (live ? live.status === 'online' : !!c.online) : false;
   return {
     id: c.id,
     name: c.name,
@@ -49,11 +46,26 @@ function convToItem(
     muted: !!c.muted,
     pinned: !!c.pinned,
     draft: draft ? oneLine(draft) : null,
-    branchCode: (c.branchId && codes.branch.get(c.branchId)) || null,
-    companyCode: (c.companyId && codes.company.get(c.companyId)) || null,
+    branchCode,
+    companyCode,
     isImage: !!last && PICTORIAL.has(last.type),
   };
 }
+
+// One chat row. Memoised on the conversation object and a handful of primitives: the store keeps a
+// conversation's identity until that conversation actually changes, so a message landing in one chat
+// (or someone coming online) repaints one row instead of the whole list.
+const ChatRow = memo(function ChatRow({ conv, online, myUserId, branchCode, companyCode, draft, onOpen, onActions }: {
+  conv: ChatConversation; online: boolean; myUserId: string | null; branchCode: string | null; companyCode: string | null;
+  draft?: string; onOpen: (id: string) => void; onActions: (id: string) => void;
+}) {
+  const id = conv.id;
+  const press = useCallback(() => onOpen(id), [onOpen, id]);
+  const longPress = useCallback(() => onActions(id), [onActions, id]);
+  return <ChatListItem chat={convToItem(conv, online, myUserId, branchCode, companyCode, draft)} onPress={press} onLongPress={longPress} />;
+});
+
+const convKey = (c: ChatConversation): string => c.id;
 
 // Home — Chats tab: one WhatsApp-style list of direct chats AND groups. Groups also have their own
 // chip here — the branch-organised list that used to be the Groups bottom tab (that slot is now
@@ -108,19 +120,38 @@ export default function Home() {
   // sending anything doesn't leave an empty conversation in the list); groups always show, even
   // before their first message (you were added to them — WhatsApp lists them immediately).
   // Archived chats live behind their own row (WhatsApp keeps them out of the main list entirely).
-  const active = conversations.filter((c) => !c.archived && (c.type === 'group' || !!c.lastMessage));
-  const archivedCount = conversations.filter((c) => c.archived && c.unread > 0).length;
-  const hasArchived = conversations.some((c) => c.archived);
-  // Chip badges — number of CHATS with unread, not messages: the badge unit everywhere.
-  const unreadChats = active.filter((c) => c.unread > 0).length;
-  const unreadGroupChats = active.filter((c) => c.type === 'group' && c.unread > 0).length;
-  // Pinned chats sit above everything else, in their own recency order — the list is already sorted
-  // by activity, so a stable partition is all that is needed.
-  // Groups renders GroupsPane instead of this list, so only All/Unread filter it.
-  const filtered = filter === 'unread' ? active.filter((c) => c.unread > 0) : active;
-  const pinnedFirst = [...filtered.filter((c) => c.pinned), ...filtered.filter((c) => !c.pinned)];
+  const { visible, archivedCount, hasArchived, unreadChats, unreadGroupChats } = useMemo(() => {
+    const active = conversations.filter((c) => !c.archived && (c.type === 'group' || !!c.lastMessage));
+    // Pinned chats sit above everything else, in their own recency order — the list is already sorted
+    // by activity, so a stable partition is all that is needed.
+    // Groups renders GroupsPane instead of this list, so only All/Unread filter it.
+    const filtered = filter === 'unread' ? active.filter((c) => c.unread > 0) : active;
+    return {
+      visible: [...filtered.filter((c) => c.pinned), ...filtered.filter((c) => !c.pinned)],
+      archivedCount: conversations.filter((c) => c.archived && c.unread > 0).length,
+      hasArchived: conversations.some((c) => c.archived),
+      // Chip badges — number of CHATS with unread, not messages: the badge unit everywhere.
+      unreadChats: active.filter((c) => c.unread > 0).length,
+      unreadGroupChats: active.filter((c) => c.type === 'group' && c.unread > 0).length,
+    };
+  }, [conversations, filter]);
   void realUser;
-  const visible = pinnedFirst.map((c) => convToItem(c, presence, myUserId, codes, drafts[c.id]));
+
+  // Stable row handlers (rows are memoised — a fresh closure per render would repaint every row).
+  const openChat = useCallback((id: string) => router.push({ pathname: '/chat/[id]', params: { id } }), [router]);
+  const openActions = useCallback((id: string) => setActionsFor(useMessagingStore.getState().conversations.find((c) => c.id === id) ?? null), []);
+  const renderChat: ListRenderItem<ChatConversation> = useCallback(({ item: c }) => {
+    // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
+    // no live entry has arrived at all.
+    const live = c.type === 'direct' ? presence[c.otherUserId ?? ''] : undefined;
+    const online = c.type === 'direct' ? (live ? live.status === 'online' : !!c.online) : false;
+    return (
+      <ChatRow conv={c} online={online} myUserId={myUserId}
+        branchCode={(c.branchId && codes.branch.get(c.branchId)) || null}
+        companyCode={(c.companyId && codes.company.get(c.companyId)) || null}
+        draft={drafts[c.id]} onOpen={openChat} onActions={openActions} />
+    );
+  }, [presence, myUserId, codes, drafts, openChat, openActions]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
@@ -160,14 +191,24 @@ export default function Home() {
         })}
       </ScrollView>
 
-      {/* Chats — flat full-width rows under a hairline, per the approved list */}
-      <ScrollView style={{ flex: 1, backgroundColor: p.list, borderTopWidth: 1, borderTopColor: p.line }} contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}>
-        {filter === 'groups' ? (
-          <GroupsPane onLongPressGroup={(id) => setActionsFor(conversations.find((c) => c.id === id) ?? null)} />
-        ) : (
-          <>
-          {/* Archived — one row into its own screen, with a count of what is still unread in there. */}
-          {hasArchived ? (
+      {/* Chats — flat full-width rows under a hairline, per the approved list. A virtualised list:
+          only the rows on (and near) the screen are mounted, however many conversations there are. */}
+      {filter === 'groups' ? (
+        <ScrollView style={listStyle(p)} contentContainerStyle={listContent}>
+          <GroupsPane onLongPressGroup={openActions} />
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={visible}
+          keyExtractor={convKey}
+          renderItem={renderChat}
+          style={listStyle(p)}
+          contentContainerStyle={listContent}
+          initialNumToRender={10}
+          maxToRenderPerBatch={8}
+          windowSize={9}
+          /* Archived — one row into its own screen, with a count of what is still unread in there. */
+          ListHeaderComponent={hasArchived ? (
             <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: p.line }}
               className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
               <Archive size={20} color={p.mute} />
@@ -180,7 +221,7 @@ export default function Home() {
               ) : null}
             </Pressable>
           ) : null}
-          {visible.length === 0 ? (
+          ListEmptyComponent={(
             <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
               <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>
                 <MessageCircle size={50} color={p.accent} />
@@ -192,16 +233,9 @@ export default function Home() {
                 <Text style={{ color: p.onAccent, fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
               </Pressable>
             </View>
-          ) : (
-            visible.map((c) => (
-              <ChatListItem key={c.id} chat={c}
-                onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })}
-                onLongPress={() => setActionsFor(conversations.find((x) => x.id === c.id) ?? null)} />
-            ))
           )}
-          </>
-        )}
-      </ScrollView>
+        />
+      )}
 
       <ChatActionsSheet conv={actionsFor} onClose={() => setActionsFor(null)} />
 
@@ -209,6 +243,9 @@ export default function Home() {
     </SafeAreaView>
   );
 }
+
+const listStyle = (p: ChatListPalette) => ({ flex: 1, backgroundColor: p.list, borderTopWidth: 1, borderTopColor: p.line });
+const listContent = { paddingBottom: 16, flexGrow: 1 };
 
 // 34px filter chip (approved dimensions): selected = solid theme accent, the rest outlined.
 const chip = { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 };
