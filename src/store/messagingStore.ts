@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import { coalescedStorage } from './persistStorage';
 import * as chatApi from '../api/chat';
 import * as chatDb from '../services/chatDb';
 import type { ChatConversation, ChatMessage, ChatReaction, ChatAttachment } from '../api/chat';
@@ -19,14 +20,6 @@ export interface OutboxItem {
   mentions?: string[];
   createdAt: number;
 }
-
-// Lazy + fail-safe AsyncStorage: dynamic-imported inside each method so importing this store in a
-// plain Node/jest context never loads the native module (calls just no-op there).
-const asyncStorage: StateStorage = {
-  getItem: async (name) => { try { const AS = (await import('@react-native-async-storage/async-storage')).default; return await AS.getItem(name); } catch { return null; } },
-  setItem: async (name, value) => { try { const AS = (await import('@react-native-async-storage/async-storage')).default; await AS.setItem(name, value); } catch { /* no-op */ } },
-  removeItem: async (name) => { try { const AS = (await import('@react-native-async-storage/async-storage')).default; await AS.removeItem(name); } catch { /* no-op */ } },
-};
 
 interface MessagingState {
   myUserId: string | null;
@@ -102,12 +95,15 @@ interface MessagingState {
   onTyping: (conversationId: string, userId: string, typing: boolean) => void;
   onPresence: (p: { userId: string; status?: string; lastSeen?: number | string | null; online?: boolean }) => void;
 
+  _patch: (conversationId: string, messageId: string, fn: (m: StoredMessage) => StoredMessage) => void;
   _upsert: (conversationId: string, msg: StoredMessage) => void;
   _ingest: (conversationId: string, msgs: StoredMessage[]) => void;
   _prune: (conversationId: string, page: StoredMessage[]) => void;
   _persistIds: (conversationId: string, ids: string[]) => void;
   _flush: (clientId: string) => Promise<void>;
 }
+
+type PersistedMessaging = Pick<MessagingState, 'conversations' | 'outbox' | 'lastSyncAt' | 'lastSyncId' | 'drafts' | 'wallpapers' | 'chatTheme' | 'chatWatermark' | 'privacy'>;
 
 // Chronological order, id as the tie-break so two messages in the same millisecond never swap places
 // between renders (an unstable sort would make bubbles jitter).
@@ -118,6 +114,20 @@ const byTime = (a: StoredMessage, b: StoredMessage): number => {
 
 const sortConvs = (cs: ChatConversation[]): ChatConversation[] =>
   [...cs].sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
+// A refetched list is all-new objects even when nothing changed. Hand back the object we already
+// hold for every conversation whose content is identical (and the old array itself when they all
+// are), so rows memoised on the conversation skip the repaint.
+const shareUnchanged = (prev: ChatConversation[], fresh: ChatConversation[]): ChatConversation[] => {
+  const held = new Map(prev.map((c) => [c.id, c]));
+  let same = prev.length === fresh.length;
+  const out = fresh.map((c, i) => {
+    const old = held.get(c.id);
+    const keep = old && JSON.stringify(old) === JSON.stringify(c) ? old : c;
+    if (keep !== prev[i]) same = false;
+    return keep;
+  });
+  return same ? prev : out;
+};
 const newClientId = (): string => `c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 const typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 // Conversations whose prefetch is in flight — keeps a re-focus of the chat list from re-firing the
@@ -204,7 +214,10 @@ export const useMessagingStore = create<MessagingState>()(
           // Never let a refetch re-raise the badge for the chat the user is currently viewing
           // (avoids a race where loadConversations on socket-connect clobbers a just-marked-read 0).
           const active = get().activeConversationId;
-          set({ conversations: active ? fresh.map((c) => (c.id === active ? { ...c, unread: 0 } : c)) : fresh });
+          const next = shareUnchanged(get().conversations, active ? fresh.map((c) => (c.id === active ? { ...c, unread: 0 } : c)) : fresh);
+          // This runs on every focus / foreground / reconnect and usually brings back what we already
+          // hold — in which case nothing is set, nothing re-renders and nothing is written to disk.
+          if (next !== get().conversations) set({ conversations: next });
         } catch { /* offline — keep cached */ } finally { set({ loadingConversations: false }); }
       },
 
@@ -288,11 +301,24 @@ export const useMessagingStore = create<MessagingState>()(
       // too. Local reads only — no network, no spinner, cheap enough to run on every chat-list focus.
       hydrateLocal: async (limit = 12) => {
         const targets = get().conversations.filter((c) => !c.archived && !(get().messages[c.id] ?? []).length).slice(0, limit);
+        // Read them all, then land them in ONE store update — a set() per thread re-rendered every
+        // subscribed screen a dozen times in a row each time the chat list came into focus.
+        const loaded: Record<string, StoredMessage[]> = {};
         for (const c of targets) {
           const local = await chatDb.readRecent<StoredMessage>(c.id, 60);
-          if (!local.length) continue;
-          set((s) => (s.messages[c.id]?.length ? s : { messages: { ...s.messages, [c.id]: local } }));
+          if (local.length) loaded[c.id] = local;
         }
+        if (!Object.keys(loaded).length) return;
+        set((s) => {
+          const messages = { ...s.messages };
+          let changed = false;
+          for (const [cid, local] of Object.entries(loaded)) {
+            if (messages[cid]?.length) continue; // opened (and filled) while we were reading
+            messages[cid] = local;
+            changed = true;
+          }
+          return changed ? { messages } : s;
+        });
       },
 
       // Background catch-up for the conversations the user is most likely to open next: hydrate from
@@ -331,6 +357,7 @@ export const useMessagingStore = create<MessagingState>()(
       // A draft is whatever is in the composer when you leave — kept per chat and shown in the chat
       // list, so backing out of a half-written message never loses it.
       setDraft: (conversationId, text) => set((s) => {
+        if ((s.drafts[conversationId] ?? '') === (text.trim() ? text : '')) return s;
         const drafts = { ...s.drafts };
         if (text.trim()) drafts[conversationId] = text; else delete drafts[conversationId];
         return { drafts };
@@ -373,7 +400,11 @@ export const useMessagingStore = create<MessagingState>()(
       },
 
       loadPrivacy: async () => {
-        try { set({ privacy: await chatApi.getPrivacy() }); } catch { /* offline — keep what we have */ }
+        try {
+          const fresh = await chatApi.getPrivacy();
+          // Runs on every chat-list focus; identical settings must not count as a change.
+          if (JSON.stringify(fresh) !== JSON.stringify(get().privacy)) set({ privacy: fresh });
+        } catch { /* offline — keep what we have */ }
       },
       updatePrivacy: async (patch) => {
         set((s) => ({ privacy: { ...s.privacy, ...patch } })); // instant toggle
@@ -427,8 +458,15 @@ export const useMessagingStore = create<MessagingState>()(
           const map = await chatApi.getPresence(ids);
           set((s) => {
             const presence = { ...s.presence };
-            for (const [id, p] of Object.entries(map)) presence[id] = { status: p.status === 'online' || p.status === 'in_call' ? p.status : 'offline', lastSeen: toEpochMs(p.lastSeen) };
-            return { presence };
+            let changed = false;
+            for (const [id, p] of Object.entries(map)) {
+              const next: PresenceInfo = { status: p.status === 'online' || p.status === 'in_call' ? p.status : 'offline', lastSeen: toEpochMs(p.lastSeen) };
+              const cur = presence[id];
+              if (cur && cur.status === next.status && cur.lastSeen === next.lastSeen) continue;
+              presence[id] = next;
+              changed = true;
+            }
+            return changed ? { presence } : s; // the 30s poll usually changes nothing
           });
         } catch { /* offline — keep what we have */ }
       },
@@ -488,27 +526,90 @@ export const useMessagingStore = create<MessagingState>()(
         for (const item of [...get().outbox]) { await get()._flush(item.clientId); }
       },
 
-      edit: async (messageId, conversationId, text) => { const saved = await chatApi.editMessage(messageId, text); get()._upsert(conversationId, saved as StoredMessage); },
-      remove: async (messageId, conversationId, scope) => {
-        await chatApi.deleteMessage(messageId, scope);
-        if (scope === 'me') {
-          set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).filter((m) => m.id !== messageId) } }));
-          void chatDb.removeMessages(conversationId, [messageId]); // gone from this device for good
+      // Edit / delete / react / star / pin all answer the tap FIRST and talk to the server second
+      // (WhatsApp never makes you wait on a round trip to see your own reaction). Each keeps what
+      // it replaced and puts it back if the server refuses, so a failure is visible, not silent.
+      edit: async (messageId, conversationId, text) => {
+        const before = (get().messages[conversationId] ?? []).find((m) => m.id === messageId);
+        get()._patch(conversationId, messageId, (m) => ({ ...m, text, edited: true, editedAt: new Date().toISOString() }));
+        try {
+          const saved = await chatApi.editMessage(messageId, text);
+          get()._upsert(conversationId, saved as StoredMessage);
+        } catch (e) {
+          if (before) get()._patch(conversationId, messageId, (m) => ({ ...m, text: before.text, edited: before.edited, editedAt: before.editedAt }));
+          throw e;
         }
       },
-      react: async (messageId, emoji) => { await chatApi.reactMessage(messageId, emoji); },
+      remove: async (messageId, conversationId, scope) => {
+        const list = get().messages[conversationId] ?? [];
+        const at = list.findIndex((m) => m.id === messageId);
+        const before = at >= 0 ? list[at] : undefined;
+        if (scope === 'me') {
+          set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).filter((m) => m.id !== messageId) } }));
+        } else {
+          get()._patch(conversationId, messageId, (m) => ({ ...m, deletedForEveryone: true, text: '', attachments: [] }));
+        }
+        try {
+          await chatApi.deleteMessage(messageId, scope);
+          if (scope === 'me') void chatDb.removeMessages(conversationId, [messageId]); // gone from this device for good
+          else get()._persistIds(conversationId, [messageId]);
+        } catch (e) {
+          if (before) {
+            set((s) => {
+              const cur = s.messages[conversationId] ?? [];
+              const next = cur.some((m) => m.id === messageId) ? cur.map((m) => (m.id === messageId ? before : m)) : [...cur, before].sort(byTime);
+              return { messages: { ...s.messages, [conversationId]: next } };
+            });
+          }
+          throw e;
+        }
+      },
+      react: async (messageId, emoji) => {
+        // Same rule the server applies: my same emoji again removes it; anything else replaces mine.
+        const my = get().myUserId;
+        const found = Object.entries(get().messages).find(([, l]) => l.some((m) => m.id === messageId));
+        const conversationId = found?.[0];
+        const before = found?.[1].find((m) => m.id === messageId)?.reactions;
+        if (my && conversationId && before) {
+          const had = before.some((r) => r.userId === my && r.emoji === emoji);
+          const others = before.filter((r) => r.userId !== my);
+          get()._patch(conversationId, messageId, (m) => ({ ...m, reactions: had ? others : [...others, { userId: my, emoji }] }));
+        }
+        try {
+          await chatApi.reactMessage(messageId, emoji); // the chat:reaction echo carries the settled list
+        } catch (e) {
+          if (conversationId && before) get()._patch(conversationId, messageId, (m) => ({ ...m, reactions: before }));
+          throw e;
+        }
+      },
       star: async (messageId, conversationId) => {
-        const { starred } = await chatApi.starMessage(messageId);
-        set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).map((m) => (m.id === messageId ? { ...m, starred } : m)) } }));
+        const was = !!(get().messages[conversationId] ?? []).find((m) => m.id === messageId)?.starred;
+        get()._patch(conversationId, messageId, (m) => ({ ...m, starred: !was }));
+        try {
+          const { starred } = await chatApi.starMessage(messageId);
+          get()._patch(conversationId, messageId, (m) => (m.starred === starred ? m : { ...m, starred }));
+        } catch (e) {
+          get()._patch(conversationId, messageId, (m) => ({ ...m, starred: was }));
+          throw e;
+        }
         get()._persistIds(conversationId, [messageId]);
       },
       pin: async (messageId, conversationId) => {
-        const { pinned } = await chatApi.pinMessage(messageId);
-        set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).map((m) => (m.id === messageId ? { ...m, pinned } : m)) } }));
+        const was = !!(get().messages[conversationId] ?? []).find((m) => m.id === messageId)?.pinned;
+        get()._patch(conversationId, messageId, (m) => ({ ...m, pinned: !was }));
+        try {
+          const { pinned } = await chatApi.pinMessage(messageId);
+          get()._patch(conversationId, messageId, (m) => (m.pinned === pinned ? m : { ...m, pinned }));
+        } catch (e) {
+          get()._patch(conversationId, messageId, (m) => ({ ...m, pinned: was }));
+          throw e;
+        }
         get()._persistIds(conversationId, [messageId]);
       },
       markRead: async (conversationId) => {
-        set((s) => ({ conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, unread: 0 } : c)) }));
+        set((s) => (s.conversations.some((c) => c.id === conversationId && c.unread)
+          ? { conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, unread: 0 } : c)) }
+          : s));
         await chatApi.markConversationRead(conversationId).catch(() => undefined);
       },
 
@@ -552,13 +653,34 @@ export const useMessagingStore = create<MessagingState>()(
       onTyping: (conversationId, userId, typing) => {
         const key = `${conversationId}:${userId}`;
         if (typingTimers[key]) { clearTimeout(typingTimers[key]); delete typingTimers[key]; }
-        set((s) => { const cur = new Set(s.typing[conversationId] ?? []); if (typing) cur.add(userId); else cur.delete(userId); return { typing: { ...s.typing, [conversationId]: [...cur] } }; });
+        set((s) => {
+          const list = s.typing[conversationId] ?? [];
+          if (list.includes(userId) === typing) return s; // already in that state — typing pings repeat
+          return { typing: { ...s.typing, [conversationId]: typing ? [...list, userId] : list.filter((u) => u !== userId) } };
+        });
         if (typing) typingTimers[key] = setTimeout(() => get().onTyping(conversationId, userId, false), 5000);
       },
       onPresence: (p) => set((s) => {
         // Guard the status cast (unknown strings → offline unless the legacy `online` flag says otherwise).
         const status: PresenceInfo['status'] = p.status === 'online' || p.status === 'offline' || p.status === 'in_call' ? p.status : p.online ? 'online' : 'offline';
-        return { presence: { ...s.presence, [p.userId]: { status, lastSeen: toEpochMs(p.lastSeen) } } };
+        const lastSeen = toEpochMs(p.lastSeen);
+        const cur = s.presence[p.userId];
+        if (cur && cur.status === status && cur.lastSeen === lastSeen) return s; // nothing to repaint
+        return { presence: { ...s.presence, [p.userId]: { status, lastSeen } } };
+      }),
+
+      // Replace one message in place. Leaves the list (and every other row) untouched when the
+      // message is not loaded or the patch changes nothing, so memoised rows do not repaint.
+      _patch: (conversationId, messageId, fn) => set((s) => {
+        const list = s.messages[conversationId];
+        if (!list) return s;
+        const at = list.findIndex((m) => m.id === messageId);
+        if (at < 0) return s;
+        const patched = fn(list[at]);
+        if (patched === list[at]) return s;
+        const next = [...list];
+        next[at] = patched;
+        return { messages: { ...s.messages, [conversationId]: next } };
       }),
 
       _upsert: (conversationId, msg) => {
@@ -653,12 +775,16 @@ export const useMessagingStore = create<MessagingState>()(
       migrate: (state, from) => {
         const s = (state ?? {}) as Partial<MessagingState>;
         // Keep the chat list + outbox across the upgrade; threads refill from chat-db/ and delta sync.
-        return from >= 2
+        // (A partial slice on purpose: persist's merge fills everything else from the defaults.)
+        return (from >= 2
           ? { conversations: s.conversations ?? [], messages: {}, outbox: s.outbox ?? [] }
-          : { conversations: [], messages: {}, outbox: [] };
+          : { conversations: [], messages: {}, outbox: [] }) as unknown as PersistedMessaging;
       },
-      storage: createJSONStorage(() => asyncStorage),
-      partialize: (s) => ({ conversations: s.conversations, outbox: s.outbox, lastSyncAt: s.lastSyncAt, lastSyncId: s.lastSyncId, drafts: s.drafts, wallpapers: s.wallpapers, chatTheme: s.chatTheme, chatWatermark: s.chatWatermark, privacy: s.privacy }),
+      // Coalesced (see persistStorage): typing, presence and message traffic change nothing that is
+      // persisted and so write nothing; list changes collapse into one write. The outbox is the one
+      // slice that must hit the disk at once — it is the only copy of a message that has not sent.
+      storage: coalescedStorage<PersistedMessaging>({ urgent: (prev, next) => prev?.outbox !== next.outbox }),
+      partialize: (s): PersistedMessaging => ({ conversations: s.conversations, outbox: s.outbox, lastSyncAt: s.lastSyncAt, lastSyncId: s.lastSyncId, drafts: s.drafts, wallpapers: s.wallpapers, chatTheme: s.chatTheme, chatWatermark: s.chatWatermark, privacy: s.privacy }),
     },
   ),
 );
