@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Modal, FlatList } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Modal, FlatList, Image } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { X, CalendarDays, ChevronDown, Search as SearchIcon, Check } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { X, CalendarDays, ChevronDown, Search as SearchIcon, Check, Camera, Image as ImageIcon } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
 import { DaySheet, FormField, SheetSave } from '../../src/components/forms';
 import { colors } from '../../src/theme';
 import { createReminder, updateReminder } from '../../src/api/reminders';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
-import { mediaUrl } from '../../src/api/media';
+import { mediaUrl, uploadFile } from '../../src/api/media';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { scheduleLocal } from '../../src/services/notifications';
@@ -55,6 +57,9 @@ export default function NewReminder() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
+  // Optional picture (photo library or camera). Compressed when picked, uploaded on save and
+  // sent as imageUrl — the same field a KBiz Books screenshot lands in. New reminders only.
+  const [photo, setPhoto] = useState<{ uri: string; name: string } | null>(null);
   const [saving, setSaving] = useState(false);
   // Two rapid taps can both read `saving === false` before React re-renders — the ref is the
   // synchronous guard against creating the reminder twice; the state just drives the button label.
@@ -118,6 +123,27 @@ export default function NewReminder() {
     setForIds((cur) => (cur.includes(p.id) ? cur : [...cur, p.id]));
   };
 
+  const attach = async (a: ImagePicker.ImagePickerAsset): Promise<void> => {
+    let uri = a.uri;
+    try {
+      const out = await ImageManipulator.manipulateAsync(a.uri, [{ resize: { width: Math.min(a.width || 1280, 1280) } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG });
+      uri = out.uri;
+    } catch { /* fall back to original */ }
+    setPhoto({ uri, name: a.fileName ?? 'photo.jpg' });
+  };
+  const pickPhoto = async (): Promise<void> => {
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
+    if (r.canceled || !r.assets[0]) return;
+    await attach(r.assets[0]);
+  };
+  const takePhoto = async (): Promise<void> => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) { showToast('Camera permission is needed to take photos'); return; }
+    const r = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
+    if (r.canceled || !r.assets[0]) return;
+    await attach(r.assets[0]);
+  };
+
   const save = async () => {
     if (!text.trim()) { showToast('Add reminder text'); return; }
     if (!editing && !forIds.length) { showToast('Choose at least one person'); return; }
@@ -144,9 +170,22 @@ export default function NewReminder() {
       }
       return;
     }
+    // The picture goes up first; if that fails nothing is created, so the reminder never lands
+    // without the picture the user attached — they can retry or remove it and save without.
+    let imageUrl: string | undefined;
+    if (photo) {
+      try {
+        imageUrl = (await uploadFile({ uri: photo.uri, name: photo.name, mime: 'image/jpeg' })).url;
+      } catch {
+        showToast('Could not upload the attachment — try again or remove it');
+        savingRef.current = false;
+        setSaving(false);
+        return;
+      }
+    }
     try {
       const label = selectedDay ? dateLabel(selectedDay) : '';
-      const recs = await createReminder({ text: text.trim(), forIds, ...(due && label ? { when: label, dueAt: due.toISOString() } : {}), section: 'today' });
+      const recs = await createReminder({ text: text.trim(), forIds, ...(due && label ? { when: label, dueAt: due.toISOString() } : {}), ...(imageUrl ? { imageUrl } : {}), section: 'today' });
       // My own copy also fires locally at the due time (works offline; the server push is the
       // backup). Remember the notification id so completing the reminder can cancel it.
       const mine = recs.find((r) => r.forId === meId);
@@ -219,6 +258,32 @@ export default function NewReminder() {
           {selectedDay ? <Pressable onPress={() => setSelectedDay(null)} hitSlop={8} style={{ alignSelf: 'flex-start', paddingTop: 8 }}><Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Clear date</Text></Pressable> : null}
           {selectedDay ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Due {dateLabel(selectedDay)}</Text> : null}
         </FormField>
+
+        {/* Optional picture — hidden while editing: the edit API changes text and date only. */}
+        {editing ? null : (
+        <FormField label="Attachment" hint="Optional — add a photo or screenshot to go with the reminder.">
+          {photo ? (
+            <View style={{ alignSelf: 'flex-start' }}>
+              <Image source={{ uri: photo.uri }} resizeMode="cover" style={{ width: 168, height: 96, borderRadius: 12, backgroundColor: colors.coolMuted }} />
+              <Pressable accessibilityLabel="Remove attachment" onPress={() => setPhoto(null)} hitSlop={8}
+                style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
+                <X size={13} color="#fff" />
+              </Pressable>
+            </View>
+          ) : (
+            <View className="flex-row gap-2.5">
+              <Pressable onPress={() => void pickPhoto()} className="flex-row items-center justify-center gap-2" style={{ flex: 1, backgroundColor: colors.coolMuted, borderRadius: 12, paddingVertical: 12 }}>
+                <ImageIcon size={17} color={colors.primary} />
+                <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>Photo library</Text>
+              </Pressable>
+              <Pressable onPress={() => void takePhoto()} className="flex-row items-center justify-center gap-2" style={{ flex: 1, backgroundColor: colors.coolMuted, borderRadius: 12, paddingVertical: 12 }}>
+                <Camera size={17} color={colors.primary} />
+                <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>Camera</Text>
+              </Pressable>
+            </View>
+          )}
+        </FormField>
+        )}
 
         <SheetSave label={saving ? 'Saving…' : editing ? 'Save changes' : 'Set reminder'} disabled={!text.trim() || saving} onPress={save} />
       </ScrollView>
