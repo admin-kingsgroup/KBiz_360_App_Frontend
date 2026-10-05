@@ -87,7 +87,8 @@ export function initWidgetSync(): () => void {
   };
   syncWidgetSnapshot();
   const unsubs = [
-    useMessagingStore.subscribe(schedule),
+    // Unread chats are all the widget shows from this store — skip typing/presence/message churn.
+    useMessagingStore.subscribe((s, prev) => { if (s.conversations !== prev.conversations) schedule(); }),
     useReminderBadgeStore.subscribe(schedule),
     useAttendanceStore.subscribe(schedule),
   ];

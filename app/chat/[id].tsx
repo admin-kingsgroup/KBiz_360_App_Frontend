@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, useWindowDimensions, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -36,6 +36,7 @@ import { refreshDirectoryUsers, useDirectoryStore } from '../../src/store/direct
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
 import type { User } from '../../src/types';
 import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
+import { useEventCallback } from '../../src/hooks/useEventCallback';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
 import { daySeparator, isDifferentDay, dateStamp } from '../../src/utils/time';
 
@@ -100,9 +101,7 @@ export default function ChatDetail() {
   const reversed = useMemo(() => messages.slice().reverse(), [messages]);
   const typingUsers = useMessagingStore((s) => s.typing[convId]) ?? [];
   const convFromStore = useMessagingStore((s) => s.conversations.find((c) => c.id === convId));
-  const conversations = useMessagingStore((s) => s.conversations);
   const myUserId = useMessagingStore((s) => s.myUserId);
-  const presence = useMessagingStore((s) => s.presence);
   const users = useAccessStore((s) => s.users);
   const privacy = useMessagingStore((s) => s.privacy);
   // Palette for this conversation: its own override, else the global theme, else Slate.
@@ -140,6 +139,10 @@ export default function ChatDetail() {
   const [editing, setEditing] = useState<StoredMessage | null>(null);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [forwardMsgs, setForwardMsgs] = useState<StoredMessage[]>([]); // [] = sheet closed
+  // The whole conversation list is only needed while the forward sheet is up. Subscribing to it
+  // all the time re-rendered this screen for every message arriving in ANY chat.
+  const forwardOpen = forwardMsgs.length > 0;
+  const conversations = useMessagingStore((s) => (forwardOpen ? s.conversations : NO_CONVERSATIONS));
   const [forwarding, setForwarding] = useState(false);
   // Multi-select (WhatsApp-style): long-press enters selection mode, taps toggle; the header
   // becomes an action bar (copy/star/forward/delete). Empty = not selecting.
@@ -246,14 +249,20 @@ export default function ChatDetail() {
   }, [convId]);
 
 
+  // Keyed on the two fields it reads, NOT the conversation object: that object is replaced on every
+  // incoming message (its lastMessage changes), and a new nameOf would repaint every bubble.
+  const convType = conv?.type;
+  const convName = conv?.name;
   const nameOf = useMemo(() => {
     const map = new Map(users.map((u) => [u.id, u.name]));
-    return (uid: string): string => map.get(uid) ?? (conv?.type === 'direct' ? conv.name : 'Member');
-  }, [users, conv]);
+    return (uid: string): string => map.get(uid) ?? (convType === 'direct' ? convName ?? 'Member' : 'Member');
+  }, [users, convType, convName]);
 
   const isGroup = conv?.type === 'group';
   const title = conv?.name ?? 'Chat';
-  const otherPresence = conv?.otherUserId ? presence[conv.otherUserId] : undefined;
+  // Just this person's presence — the whole map changes whenever anyone in the company comes or goes.
+  const otherUserId = conv?.otherUserId;
+  const otherPresence = useMessagingStore((s) => (otherUserId ? s.presence[otherUserId] : undefined));
 
   // Keep the other person's presence fresh while the chat is open (live socket events + a 30s poll
   // so "online" / "last seen" stays accurate even if no event arrives).
@@ -281,12 +290,42 @@ export default function ChatDetail() {
   const otherOnline = !isGroup && (otherPresence ? otherPresence.status === 'online' : !!conv?.online);
   const subtitle = isGroup ? `${conv?.memberCount ?? 0} members` : presenceLabel;
 
+  // The draft reaches the store a beat after the typing stops (and on leaving the chat), not on every
+  // keystroke: each store write re-rendered the chat list underneath and re-saved it to disk, which
+  // is exactly the work that made the keyboard feel behind the fingers.
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftPending = useRef<string | null>(null);
+  const flushDraft = useEventCallback((): void => {
+    if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
+    if (draftPending.current === null) return;
+    useMessagingStore.getState().setDraft(convId, draftPending.current);
+    draftPending.current = null;
+  });
+  const dropDraft = (): void => {
+    if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
+    draftPending.current = null;
+    useMessagingStore.getState().setDraft(convId, '');
+  };
+  // Leaving the chat keeps what was typed. The cleanup closes over ITS convId, so a draft can never
+  // be filed under the conversation that replaced it.
+  useEffect(() => () => {
+    if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
+    if (draftPending.current !== null) useMessagingStore.getState().setDraft(convId, draftPending.current);
+    draftPending.current = null;
+  }, [convId]);
+  const lastTypingEmit = useRef(0);
+
   const onChangeText = (t: string): void => {
     setText(t);
-    if (!editing) useMessagingStore.getState().setDraft(convId, t); // an edit-in-progress is not a draft
-    emitTyping(convId);
+    if (!editing) { // an edit-in-progress is not a draft
+      draftPending.current = t;
+      if (!draftTimer.current) draftTimer.current = setTimeout(flushDraft, 400);
+    }
+    // "typing…" is a state, not a stream: one ping a second keeps it alive on the other side.
+    const now = Date.now();
+    if (now - lastTypingEmit.current > 1000) { lastTypingEmit.current = now; emitTyping(convId); }
     if (typingTimer.current) clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => emitStopTyping(convId), 1500);
+    typingTimer.current = setTimeout(() => { lastTypingEmit.current = 0; emitStopTyping(convId); }, 1500);
   };
 
   // ── @-mentions (groups only, WhatsApp-style) ──
@@ -373,14 +412,27 @@ export default function ChatDetail() {
   const submitText = async (): Promise<void> => {
     const t = text.trim();
     if (!t) return;
-    if (editing) { await useMessagingStore.getState().edit(editing.id, convId, t); setEditing(null); setText(''); return; }
+    // The composer clears on the tap, before any round trip — the store applies the change
+    // optimistically, so there is nothing to wait for.
+    if (editing) {
+      const target = editing;
+      setEditing(null); setText('');
+      void useMessagingStore.getState().edit(target.id, convId, t).catch(() => showToast('Could not edit — check your connection'));
+      return;
+    }
     setText('');
-    useMessagingStore.getState().setDraft(convId, ''); // sent ⇒ no longer a draft
+    dropDraft(); // sent ⇒ no longer a draft
+    lastTypingEmit.current = 0;
     emitStopTyping(convId);
     // @everyone expands to the whole roster and supersedes named picks — see mentionsIn.
     const mentions = mentionsIn(t);
-    await useMessagingStore.getState().send(convId, t, replyTo?.id, mentions);
+    const replyToId = replyTo?.id;
     setReplyTo(null);
+    await useMessagingStore.getState().send(convId, t, replyToId, mentions);
+  };
+
+  const reactTo = (messageId: string, emoji: string): void => {
+    void useMessagingStore.getState().react(messageId, emoji).catch(() => showToast('Could not react — check your connection'));
   };
 
   // ── forward ──
@@ -423,6 +475,7 @@ export default function ChatDetail() {
 
   // ── multi-select ──
   const selecting = selectedIds.length > 0;
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedMsgs = useMemo(() => messages.filter((m) => selectedIds.includes(m.id)), [messages, selectedIds]); // chronological
   // Deleted/system rows aren't selectable; pending/failed have no server id yet (nothing to act on).
   const toggleSelect = (m: StoredMessage): void => {
@@ -777,6 +830,82 @@ export default function ChatDetail() {
     if (scrollRetry.current) clearTimeout(scrollRetry.current);
   }, []);
 
+  // ── message list ──
+  // Everything a row can do, behind identities that never change (useEventCallback runs the latest
+  // body). With these stable and the row memoised, typing in the composer, a presence flip or a
+  // message landing re-renders the rows that actually changed — not every bubble on screen.
+  const rowPress = useEventCallback((m: StoredMessage): void => { if (selecting) toggleSelect(m); else if (!m.deletedForEveryone) setActive(m); });
+  const rowLongPress = useEventCallback((m: StoredMessage): void => onMsgLongPress(m));
+  const rowReply = useEventCallback((m: StoredMessage): void => setReplyTo(m));
+  const rowForward = useEventCallback((m: StoredMessage): void => setForwardMsgs([m]));
+  const rowReactions = useEventCallback((id: string): void => setReactionsFor(id));
+  const rowOpenFile = useEventCallback((f: { uri: string; name: string; mime: string }): void => void openLocalFile(f));
+  const rowRetry = useEventCallback((cid: string): void => void useMessagingStore.getState().retry(cid));
+  const rowJump = useEventCallback((id: string): void => void jumpToMessage(id));
+  const rowActions = useMemo<RowActions>(() => ({
+    press: rowPress, longPress: rowLongPress, reply: rowReply, forward: rowForward, reactions: rowReactions,
+    openImage: setViewer, openFile: rowOpenFile, retry: rowRetry, jumpToReply: rowJump,
+  }), [rowPress, rowLongPress, rowReply, rowForward, rowReactions, rowOpenFile, rowRetry, rowJump]);
+
+  const searchTerm = searchOpen ? searchQ : undefined;
+  const dividerId = unreadDivider?.anchorId;
+  const dividerCount = unreadDivider?.count ?? 0;
+  const renderMessage = useCallback(({ item: m, index }: { item: StoredMessage; index: number }) => {
+    // Inverted list: `index+1` is the chronologically OLDER message. WhatsApp-style day
+    // separator: a centered date pill before the FIRST (oldest) message of each calendar
+    // day — i.e. when the older neighbour is a different day (or this is the oldest message).
+    const older = index < reversed.length - 1 ? reversed[index + 1] : null;
+    const showDay = !older || isDifferentDay(new Date(older.createdAt).getTime(), new Date(m.createdAt).getTime());
+    return (
+      <MessageRow m={m} showDay={showDay} unreadCount={dividerId === m.id ? dividerCount : 0}
+        marked={selectedSet.has(m.id) || m.id === highlightId} selecting={selecting}
+        isGroup={isGroup} nameOf={nameOf} theme={theme} highlight={searchTerm} actions={rowActions} />
+    );
+  }, [reversed, dividerId, dividerCount, selectedSet, highlightId, selecting, isGroup, nameOf, theme, searchTerm, rowActions]);
+
+  const onListEnd = useEventCallback((): void => void loadOlder());
+  const onListScroll = useEventCallback((e: { nativeEvent: { contentOffset: { y: number } } }): void => setShowJumpLatest(e.nativeEvent.contentOffset.y > 400));
+  // Jump-to-pinned can target a row far outside the rendered window (no getItemLayout —
+  // rows are variable height): land near it by estimate, then retry precisely once rendered.
+  const onScrollFailed = useEventCallback((info: { index: number; averageItemLength: number }): void => {
+    listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+    if (scrollRetry.current) clearTimeout(scrollRetry.current);
+    scrollRetry.current = setTimeout(() => {
+      try { listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }); } catch { /* already near it */ }
+    }, 400);
+  });
+  // The list ELEMENT is memoised: while none of these change, React skips the whole list subtree, so
+  // a keystroke in the composer costs the composer and nothing else.
+  const messageList = useMemo(() => (
+    <FlatList
+      ref={listRef}
+      data={reversed}
+      inverted
+      keyExtractor={messageKey}
+      style={LIST_STYLE}
+      contentContainerStyle={LIST_CONTENT}
+      // Paint the visible screenful on the first frame, then fill the rest in — a local-first
+      // open shouldn't be spent laying out 40 bubbles before anything appears.
+      initialNumToRender={12}
+      maxToRenderPerBatch={10}
+      windowSize={11}
+      // Scrollback: on an inverted list the "end" is the TOP, i.e. the oldest loaded message.
+      // Pages come out of the on-device database first, so reaching back through old history is
+      // instant and works with no connection; the server is only asked once local runs dry.
+      onEndReachedThreshold={0.6}
+      onEndReached={onListEnd}
+      onScroll={onListScroll}
+      scrollEventThrottle={64}
+      // Counter-flip must mirror the list's inversion exactly: Android inverts with
+      // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
+      // Held back until the first sync settles: a brand-new chat shouldn't flash "no messages"
+      // at someone whose thread is a few milliseconds from landing.
+      ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View> : null}
+      onScrollToIndexFailed={onScrollFailed}
+      renderItem={renderMessage}
+    />
+  ), [reversed, fetched, renderMessage, onListEnd, onListScroll, onScrollFailed]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bar }} edges={['top']}>
       {/* Selection action bar — replaces the header while messages are selected (WhatsApp-style) */}
@@ -862,83 +991,7 @@ export default function ChatDetail() {
             watermark sits behind every bubble without re-rendering per row. */}
         <View style={{ flex: 1, backgroundColor: theme.canvas }}>
         {watermarkOn ? <ChatWatermark theme={theme} /> : null}
-        <FlatList
-            ref={listRef}
-            data={reversed}
-            inverted
-            keyExtractor={(m) => m.id}
-            style={{ flex: 1, backgroundColor: 'transparent' }}
-            contentContainerStyle={{ padding: 12 }}
-            // Paint the visible screenful on the first frame, then fill the rest in — a local-first
-            // open shouldn't be spent laying out 40 bubbles before anything appears.
-            initialNumToRender={12}
-            maxToRenderPerBatch={10}
-            windowSize={11}
-            // Scrollback: on an inverted list the "end" is the TOP, i.e. the oldest loaded message.
-            // Pages come out of the on-device database first, so reaching back through old history is
-            // instant and works with no connection; the server is only asked once local runs dry.
-            onEndReachedThreshold={0.6}
-            onEndReached={() => void loadOlder()}
-            onScroll={(e) => setShowJumpLatest(e.nativeEvent.contentOffset.y > 400)}
-            scrollEventThrottle={64}
-            // Counter-flip must mirror the list's inversion exactly: Android inverts with
-            // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
-            // Held back until the first sync settles: a brand-new chat shouldn't flash "no messages"
-            // at someone whose thread is a few milliseconds from landing.
-            ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View> : null}
-            // Jump-to-pinned can target a row far outside the rendered window (no getItemLayout —
-            // rows are variable height): land near it by estimate, then retry precisely once rendered.
-            onScrollToIndexFailed={(info) => {
-              listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
-              if (scrollRetry.current) clearTimeout(scrollRetry.current);
-              scrollRetry.current = setTimeout(() => {
-                try { listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }); } catch { /* already near it */ }
-              }, 400);
-            }}
-            renderItem={({ item: m, index }) => {
-              // Inverted list: `index+1` is the chronologically OLDER message. WhatsApp-style day
-              // separator: a centered date pill before the FIRST (oldest) message of each calendar
-              // day — i.e. when the older neighbour is a different day (or this is the oldest message).
-              const older = index < reversed.length - 1 ? reversed[index + 1] : null;
-              const showDay = !older || isDifferentDay(new Date(older.createdAt).getTime(), new Date(m.createdAt).getTime());
-              const showUnread = unreadDivider?.anchorId === m.id;
-              const isSel = selectedIds.includes(m.id);
-              const bubble = (
-                <Bubble m={m} isGroup={isGroup} nameOf={nameOf} theme={theme}
-                  onPress={() => (selecting ? toggleSelect(m) : !m.deletedForEveryone && setActive(m))}
-                  onLongPress={() => onMsgLongPress(m)}
-                  selecting={selecting}
-                  onOpenImage={setViewer} onOpenFile={(f) => void openLocalFile(f)} onRetry={(cid) => void useMessagingStore.getState().retry(cid)} onForward={() => setForwardMsgs([m])}
-                  onReactions={() => setReactionsFor(m.id)}
-                  onJumpToReply={(id) => void jumpToMessage(id)} highlight={searchOpen ? searchQ : undefined} />
-              );
-              const row = m.type === 'system'
-                ? <SystemNotice text={m.text} />
-                // Swipe a message right to reply (WhatsApp-style). Deleted messages aren't replyable,
-                // and the gesture is parked while selecting so drags don't fight the toggles.
-                : m.deletedForEveryone || selecting
-                  ? bubble
-                  : <SwipeToReply onReply={() => setReplyTo(m)}>{bubble}</SwipeToReply>;
-              // Inverted list reverses the vertical order WITHIN a cell, so render the bubble first
-              // and the separators after — they then appear ABOVE the message on screen.
-              // The FULL row (empty space beside the bubble included) long-presses into selection
-              // (WhatsApp-style); the bubble's own handlers win for touches on the bubble itself.
-              return (
-                <>
-                  {m.type === 'system'
-                    ? row
-                    : (
-                      <Pressable onLongPress={() => onMsgLongPress(m)} onPress={selecting ? () => toggleSelect(m) : undefined}
-                        style={isSel || m.id === highlightId ? { backgroundColor: colors.primary + '2E', borderRadius: 14, marginHorizontal: -6, paddingHorizontal: 6 } : undefined}>
-                        {row}
-                      </Pressable>
-                    )}
-                  {showUnread ? <UnreadDivider count={unreadDivider!.count} /> : null}
-                  {showDay ? <DateSeparator label={daySeparator(new Date(m.createdAt).getTime())} /> : null}
-                </>
-              );
-            }}
-          />
+        {messageList}
         </View>
 
         {/* Upload progress */}
@@ -1248,7 +1301,7 @@ export default function ChatDetail() {
               {REACTIONS.map((e) => {
                 const isMine = active.reactions.some((r) => r.userId === myUserId && r.emoji === e);
                 return (
-                  <Pressable key={e} onPress={() => { void useMessagingStore.getState().react(active.id, e); finishAction(); }}
+                  <Pressable key={e} onPress={() => { reactTo(active.id, e); finishAction(); }}
                     style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: isMine ? colors.primarySoft : 'transparent' }}>
                     <Text style={{ fontSize: 24 }}>{e}</Text>
                   </Pressable>
@@ -1297,7 +1350,7 @@ export default function ChatDetail() {
         <Pressable onPress={() => setReactPickerOpen(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <Pressable onPress={() => {}} style={{ borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: 'hidden' }}>
             <EmojiPicker
-              onPick={(e) => { const id = reactPickerOpen; setReactPickerOpen(null); setSelectedIds([]); if (id) void useMessagingStore.getState().react(id, e); }}
+              onPick={(e) => { const id = reactPickerOpen; setReactPickerOpen(null); setSelectedIds([]); if (id) reactTo(id, e); }}
               onBackspace={() => setReactPickerOpen(null)}
             />
           </Pressable>
@@ -1315,7 +1368,7 @@ export default function ChatDetail() {
                 const isMine = r.userId === myUserId;
                 return (
                   <Pressable key={`${r.userId}-${r.emoji}`} disabled={!isMine}
-                    onPress={() => { const id = reactionsFor; setReactionsFor(null); if (id) void useMessagingStore.getState().react(id, r.emoji); }}
+                    onPress={() => { const id = reactionsFor; setReactionsFor(null); if (id) reactTo(id, r.emoji); }}
                     className="flex-row items-center gap-3" style={{ paddingVertical: 10, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
                     <Avatar initials={(nameOf(r.userId)[0] ?? '?').toUpperCase()} color={colors.blue} size={36} uri={users.find((u) => u.id === r.userId)?.avatar} />
                     <View style={{ flex: 1 }}>
@@ -1333,6 +1386,69 @@ export default function ChatDetail() {
     </SafeAreaView>
   );
 }
+
+const NO_CONVERSATIONS: ChatConversation[] = [];
+const LIST_STYLE = { flex: 1, backgroundColor: 'transparent' } as const;
+const LIST_CONTENT = { padding: 12 } as const;
+const MARKED_ROW = { backgroundColor: colors.primary + '2E', borderRadius: 14, marginHorizontal: -6, paddingHorizontal: 6 } as const;
+const messageKey = (m: StoredMessage): string => m.id;
+
+interface RowActions {
+  press: (m: StoredMessage) => void;
+  longPress: (m: StoredMessage) => void;
+  reply: (m: StoredMessage) => void;
+  forward: (m: StoredMessage) => void;
+  reactions: (messageId: string) => void;
+  openImage: (uri: string) => void;
+  openFile: (file: { uri: string; name: string; mime: string }) => void;
+  retry: (clientId: string) => void;
+  jumpToReply: (messageId: string) => void;
+}
+
+// One list cell: the bubble plus whatever sits above it (unread band, day pill). Memoised, and every
+// prop is either the message itself, a primitive, or an identity that only changes when the thing it
+// names does — so a re-render of the screen leaves untouched rows alone. `marked` covers both
+// "selected" and the jump-to flash; they paint the same tint.
+const MessageRow = memo(function MessageRow({ m, showDay, unreadCount, marked, selecting, isGroup, nameOf, theme, highlight, actions }: {
+  m: StoredMessage; showDay: boolean; unreadCount: number; marked: boolean; selecting: boolean; isGroup: boolean;
+  nameOf: (id: string) => string; theme: ChatTheme; highlight?: string; actions: RowActions;
+}) {
+  const onLongPress = (): void => actions.longPress(m);
+  const bubble = (
+    <Bubble m={m} isGroup={isGroup} nameOf={nameOf} theme={theme}
+      onPress={() => actions.press(m)}
+      onLongPress={onLongPress}
+      selecting={selecting}
+      onOpenImage={actions.openImage} onOpenFile={actions.openFile} onRetry={actions.retry} onForward={() => actions.forward(m)}
+      onReactions={() => actions.reactions(m.id)}
+      onJumpToReply={actions.jumpToReply} highlight={highlight} />
+  );
+  const row = m.type === 'system'
+    ? <SystemNotice text={m.text} />
+    // Swipe a message right to reply (WhatsApp-style). Deleted messages aren't replyable,
+    // and the gesture is parked while selecting so drags don't fight the toggles.
+    : m.deletedForEveryone || selecting
+      ? bubble
+      : <SwipeToReply onReply={() => actions.reply(m)}>{bubble}</SwipeToReply>;
+  // Inverted list reverses the vertical order WITHIN a cell, so render the bubble first
+  // and the separators after — they then appear ABOVE the message on screen.
+  // The FULL row (empty space beside the bubble included) long-presses into selection
+  // (WhatsApp-style); the bubble's own handlers win for touches on the bubble itself.
+  return (
+    <>
+      {m.type === 'system'
+        ? row
+        : (
+          <Pressable onLongPress={onLongPress} onPress={selecting ? () => actions.press(m) : undefined}
+            style={marked ? MARKED_ROW : undefined}>
+            {row}
+          </Pressable>
+        )}
+      {unreadCount ? <UnreadDivider count={unreadCount} /> : null}
+      {showDay ? <DateSeparator label={daySeparator(new Date(m.createdAt).getTime())} /> : null}
+    </>
+  );
+});
 
 // WhatsApp-style "Message info" bottom sheet: Read by (with time) → Delivered to → Pending.
 function MessageInfoSheet({ message, users, nameOf, onClose }: {

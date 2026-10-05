@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Rect, G, Circle } from 'react-native-svg';
 import { colors } from '../../theme';
@@ -33,7 +34,7 @@ function Pinwheel({ size, hub }: { size: number; hub: string }) {
 //
 // Purely decorative: pointerEvents none, and no accessibility label — a screen reader announcing
 // the brand name between every message would be noise.
-export function ChatWatermark({ theme, size = 128 }: { theme: ChatTheme; size?: number }) {
+function ChatWatermarkBase({ theme, size = 128 }: { theme: ChatTheme; size?: number }) {
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.wrap, { opacity: theme.dark ? 0.3 : 0.22 }]}>
       <Pinwheel size={size} hub={theme.watermarkHub} />
@@ -48,3 +49,6 @@ const styles = StyleSheet.create({
   wordmark: { fontWeight: '800', letterSpacing: -0.5 },
   tagline: { fontWeight: '600', letterSpacing: 3.4, marginTop: -4 },
 });
+
+// Memoised: an SVG behind the list has no business re-rendering on every keystroke in the composer.
+export const ChatWatermark = memo(ChatWatermarkBase);

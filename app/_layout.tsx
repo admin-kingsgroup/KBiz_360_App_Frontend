@@ -26,6 +26,7 @@ import { registerPushToken, ensureNotificationChannels } from '../src/services/n
 import { maybePromptBatteryOptimization } from '../src/services/batteryOptimization';
 import { useEmailStore } from '../src/store/emailStore';
 import { useMessagingStore } from '../src/store/messagingStore';
+import { flushPersist } from '../src/store/persistStorage';
 import { loadPrefs, savePerms } from '../src/services/storage';
 import { getLocationGate } from '../src/services/locationPermission';
 import { authApi } from '../src/api';
@@ -91,7 +92,10 @@ function GateController() {
     // App-icon badge ← unmuted chats with unread; reading a chat in-app clears its notification.
     // Debounced so bursts of store updates (socket receive + refetch) collapse into one sync.
     let badgeTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubBadge = useMessagingStore.subscribe((s) => {
+    const unsubBadge = useMessagingStore.subscribe((s, prev) => {
+      // Only the conversation list feeds the badge — typing, presence and message traffic do not,
+      // and they fire this subscription many times a second.
+      if (s.conversations === prev.conversations) return;
       if (badgeTimer) clearTimeout(badgeTimer);
       badgeTimer = setTimeout(() => void syncChatNotifications(s.conversations), 400);
     });
@@ -116,6 +120,7 @@ function GateController() {
         void useEmailStore.getState().refreshUnread(); // Email tab badge
         void useEmailStore.getState().silentRefresh('inbox'); // + bring new inbox mail into the list (no spinner)
       } else if (state === 'background') {
+        flushPersist(); // store writes are coalesced — land the pending one before the OS suspends us
         disconnectChatSocket(); // marks the user offline promptly; messages fall back to push
       }
     });
