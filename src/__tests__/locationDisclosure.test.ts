@@ -54,11 +54,34 @@ describe('disclosure copy (policy checklist)', () => {
     }
   });
 
-  it('never claims background collection — Android declares foreground location only', () => {
-    for (const p of purposes) {
+  it('the foreground-only purposes never claim background collection', () => {
+    for (const p of purposes.filter((x) => x !== 'trail')) {
       const all = [LOCATION_DISCLOSURE[p].body, ...LOCATION_DISCLOSURE[p].points].join(' ').toLowerCase();
       expect(all).not.toMatch(/all the time|even when the app is closed/);
     }
+  });
+
+  // The work-hours trail DOES collect in the background (foreground service, check-in → check-out).
+  // Its disclosure must say so in the words the policy looks for, bound it to the working day,
+  // say who sees it, and not promise an OS dialog that never comes.
+  it('trail copy discloses background collection, its bounds and its audience', () => {
+    const c = LOCATION_DISCLOSURE.trail;
+    const all = [c.body, ...c.points].join(' ');
+    expect(c.body).toMatch(/in the background/);
+    expect(c.body).toMatch(/even when the app is closed or not in use/);
+    expect(all).toMatch(/check in/i);
+    expect(all).toMatch(/check out/i);
+    expect(all).toMatch(/notification/i);
+    expect(all).toMatch(/HR/);
+    expect(all).not.toMatch(/all the time/i);
+    expect(c.footer).toBeTruthy();
+    expect(c.footer).not.toMatch(/your phone will then ask/);
+  });
+
+  it('attendance copy no longer denies background tracking outright (the trail exists) but points to its own disclosure', () => {
+    const all = [LOCATION_DISCLOSURE.attendance.body, ...LOCATION_DISCLOSURE.attendance.points].join(' ');
+    expect(all).not.toMatch(/nothing is tracked in the background/);
+    expect(all).toMatch(/asks you before it starts/);
   });
 
   it('attendance copy states the purpose and who it is shared with', () => {

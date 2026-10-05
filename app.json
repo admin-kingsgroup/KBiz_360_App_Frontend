@@ -42,6 +42,7 @@
         {
           "locationAlwaysAndWhenInUsePermission": "KBiz 360 uses your location to auto check-in / check-out when you are at the office, even in the background.",
           "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
       ],
@@ -118,7 +119,7 @@
       "infoPlist": {
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true,
-        "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to auto check-in / check-out at the office.",
+        "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to check you in and out at the office and, while you are checked in, to share your work location with your company until you check out.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "KBiz 360 uses your location in the background to auto check-in when you arrive at the office and check out when you leave.",
         "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance.",
         "NSMicrophoneUsageDescription": "KBiz 360 needs the microphone for voice messages and calls.",

@@ -3,4 +3,5 @@
 // off to expo-router's normal entry.
 import './src/services/callBackground';
 import './src/services/backgroundAttendance';
+import './src/services/locationTrail'; // work-hours location trail task (check-in → check-out)
 import 'expo-router/entry';

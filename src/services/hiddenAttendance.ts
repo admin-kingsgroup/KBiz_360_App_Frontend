@@ -4,6 +4,7 @@ import { getMyAttendance, getOffices, checkIn, checkOut } from '../api/attendanc
 import { distanceMeters } from '../logic/geo';
 import { useAttendanceStore } from '../store/attendanceStore';
 import { syncAttendanceGeofencing, disarmAttendanceGeofencing } from './backgroundAttendance';
+import { syncLocationTrail } from './locationTrail';
 import type { PunchMethod } from '../types';
 
 // HIDDEN (background) attendance for company directors (owner call, 07-31). For accounts the
@@ -40,6 +41,10 @@ export async function reconcileHiddenAttendance(): Promise<void> {
   try {
     const me = await getMyAttendance();
     const hidden = !!me.hidden;
+    // Work-hours location trail: this reconcile runs on every app open / return to foreground,
+    // which is when a trail the OS killed (reboot, force-stop) may be restarted — and when one
+    // left running after the day closed elsewhere is stopped. Never shows UI from here.
+    void syncLocationTrail(me);
     // Keep OS geofencing armed exactly for hidden accounts (idempotent, applied on state change).
     if (armedFor !== hidden) {
       armedFor = hidden;

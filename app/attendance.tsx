@@ -20,6 +20,7 @@ import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHis
 import { getMyLeave, getMyRegularizations, getPendingRegularizations, requestRegularization, type MyLeave, type Regularization } from '../src/api/hr';
 import { uploadFile } from '../src/api/media';
 import { disarmAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { syncLocationTrail } from '../src/services/locationTrail';
 import { requestLocationWithDisclosure, openLocationSettings } from '../src/services/locationPermission';
 import { clearPendingExit } from '../src/services/pendingExit';
 import { ApiError } from '../src/api/client';
@@ -144,6 +145,9 @@ export default function Attendance() {
         // Manual punchers get no background geofencing — clear anything an older build left armed.
         // Hidden (director) accounts keep theirs (armed by hiddenAttendance's reconcile).
         if (!m.hidden) { void disarmAttendanceGeofencing(); void clearPendingExit(); }
+        // Work-hours location trail follows the record: day open → streaming (asks for the
+        // work-hours disclosure once if this account has not agreed yet), otherwise stopped.
+        void syncLocationTrail(m, { ask: 'screen' });
         useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       }),
       getAttendanceHistory().then(setHistory),
@@ -294,6 +298,9 @@ export default function Attendance() {
     try {
       const body = { coords: coords ?? null, method: 'face' as const, facePhotoUrl };
       const m = kind === 'in' ? await checkIn(body) : await checkOut(body);
+      // Check-in starts the work-hours location trail (the app is on screen — the only moment
+      // the OS lets it start); check-out stops it and sends what is still queued.
+      void syncLocationTrail(m, kind === 'in' ? { ask: 'punch' } : {});
       useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       getAttendanceHistory().then(setHistory).catch(() => undefined);
       showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
@@ -498,6 +505,7 @@ const ConsentView = memo(function ConsentView({ onAgree, onBack }: { onAgree: ()
           ['At the office only', 'The button unlocks when your phone is within the office area (about 100 m of your branch).'],
           ['Face photo', 'Each punch opens the camera and captures your face — it is stored with that day’s record.'],
           ['What we record', 'Check-in / check-out time, date, your distance from the office and the face photo.'],
+          ['Work-hours location', 'While you are checked in, your phone shares its location with your HR and admin team until you check out. The app asks you to agree before this starts, and shows a notification the whole time.'],
           ['Who can see it', 'You see your own record. Only your Super Admin sees the team dashboard. Times feed your Accounts software.'],
         ] as [string, string][]).map(([t, d]) => (
           <View key={t} className="flex-row gap-3 mb-3">
