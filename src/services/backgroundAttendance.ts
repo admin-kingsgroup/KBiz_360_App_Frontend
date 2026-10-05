@@ -204,6 +204,49 @@ async function armOfficeRegions(): Promise<void> {
   await writeCachedRegions(regions.map((r) => ({ lat: r.latitude, lng: r.longitude, radius: r.radius ?? 100 })));
 }
 
+// One headless attendance check: re-arm the office regions and reconcile a missed punch. Shared by
+// the periodic background-fetch task below (~15 min, the OS's floor) and by the server's silent
+// "attendance_check" push (callBackground.ts), which wakes the phone every few minutes during the
+// morning arrival window so a missed boundary event is caught in minutes, not a quarter of an hour.
+// Returns false when it could not run at all (signed out / "Always" location not granted).
+let headlessCheckInFlight = false;
+export async function runHeadlessAttendanceCheck(): Promise<boolean> {
+  if (isRunningInExpoGo() || headlessCheckInFlight) return false;
+  headlessCheckInFlight = true;
+  try {
+    const session = await loadSession();
+    if (!session) return false;
+    const bg = await loc().getBackgroundPermissionsAsync();
+    if (bg.status !== 'granted') return false;
+    await armOfficeRegions();
+    // Punch reconcile — the OS Enter/Exit events fire exactly ONCE at the boundary, so a lost
+    // or rejected punch would otherwise stand until the app is opened. Both directions:
+    //   no check-in today + fix INSIDE a region → check in (never re-opens a closed day);
+    //   day still open + accurate fix beyond every fence → check out (confirmGeofenceExit;
+    //   the server re-verifies via its drift guard).
+    // An unreadable record means do nothing; a fix is taken only when a punch could result.
+    const today = await fetchTodayHeadless();
+    const needIn = !!today && autoMayOpenDay(today); // fresh day, or one the phone closed (never a manual check-out)
+    const dayOpen = !!today && !!today.inTime && !today.outTime;
+    if (needIn || dayOpen) {
+      let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
+      try {
+        const pos = await loc().getCurrentPositionAsync({ accuracy: loc().Accuracy.High });
+        fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
+      } catch { /* no fix → no punch */ }
+      const regions = await readCachedRegions();
+      // A fix INSIDE a fence refutes any pending-exit marker: the person is (still) at the
+      // office, so whatever Exit event set it was drift that never resolved.
+      if (fix && regions.length && regions.some((r) => distanceMeters(fix.coords, r) <= r.radius)) await clearPendingExit();
+      if (needIn && fix && confirmGeofenceEntry(fix, regions)) await postPunch('check-in', fix.coords);
+      else if (dayOpen && fix && confirmGeofenceExit(fix, regions)) await postPunch('check-out', fix.coords);
+    }
+    return true;
+  } finally {
+    headlessCheckInFlight = false;
+  }
+}
+
 // Periodic headless refresh (survives reboots on Android via startOnBoot). Only runs when the
 // user is signed in and "Always" location is ALREADY granted — a background task must never prompt.
 // Beyond re-arming regions, it RECONCILES missed punches: the OS Enter/Exit events fire exactly
@@ -219,33 +262,7 @@ function ensureRefreshTaskRegistered(): void {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const BackgroundFetch = require('expo-background-fetch') as typeof import('expo-background-fetch');
       try {
-        const session = await loadSession();
-        if (!session) return BackgroundFetch.BackgroundFetchResult.NoData;
-        const bg = await loc().getBackgroundPermissionsAsync();
-        if (bg.status !== 'granted') return BackgroundFetch.BackgroundFetchResult.NoData;
-        await armOfficeRegions();
-        // Punch reconcile — the OS Enter/Exit events fire exactly ONCE at the boundary, so a lost
-        // or rejected punch would otherwise stand until the app is opened. Both directions:
-        //   no check-in today + fix INSIDE a region → check in (never re-opens a closed day);
-        //   day still open + accurate fix beyond every fence → check out (confirmGeofenceExit;
-        //   the server re-verifies via its drift guard).
-        // An unreadable record means do nothing; a fix is taken only when a punch could result.
-        const today = await fetchTodayHeadless();
-        const needIn = !!today && autoMayOpenDay(today); // fresh day, or one the phone closed (never a manual check-out)
-        const dayOpen = !!today && !!today.inTime && !today.outTime;
-        if (needIn || dayOpen) {
-          let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
-          try {
-            const pos = await loc().getCurrentPositionAsync({ accuracy: loc().Accuracy.High });
-            fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
-          } catch { /* no fix → no punch */ }
-          const regions = await readCachedRegions();
-          // A fix INSIDE a fence refutes any pending-exit marker: the person is (still) at the
-          // office, so whatever Exit event set it was drift that never resolved.
-          if (fix && regions.length && regions.some((r) => distanceMeters(fix.coords, r) <= r.radius)) await clearPendingExit();
-          if (needIn && fix && confirmGeofenceEntry(fix, regions)) await postPunch('check-in', fix.coords);
-          else if (dayOpen && fix && confirmGeofenceExit(fix, regions)) await postPunch('check-out', fix.coords);
-        }
+        if (!(await runHeadlessAttendanceCheck())) return BackgroundFetch.BackgroundFetchResult.NoData;
         return BackgroundFetch.BackgroundFetchResult.NewData;
       } catch {
         return BackgroundFetch.BackgroundFetchResult.Failed;
