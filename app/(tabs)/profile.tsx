@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronRight, Users, Shield, LogOut, LogIn, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palette, Palmtree, ClipboardCheck, CalendarDays, ReceiptIndianRupee, Navigation } from 'lucide-react-native';
+import { ChevronRight, Users, Shield, LogOut, LogIn, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palette, Palmtree, ClipboardCheck, CalendarDays, ReceiptIndianRupee } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -260,7 +260,6 @@ export default function Profile() {
             title: 'Administration',
             rows: [
               { key: 'office-locations', label: 'Office locations', sub: 'Set branch geofences for attendance', Icon: MapPin, tint: colors.coral, value: null, chip: false, onPress: () => router.push('/admin/office-locations') },
-              { key: 'live-location', label: 'Live location', sub: 'Where on-duty staff are right now', Icon: Navigation, tint: colors.teal, value: null, chip: false, onPress: () => router.push('/admin/live-location') },
               { key: 'regularizations', label: 'Time corrections', sub: 'Approve staff attendance-time requests', Icon: ClipboardCheck, tint: colors.orange, value: null, chip: false, onPress: () => router.push('/admin/regularizations') },
               { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, tint: colors.blue, value: null, chip: false, onPress: () => router.push('/admin/businesses') },
               { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, tint: colors.purple, value: null, chip: false, onPress: () => router.push('/admin/users') },
