@@ -39,7 +39,7 @@ export function LocationDisclosureHost() {
               </View>
             ))}
             <Text style={{ color: colors.coolText3, fontSize: 12, lineHeight: 17, marginTop: 4, marginBottom: 18 }}>
-              Tap “I agree” to continue — your phone will then ask you to allow location for KBiz 360. You can change this anytime in your phone’s Settings.
+              {copy.footer ?? 'Tap “I agree” to continue — your phone will then ask you to allow location for KBiz 360. You can change this anytime in your phone’s Settings.'}
             </Text>
             <Pressable onPress={agree} style={{ height: 50, borderRadius: 999, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>I agree</Text>

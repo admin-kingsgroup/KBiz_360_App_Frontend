@@ -1,7 +1,8 @@
 // Headless background handler for chat messages arriving over FCM while the app is backgrounded
 // or killed. Imported from the app entry (index.js) so the handler is registered BEFORE React
 // mounts. Guarded so it never runs in Expo Go. (In-app voice calling was removed 07-31; this
-// module keeps its filename so the entry import stays stable, but it is chat-only now.)
+// module keeps its filename so the entry import stays stable; it handles chat pushes and the
+// silent attendance wake.)
 import { isRunningInExpoGo } from 'expo';
 import { handleChatMessagePush } from './chatNotifications';
 import { setPendingChatTap } from './notifications/pendingTap';
@@ -26,6 +27,15 @@ if (!isRunningInExpoGo()) {
       // Stale call pushes from the retired calling feature (old backend queue / old builds): make
       // sure nothing lingers in the shade.
       else if (data.type === 'call_cancel' && data.callId) await notifee.cancelNotification(`call-${data.callId}`);
+      // Silent wake from the server during the morning arrival window (automatic attendance): the
+      // person has no check-in yet, so re-check where the phone is and punch if it is at the office.
+      // Lazy-required like the other native-touching modules; never shows anything.
+      else if (data.type === 'attendance_check') {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          await (require('./backgroundAttendance') as typeof import('./backgroundAttendance')).runHeadlessAttendanceCheck();
+        } catch { /* best-effort — the next wake or the periodic task retries */ }
+      }
     });
 
     notifee.onBackgroundEvent(async ({ type, detail }: { type: number; detail: { pressAction?: { id: string }; notification?: { id?: string; data?: Record<string, string> } } }) => {

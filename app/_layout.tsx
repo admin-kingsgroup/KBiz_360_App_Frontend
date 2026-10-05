@@ -27,8 +27,7 @@ import { maybePromptBatteryOptimization } from '../src/services/batteryOptimizat
 import { useEmailStore } from '../src/store/emailStore';
 import { useMessagingStore } from '../src/store/messagingStore';
 import { loadPrefs, savePerms } from '../src/services/storage';
-import { getBackgroundLocationStatus } from '../src/services/locationPermission';
-import { locationPermSatisfied } from '../src/logic/permissionGate';
+import { getLocationGate } from '../src/services/locationPermission';
 import { authApi } from '../src/api';
 import { colors } from '../src/theme';
 import Constants from 'expo-constants';
@@ -38,14 +37,13 @@ import { setApiBaseUrl } from '../src/api';
 // use your machine's LAN IP when testing on a physical device).
 setApiBaseUrl((Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? 'http://localhost:4000');
 
-// Location revocation guard. Only FOREGROUND location ("While using the app") is required —
-// verified on every app open + foreground; if location is fully revoked in Settings, flip the perm
-// OFF, which sends the gate back to the permissions screen until re-granted. "Allow all the time"
-// is optional (Attendance-screen nudge) and its absence never gates entry. Downgrade-only —
-// granting lives on the permissions screen (avoids the two racing).
+// Location gate guard. Background location ("Allow all the time" / "Always") plus this account's
+// accepted disclosure is REQUIRED to use the app (owner decision 2026-10-05) — verified on every
+// app open + foreground; if either is missing (downgraded or revoked in Settings, or a different
+// account signed in), flip the perm OFF, which sends the gate back to the permissions screen until
+// it is granted again. Downgrade-only — granting lives on the permissions screen (avoids racing).
 async function enforceBgLocation(): Promise<void> {
-  const st = await getBackgroundLocationStatus();
-  if (locationPermSatisfied(st)) return;
+  if ((await getLocationGate()).satisfied) return;
   const store = useAttendanceStore.getState();
   if (!store.perms.location) return;
   store.setPerm('location', false);

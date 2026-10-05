@@ -54,17 +54,40 @@ describe('disclosure copy (policy checklist)', () => {
     }
   });
 
-  it('never claims background collection — Android declares foreground location only', () => {
-    for (const p of purposes) {
+  it('the tap-to-use purposes (chat, admin) never claim background collection', () => {
+    for (const p of ['chat', 'admin'] as const) {
       const all = [LOCATION_DISCLOSURE[p].body, ...LOCATION_DISCLOSURE[p].points].join(' ').toLowerCase();
-      expect(all).not.toMatch(/all the time|even when the app is closed/);
+      expect(all).not.toMatch(/in the background|all the time|even when the app is closed/);
     }
+  });
+
+  it('trail (entry gate) copy discloses background collection, its bounds and its audience', () => {
+    const c = LOCATION_DISCLOSURE.trail;
+    const all = [c.body, ...c.points].join(' ');
+    expect(c.body).toMatch(/in the background/);
+    expect(c.body).toMatch(/even when the app is closed or not in use/);
+    expect(all).toMatch(/check in/i);
+    expect(all).toMatch(/check out/i);
+    expect(all).toMatch(/notification/i);
+    expect(all).toMatch(/HR/);
+    // Automatic attendance is the other background use and must be named too.
+    expect(c.body).toMatch(/automatically/);
+    expect(all).toMatch(/arriv/i);
+    // It is the entry gate's disclosure: it must tell the person which OS option to pick and
+    // that the app does not open without it.
+    expect(c.footer).toMatch(/Allow all the time/);
+    expect(c.footer).toMatch(/cannot be opened without it/);
+  });
+
+  it('attendance copy does not deny background use (attendance is automatic) and points to the gate disclosure', () => {
+    const all = [LOCATION_DISCLOSURE.attendance.body, ...LOCATION_DISCLOSURE.attendance.points].join(' ');
+    expect(all).not.toMatch(/nothing is tracked in the background|only while the app is open/);
+    expect(all).toMatch(/explained separately/);
   });
 
   it('attendance copy states the purpose and who it is shared with', () => {
     const all = [LOCATION_DISCLOSURE.attendance.body, ...LOCATION_DISCLOSURE.attendance.points].join(' ');
     expect(all).toMatch(/check in|check-in/i);
     expect(all).toMatch(/HR/);
-    expect(all).toMatch(/only while the app is open/);
   });
 });

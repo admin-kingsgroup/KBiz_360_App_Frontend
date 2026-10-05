@@ -192,6 +192,9 @@ export async function logout(): Promise<void> {
   // module's test graph stays free of native (expo-task-manager / expo-constants) dependencies.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   void (require('../services/backgroundAttendance') as typeof import('../services/backgroundAttendance')).stopAttendanceGeofencing();
+  // Same for the work-hours location trail: stop collecting and discard the signed-out user's queue.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  void (require('../services/locationTrail') as typeof import('../services/locationTrail')).resetLocationTrail();
   useAuthStore.getState().signOut();
   useAccessStore.getState().setViewAs(null);
   useAccessStore.getState().setUser(null);

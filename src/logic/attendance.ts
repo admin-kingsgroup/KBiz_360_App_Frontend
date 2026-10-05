@@ -104,6 +104,35 @@ export function confirmGeofenceEntry(
   return regions.some((r) => distanceMeters(fix.coords, r) <= r.radius);
 }
 
+// ── fully automatic attendance (owner decision, 2026-10-05) ──
+// Everyone is checked in when their phone enters the office and out when it leaves; the face-photo
+// button stays as the manual fallback. These two decisions keep the automatic side from fighting
+// the person (mirrors of the server's autoMayOpenDay and its "still at the office" refusal).
+
+// May an AUTOMATIC check-in open (or re-open) today?
+//   no check-in yet → yes; day open → no; closed by the phone (lunch, or GPS drift) → yes;
+//   closed BY HAND (face check-out) or by an admin's correction → no — someone who checks out
+//   themselves and is still at their desk must not be checked back in a minute later.
+const DELIBERATE_VIA = new Set(['Face', 'Manual']);
+export function autoMayOpenDay(today: { inTime: string | Date | null; outTime: string | Date | null; via?: string | null }): boolean {
+  if (!today.inTime) return true;
+  if (!today.outTime) return false;
+  return !DELIBERATE_VIA.has(today.via ?? '');
+}
+
+// Foreground automatic check-OUT needs stronger proof than the background exit: it rests on ONE
+// fix taken the moment the app opens, often indoors. The fix must clear EVERY fence by its own
+// error radius however accurate it claims to be, and a fix with no accuracy at all proves nothing.
+// (The continuous trail on the server is the primary automatic check-out; this is the backup.)
+export function provablyOutside(
+  fix: { coords: Coords; accuracy: number | null } | null,
+  regions: ArmedRegion[],
+): boolean {
+  if (!fix || fix.accuracy == null || !regions.length) return false;
+  const acc = fix.accuracy;
+  return regions.every((r) => distanceMeters(fix.coords, r) - acc > r.radius);
+}
+
 // FALLBACK face punch guard. Extracted from faceScan(): blocked off-site; no-op once both punched.
 export function canFacePunch(present: boolean, att: AttendanceRecord, scanning: boolean): boolean {
   if (!present) return false;
