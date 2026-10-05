@@ -138,7 +138,7 @@ export default function LocationTrailScreen() {
             <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '700' }}>No location recorded for this day</Text>
             <Text style={{ color: colors.coolText, fontSize: 12.5, lineHeight: 18, marginTop: 3 }}>
               {trail.checkInAt
-                ? 'They were checked in, but their phone sent nothing — sharing not agreed yet, location turned off, or the app was force-stopped.'
+                ? 'They were checked in, but their phone sent nothing — location turned off, no network, or the app was force-stopped.'
                 : 'They did not check in on this day. Location is shared only between check-in and check-out.'}
             </Text>
           </View>

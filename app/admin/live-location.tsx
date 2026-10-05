@@ -127,7 +127,7 @@ export default function LiveLocationScreen() {
               </View>
             )}
             <Text style={{ color: colors.coolText3, fontSize: 12, lineHeight: 17, marginTop: 14, paddingHorizontal: 4 }}>
-              A phone shares its location only while its owner is checked in, and only after they agreed to work-hours location sharing. “On duty · no location received” means that person has not agreed yet, has location turned off, or has not opened the app since checking in.
+              A phone shares its location only while its owner is checked in. “On duty · no location received” means that person’s phone has location turned off, has no network, or the app was force-stopped since they checked in.
             </Text>
           </>
         )}

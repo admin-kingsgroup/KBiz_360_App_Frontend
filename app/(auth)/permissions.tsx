@@ -72,6 +72,9 @@ export default function Permissions() {
         setLocBlocked((prev) => (prev == null ? prev : st));
       }
     };
+    // Also on first appearance: a cold start after "Allow all the time" was chosen in Settings
+    // fires no AppState change, and the row would stay OFF until tapped.
+    void recheck();
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') void recheck(); });
     return () => sub.remove();
   }, []);
