@@ -21,6 +21,8 @@ export interface ReminderRecord extends Reminder {
   completedAt?: number;
   approvedAt?: number;
   createdAt?: string | number;
+  image?: string; // screenshot attached from KBiz Books (storage url — resolve with mediaUrl)
+  source?: string; // 'erp' when the reminder was set in KBiz Books
 }
 
 // Person → business (for the per-reminder accent color). Copied from source PEOPLE_BIZ.

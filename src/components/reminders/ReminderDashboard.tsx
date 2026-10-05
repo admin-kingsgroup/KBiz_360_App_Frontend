@@ -10,6 +10,7 @@ import type { ReminderRecord } from '../../data/reminders';
 import { useAuthStore } from '../../store/authStore';
 import { useAccessStore } from '../../store/accessStore';
 import { colors, radius, spacing } from '../../theme';
+import { ReminderScreenshot } from './ReminderScreenshot';
 import { canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isOverdueReminder, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
 
 type Tab = 'myself' | 'users' | 'branches' | 'all';
@@ -22,7 +23,7 @@ const titleOf = (r: ReminderRecord) => r.text || r.title || 'Untitled reminder';
 function ReminderLine({ r, onComplete, onDelete, branchLabel }: { r: ReminderRecord; onComplete: (id: string) => void; onDelete: (id: string) => void; branchLabel?: string }) {
   const overdue = isOverdueReminder(r);
   const assignedTo = r.forName || 'Unassigned';
-  return <View style={styles.line}><Pressable accessibilityLabel={`Complete ${titleOf(r)}`} onPress={() => onComplete(r.id)} hitSlop={8}><Circle size={20} color={overdue ? colors.danger : colors.primary} /></Pressable><View style={{ flex: 1 }}><Text style={styles.task}>{titleOf(r)}</Text><Text style={[styles.due, overdue && { color: colors.danger }]}>{overdue ? 'Overdue' : r.dueAt ? new Date(r.dueAt).toLocaleDateString() : 'No due date'}</Text><Text style={styles.people}>{r.byName ? `${r.byName} → ${assignedTo}` : `Assigned to ${assignedTo}`}</Text>{branchLabel ? <View style={styles.branchTag}><Building2 size={11} color={colors.primary} /><Text style={styles.branchText}>{branchLabel}</Text></View> : null}</View><Pressable accessibilityLabel={`Delete ${titleOf(r)}`} onPress={() => onDelete(r.id)} hitSlop={8}><Trash2 size={18} color={colors.coolText3} /></Pressable></View>;
+  return <View style={styles.line}><Pressable accessibilityLabel={`Complete ${titleOf(r)}`} onPress={() => onComplete(r.id)} hitSlop={8}><Circle size={20} color={overdue ? colors.danger : colors.primary} /></Pressable><View style={{ flex: 1 }}><Text style={styles.task}>{titleOf(r)}</Text><Text style={[styles.due, overdue && { color: colors.danger }]}>{overdue ? 'Overdue' : r.dueAt ? new Date(r.dueAt).toLocaleDateString() : 'No due date'}</Text><Text style={styles.people}>{r.byName ? `${r.byName} → ${assignedTo}` : `Assigned to ${assignedTo}`}</Text>{r.image ? <ReminderScreenshot url={r.image} /> : null}{branchLabel ? <View style={styles.branchTag}><Building2 size={11} color={colors.primary} /><Text style={styles.branchText}>{branchLabel}</Text></View> : null}</View><Pressable accessibilityLabel={`Delete ${titleOf(r)}`} onPress={() => onDelete(r.id)} hitSlop={8}><Trash2 size={18} color={colors.coolText3} /></Pressable></View>;
 }
 function Group({ title, count, overdueCount, children }: { title: string; count: number; overdueCount: number; children: React.ReactNode }) { const [open, setOpen] = useState(true); return <View style={styles.group}><Pressable onPress={() => setOpen(!open)} style={styles.groupHead}><View><Text style={styles.groupTitle}>{title}</Text><Text style={styles.meta}>{count} {count === 1 ? 'task' : 'tasks'}{overdueCount ? ` · ${overdueCount} overdue` : ''}</Text></View>{open ? <ChevronUp size={18} color={colors.coolText} /> : <ChevronDown size={18} color={colors.coolText} />}</Pressable>{open ? children : null}</View>; }
 
