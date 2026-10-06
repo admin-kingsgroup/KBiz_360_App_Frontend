@@ -69,7 +69,6 @@
           "microphonePermission": "KBiz 360 needs microphone access to record voice messages in chat."
         }
       ],
-      "@config-plugins/react-native-webrtc",
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       [
@@ -89,7 +88,6 @@
           "savePhotosPermission": "KBiz 360 saves photos and videos you download from chat into your photo library."
         }
       ],
-      "./plugins/withVoipPush",
       "./plugins/withNotifeeRepo",
       [
         "@bacons/apple-targets",
@@ -122,13 +120,11 @@
         "NSLocationWhenInUseUsageDescription": "KBiz 360 uses your location to check you in and out at the office and, while you are checked in, to share your work location with your company until you check out.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "KBiz 360 uses your location in the background to share your work location with your company while you are checked in, from check-in until check-out.",
         "NSFaceIDUsageDescription": "KBiz 360 uses Face ID as a backup way to punch attendance.",
-        "NSMicrophoneUsageDescription": "KBiz 360 needs the microphone for voice messages and calls.",
-        "NSCameraUsageDescription": "KBiz 360 needs the camera for photos, videos and video calls in chat.",
+        "NSMicrophoneUsageDescription": "KBiz 360 needs the microphone to record voice messages in chat.",
+        "NSCameraUsageDescription": "KBiz 360 needs the camera to take photos and videos to share in chat.",
         "NSPhotoLibraryUsageDescription": "KBiz 360 needs photo access to attach images and files to chats and email.",
         "UIBackgroundModes": [
           "remote-notification",
-          "audio",
-          "voip",
           "location",
           "fetch"
         ],
