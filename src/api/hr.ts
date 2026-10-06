@@ -53,8 +53,10 @@ export const applyLeave = (body: { from: string; to: string; reason: string; day
 export const cancelLeaveApplication = (id: string): Promise<LeaveApplication> =>
   apiFetch(`/api/hr/my-leave/${id}/cancel`, { method: 'PUT' });
 
-// Regularisation: ask for one day's punch to be corrected; a manager approves (the day is then
-// corrected through the same evidence-preserving path the admin time editor uses) or rejects.
+// Regularisation (a TIME CORRECTION): ask for one day's punch to be corrected. The request is the
+// ERP's own time-correction row, so it is on the ERP's Approvals ▸ Leave (signed FM → Director →
+// Owner) the moment it is sent, and in the Super Admin's queue here — whichever decides it, the day
+// is corrected through the same evidence-preserving path the admin time editor uses.
 export interface Regularization {
   id: string;
   userId: string;
@@ -69,6 +71,10 @@ export interface Regularization {
   decisionNote: string;
   name?: string; // attached on the manager queue only
   branch?: string;
+  /** Pending only: the ERP chain level it waits on ("Confirm (Director)") — absent from an older server. */
+  waitingOn?: string;
+  /** Pending only: the levels already signed on the ERP ("FM", "Director"). */
+  signedBy?: string[];
 }
 
 // ── My Attendance month view (the ERP muster, self-scoped) ──

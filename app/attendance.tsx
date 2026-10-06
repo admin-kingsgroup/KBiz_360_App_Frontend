@@ -267,7 +267,7 @@ export default function Attendance() {
     setSendingReg(true);
     requestRegularization({ date: regTarget.date, ...body })
       .then(() => {
-        showToast('Request sent — a Super Admin will review it');
+        showToast('Request sent — it is on the ERP (Approvals ▸ Leave) and with the Super Admin');
         setRegTarget(null);
         getMyRegularizations().then(setMyRegs).catch(() => undefined);
       })
@@ -637,7 +637,7 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
       </View>
       {/* Say the rule outright — the ASK button must never read as "edit my own time". */}
       <Text style={{ color: colors.coolText, fontSize: 11, marginBottom: 8, paddingHorizontal: 4 }}>
-        Missed a check-in or check-out? Tap Ask on that day. Only the Super Admin can change a recorded time.
+        Missed a check-in or check-out? Tap Ask on that day. The request goes to the ERP's Approvals ▸ Leave and to the Super Admin — only an approval changes a recorded time.
       </Text>
       <View style={{ gap: 8 }}>
         {history.length === 0 ? (
@@ -652,7 +652,7 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
                 <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
                 {absent ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent · no check-in</Text>
                         : <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {fmt(e.inTime ? new Date(e.inTime) : null)} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>}
-                {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Correction requested · waiting for the Super Admin</Text> : null}
+                {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Correction requested · waiting for approval</Text> : null}
               </View>
               {/* ASK for a correction (missed punch / wrong times) — this files a request for the
                   Super Admin to approve. Deliberately NOT a pencil: a pencil reads as "I can edit

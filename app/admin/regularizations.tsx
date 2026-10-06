@@ -12,11 +12,13 @@ import { ageLabel, groupByPerson, isStale, monthLabel, monthsOf } from '../../sr
 import { getRegularizationsForAdmin, decideRegularization, type Regularization } from '../../src/api/hr';
 
 // SUPER-ADMIN queue: attendance-correction requests, in the approved design's three tabs
-// (Pending / Approved / Rejected), grouped under the person who asked. Approve corrects the day
-// through the same evidence-preserving path as the super admin's own time editor (the server does
-// it); Reject requires a note that goes back to the requester. Server-gated to super_admin
-// (owner rule 2026-09-08 — nobody else may change a recorded time), so this screen only assumes
-// the caller reached it through the super-admin entry points.
+// (Pending / Approved / Rejected), grouped under the person who asked. Each row is the SAME request
+// the ERP shows on Approvals ▸ Leave (signed FM → Director → Owner there) — a level the ERP already
+// signed shows on the row, and a decision made on either side settles it for both. Approve corrects
+// the day through the same evidence-preserving path as the super admin's own time editor (the
+// server does it); Reject requires a note that goes back to the requester. Server-gated to
+// super_admin (owner rule 2026-09-08 — nobody else may change a recorded time), so this screen only
+// assumes the caller reached it through the super-admin entry points.
 //
 // Bulk approve/reject runs the SAME per-request endpoint once per selection, in order: there is no
 // bulk route, and inventing a client-side "apply many" that half-succeeds silently would be worse
@@ -359,6 +361,12 @@ const RequestRow = memo(function RequestRow({ r, decided, selecting, selected, b
             ? <Text style={{ color: colors.warn, fontWeight: '700' }}>Out missing</Text>
             : <Text>Out {fmtT(r.checkOutAt)}</Text>}
         </Text>
+        {/* Where the ERP's chain stands — only when someone there has already signed it. */}
+        {!decided && r.signedBy?.length ? (
+          <Text numberOfLines={1} style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+            Signed on the ERP: {r.signedBy.join(', ')}{r.waitingOn ? ` · waiting on ${r.waitingOn}` : ''}
+          </Text>
+        ) : null}
         {/* Two lines, so one long reason cannot drag a row to twice its neighbour's height. */}
         {r.reason ? <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 5 }}>“{r.reason}”</Text> : null}
         {decided && r.decisionNote ? <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 12.5, marginTop: 5 }}>Note: {r.decisionNote}</Text> : null}
