@@ -80,8 +80,13 @@ export function approvalToItem(record: Approval): QueueItem {
   };
 }
 
+/** "FM ✓ · Director ✓" — the ERP levels that have already signed a pending correction, '' when none. */
+export const signedText = (record: Pick<Regularization, 'status' | 'signedBy'>): string =>
+  record.status === 'pending' && record.signedBy?.length ? record.signedBy.map((s) => `${s} ✓`).join(' · ') : '';
+
 export function regularizationToItem(record: Regularization): QueueItem {
   const openOut = record.checkOutAt === null;
+  const signed = signedText(record);
   return {
     id: `time-correction:${record.id}`,
     kind: 'time-correction',
@@ -90,7 +95,9 @@ export function regularizationToItem(record: Regularization): QueueItem {
     personName: record.name ?? 'Unknown',
     personSubtitle: record.branch ?? '',
     title: fmtDay(record.date),
-    meta: `In ${fmtTime(record.checkInAt)}`,
+    // A level signed on the ERP rides on the meta line, so the Super Admin sees the FM / Director
+    // already reviewed it before deciding here (the same row is on the ERP's Approvals ▸ Leave).
+    meta: `In ${fmtTime(record.checkInAt)}${signed ? ` · ${signed}` : ''}`,
     // An open punch-out is the case this feature exists for and the part a reviewer must look at,
     // so it is called out in amber rather than buried mid-sentence.
     metaTail: openOut ? 'Out missing' : `Out ${fmtTime(record.checkOutAt)}`,
