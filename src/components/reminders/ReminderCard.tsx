@@ -5,6 +5,9 @@ import { colors } from '../../theme';
 import type { Business } from '../../types';
 import { type ReminderRecord } from '../../data/reminders';
 import { formatWhenLabel } from '../../logic/reminderWhen';
+import { reminderMentionNames } from '../../logic/reminderMentions';
+import { useAccessStore } from '../../store/accessStore';
+import { ReminderText } from './ReminderText';
 
 // Status/affordances depend on for-me/by-me + state. `meId` is the signed-in user's real id.
 // White card on the cool canvas; the left stripe keeps the semantic accent (pink = personal,
@@ -15,6 +18,7 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign, onE
   /** Creator-only field edit (text/time) — shown while the reminder is still pending. */
   onEdit?: (r: ReminderRecord) => void;
 }) {
+  const directoryUsers = useAccessStore((s) => s.users);
   const forMe = r.forId === meId;
   const byMe = r.byId === meId;
   const isPersonal = forMe && byMe;
@@ -55,7 +59,7 @@ function ReminderCardBase({ r, biz, meId, onComplete, onApprove, onReassign, onE
 
         <View className="flex-1">
           <View className="flex-row items-start" style={{ gap: 8 }}>
-            <Text numberOfLines={3} style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '500', lineHeight: 21 }}>{r.text}</Text>
+            <ReminderText text={r.text ?? ''} names={reminderMentionNames(r, directoryUsers.map((u) => u.name))} numberOfLines={3} style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '500', lineHeight: 21 }} />
             {canEdit ? (
               <Pressable onPress={() => onEdit!(r)} accessibilityLabel="Edit reminder" hitSlop={8}
                 style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
