@@ -117,3 +117,12 @@ export function facePunch(att: AttendanceRecord, now: Date): AttendanceRecord {
   if (!att.outTime) return { ...att, outTime: now };
   return att;
 }
+
+// Weekly off for a history row. The backend stamps `weekOff` from the person's HR policy
+// (Employee Master `weekOff`; group default = Sunday) with the same classifier the month view
+// uses. A backend that doesn't send it yet falls back to Sunday, so a Sunday never reads
+// "Absent" and never offers the correction ASK — there is nothing to correct on an off day.
+export function isWeekOffEntry(e: { date: string; weekOff?: boolean | null }): boolean {
+  if (typeof e.weekOff === 'boolean') return e.weekOff;
+  return new Date(e.date + 'T00:00:00').getDay() === 0;
+}
