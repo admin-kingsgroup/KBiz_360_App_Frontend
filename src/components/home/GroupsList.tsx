@@ -9,6 +9,7 @@ import { businesses as mockBusinesses, branches as mockBranches } from '../../da
 import { makeAccessFilters } from '../../logic/accessFilters';
 import { applyBranchOrder, moveCode } from '../../logic/branchOrder';
 import { OTHER_CHIP, splitUnfiledGroups } from '../../logic/groupFiling';
+import { mergeBranchChips, resolveSelectedChip } from '../../logic/branchChips';
 import { useBranchOrderStore } from '../../store/branchOrderStore';
 import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch } from '../../types';
@@ -44,12 +45,14 @@ export function GroupsList({
   const bizOK: typeof f.bizOK = serverFiltered ? yes : f.bizOK;
   const brOK: typeof f.brOK = serverFiltered ? yes : f.brOK;
   const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
-  // Selected branch chip per business (defaults to the first branch that has groups).
+  // Selected branch chip, remembered per business pill ('all' included) — defaults to the first
+  // chip. ONE row for everything on screen: the pick filters every business below it.
   const [selBranch, setSelBranch] = useState<Record<string, string>>({});
   const p = useChatListPalette(); // painted with the Chats tab's theme, like the rows below
-  // Personal chip arrangement (device-local, per business) + the business whose arrange sheet is open.
+  // Personal chip arrangement (device-local, per business pill — 'all' has its own) + whether the
+  // arrange sheet is open.
   const chipOrder = useBranchOrderStore((s) => s.order);
-  const [arrangeFor, setArrangeFor] = useState<string | null>(null);
+  const [arranging, setArranging] = useState(false);
 
   // The Groups list shows the real group chats the user belongs to, grouped by branch — opened
   // directly by conversation id. New groups are created via the "+" New group action.
@@ -73,17 +76,22 @@ export function GroupsList({
       const items = pinnedFirst((myConvsByBranch.get(br.id) ?? []).map((m) => ({ ...m, bizId: b.id, branchCode: br.code })));
       return { code: br.code, city: br.city, color: br.color, time: tzTime(br.tz), flag: br.flag, items };
     }).filter((s) => s.items.length > 0);
-    // The user's own chip arrangement (long-press a chip, or the ⇅ button, to change it).
-    const ordered = applyBranchOrder(subs, chipOrder[b.id]);
     // Unfiled groups go to their own business; one with no business at all goes to the first shown.
     const orphans = unfiled.filter((c) => (c.companyId ?? bizBase[0].id) === b.id);
     if (orphans.length) {
       const items = pinnedFirst(orphans.map((c) => ({ ...toItem(c), bizId: b.id })));
-      ordered.push({ code: OTHER_CHIP, city: 'Branch not in directory', color: colors.coolText3, time: '', flag: '', items });
+      subs.push({ code: OTHER_CHIP, city: 'Branch not in directory', color: colors.coolText3, time: '', flag: '', items });
     }
-    return { id: b.id, label: b.name, color: b.color, subs: ordered };
+    return { id: b.id, label: b.name, color: b.color, subs };
   });
   const allItems = blocks.flatMap((bl) => bl.subs.flatMap((s) => s.items));
+  // The chip row: every branch that has groups, across every business on screen, in the user's own
+  // arrangement (long-press a chip, or the ⇅ button, to change it). With a single business pill
+  // selected this is just that business's row; under "All" it spans them all, so picking BOM leaves
+  // only BOM's groups on screen — not BOM for one business and whatever the others defaulted to.
+  const chips = applyBranchOrder(mergeBranchChips(blocks), chipOrder[activeBizId]);
+  const active = resolveSelectedChip(chips, selBranch[activeBizId]);
+  const arrangeBlock: Block = { id: activeBizId, label: activeBizId === 'all' ? 'All businesses' : (bizBase[0]?.name ?? ''), color: colors.ink, subs: chips };
 
   if (allItems.length === 0) {
     return isSuper
@@ -123,68 +131,68 @@ export function GroupsList({
 
   return (
     <View>
+      {/* Branch chips — ONE row for the whole list. The badge is the number of the branch's GROUPS
+          with unread (chats, not messages — same unit as the segment tab and bottom-bar badges).
+          Rendered only when there is more than one chip: a single chip filters nothing, and its
+          code is already on the section band below and in the group names themselves.
+          Outlined-vs-filled, matching the All/Unread/Groups chips directly above them. */}
+      {chips.length > 1 && active ? (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 }}>
+        {chips.map((s) => {
+          const on = s.code === active.code;
+          const unread = s.items.reduce((n, g) => n + ((g.unread || 0) > 0 ? 1 : 0), 0);
+          return (
+            <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [activeBizId]: s.code }))} onLongPress={() => setArranging(true)} className="flex-row items-center"
+              accessibilityRole="button" accessibilityState={{ selected: on }}
+              style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, gap: 6, borderWidth: 1, backgroundColor: on ? p.accent : p.bar, borderColor: on ? p.accent : p.line }}>
+              <Text style={{ color: on ? p.onAccent : p.text, fontSize: 13, fontWeight: on ? '700' : '600' }}>{s.code}</Text>
+              {unread > 0 ? (
+                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.onAccent : p.accent }}>
+                  <Text style={{ color: on ? p.accent : p.onAccent, fontSize: 11, fontWeight: '700' }}>{unread}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+        {/* Arrange — reorder the chips to taste (long-pressing any chip opens the same sheet). */}
+        <Pressable onPress={() => setArranging(true)} accessibilityRole="button" accessibilityLabel="Arrange branches"
+          style={{ height: 34, width: 34, borderRadius: 17, borderWidth: 1, borderColor: p.line, backgroundColor: p.bar, alignItems: 'center', justifyContent: 'center' }}>
+          <ArrowUpDown size={15} color={p.text} />
+        </Pressable>
+      </ScrollView>
+      ) : null}
+
+      {/* Only the businesses that have groups under the picked branch — the others are not on
+          screen at all, which is what a filter means. */}
       {blocks.map((bl) => {
-        const subs = bl.subs; // every branch that has groups (read + unread)
-        if (subs.length === 0) return null;
-        // Which branch chip is picked — default to the first branch with groups.
-        const sel = selBranch[bl.id] ?? subs[0].code;
-        const active = subs.find((s) => s.code === sel) ?? subs[0];
+        const sub = active ? bl.subs.find((s) => s.code === active.code) : undefined;
+        if (!sub) return null;
         return (
           <View key={bl.id}>
-            {/* Branch chips — the badge is the number of the branch's GROUPS with unread (chats,
-                not messages — same unit as the segment tab and bottom-bar badges). Rendered only
-                when there is more than one branch: a single chip filters nothing, and its code is
-                already on the section header below and in the group names themselves.
-                Outlined-vs-filled, matching the All/Unread/Groups chips directly above them. */}
-            {subs.length > 1 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 }}>
-              {subs.map((s) => {
-                const on = s.code === active.code;
-                const unread = s.items.reduce((n, g) => n + ((g.unread || 0) > 0 ? 1 : 0), 0);
-                return (
-                  <Pressable key={s.code} onPress={() => setSelBranch((m) => ({ ...m, [bl.id]: s.code }))} onLongPress={() => setArrangeFor(bl.id)} className="flex-row items-center"
-                    accessibilityRole="button" accessibilityState={{ selected: on }}
-                    style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, gap: 6, borderWidth: 1, backgroundColor: on ? p.accent : p.bar, borderColor: on ? p.accent : p.line }}>
-                    <Text style={{ color: on ? p.onAccent : p.text, fontSize: 13, fontWeight: on ? '700' : '600' }}>{s.code}</Text>
-                    {unread > 0 ? (
-                      <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.onAccent : p.accent }}>
-                        <Text style={{ color: on ? p.accent : p.onAccent, fontSize: 11, fontWeight: '700' }}>{unread}</Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-              {/* Arrange — reorder the chips to taste (long-pressing any chip opens the same sheet). */}
-              <Pressable onPress={() => setArrangeFor(bl.id)} accessibilityRole="button" accessibilityLabel="Arrange branches"
-                style={{ height: 34, width: 34, borderRadius: 17, borderWidth: 1, borderColor: p.line, backgroundColor: p.bar, alignItems: 'center', justifyContent: 'center' }}>
-                <ArrowUpDown size={15} color={p.text} />
-              </Pressable>
-            </ScrollView>
-            ) : null}
-
-            {/* One band where there used to be two: which branch is being shown, how many groups are
-                in it, and its local time. Same shape as the Approvals queue's requester header. */}
+            {/* One band where there used to be two: which business and branch is being shown, how
+                many groups are in it, and its local time. Same shape as the Approvals queue's
+                requester header. */}
             <View className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 20, paddingVertical: 9, backgroundColor: p.bar, borderTopWidth: 1, borderBottomWidth: 1, borderColor: p.line }}>
               <Text numberOfLines={1} style={{ flexShrink: 1, color: p.text, fontSize: 13.5, fontWeight: '700' }}>
                 {bl.label}
-                {active.code ? <Text style={{ fontWeight: '500', color: p.mute }}> · {active.code}</Text> : null}
+                {sub.code ? <Text style={{ fontWeight: '500', color: p.mute }}> · {sub.code}</Text> : null}
               </Text>
               <View className="flex-1" />
               <Text numberOfLines={1} style={{ color: p.mute, fontSize: 12 }}>
-                {active.items.length} group{active.items.length === 1 ? '' : 's'}
-                {active.time ? ` · ${active.flag} ${active.time}` : ''}
+                {sub.items.length} group{sub.items.length === 1 ? '' : 's'}
+                {sub.time ? ` · ${sub.flag} ${sub.time}` : ''}
               </Text>
             </View>
 
             {/* Groups of the selected branch — the chat row, full-bleed, exactly as All/Unread. */}
-            {active.items.map(GroupRow)}
+            {sub.items.map(GroupRow)}
           </View>
         );
       })}
 
       <ArrangeBranchesSheet
-        block={blocks.find((bl) => bl.id === arrangeFor) ?? null}
-        onClose={() => setArrangeFor(null)}
+        block={arranging ? arrangeBlock : null}
+        onClose={() => setArranging(false)}
       />
     </View>
   );
