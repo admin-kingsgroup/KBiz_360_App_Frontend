@@ -1,4 +1,4 @@
-import { approvalToItem, buildQueue, chainText, regularizationToItem } from '../logic/approvalQueue';
+import { approvalToItem, buildQueue, chainText, regularizationToItem, signedText } from '../logic/approvalQueue';
 import type { Approval } from '../api/approvals';
 import type { Regularization } from '../api/hr';
 
@@ -100,6 +100,13 @@ describe('regularizationToItem', () => {
 
   it('is not actionable once decided', () => {
     expect(regularizationToItem(correction({ status: 'approved' })).canAct).toBe(false);
+  });
+
+  it('shows the ERP levels that already signed, only while pending', () => {
+    expect(regularizationToItem(correction({ signedBy: ['FM', 'Director'], waitingOn: 'Approve (Owner)' })).meta).toMatch(/· FM ✓ · Director ✓$/);
+    expect(regularizationToItem(correction()).meta).toMatch(/^In [^·]+$/);
+    expect(signedText({ status: 'approved', signedBy: ['FM'] })).toBe('');
+    expect(signedText({ status: 'pending', signedBy: [] })).toBe('');
   });
 });
 

@@ -25,7 +25,9 @@ const EMPTY: DayTimesTarget = { date: '', inTime: null, outTime: null };
 
 // Self-service "regularise this day" sheet — the employee's version of the admin DayTimesSheet:
 // same wheel, same client-side bounds (buildDayTimes mirrors the server), plus a REQUIRED reason.
-// Saving files a REQUEST — nothing changes on the record until the Super Admin approves it.
+// Saving files a REQUEST — the ERP's own time-correction row (Approvals ▸ Leave, FM → Director →
+// Owner), which the Super Admin can also decide in the app. Nothing changes on the record until
+// one of them approves it.
 export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: RegularizeSheetProps) {
   const insets = useSafeAreaInsets(); // keep the sheet clear of the Android nav bar / iOS home indicator
   const [draft, setDraft] = useState<DayTimesDraft>(() => seedDayTimes(EMPTY, new Date()));
@@ -45,7 +47,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
   const isToday = !!target && target.date === localDayKey(new Date());
   const result = target ? buildDayTimes(target.date, draft, new Date()) : null;
   const timesError = result && !result.ok ? result.error : null;
-  const error = timesError ?? (!reason.trim() ? 'Say why — the reason goes to the Super Admin' : null);
+  const error = timesError ?? (!reason.trim() ? 'Say why — the reason goes to the approvers' : null);
 
   const hour = which === 'in' ? draft.inHour : draft.outHour;
   const minute = which === 'in' ? draft.inMinute : draft.outMinute;
@@ -132,7 +134,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
           </View>
 
           <View className="px-5 pt-3">
-            <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>This sends a request. Your attendance record changes only when a Super Admin approves it.</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>This sends a request to the ERP (Approvals ▸ Leave) and the Super Admin. Your attendance record changes only when it is approved.</Text>
             {error ? <Text style={{ color: colors.coral, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>{error}</Text> : null}
             <SheetSave label={saving ? 'Sending…' : 'Send request'} disabled={!!error || saving} onPress={save} />
           </View>
