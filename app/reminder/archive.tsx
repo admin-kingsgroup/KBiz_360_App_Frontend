@@ -8,6 +8,8 @@ import { useMessagingStore } from '../../src/store/messagingStore';
 import { listReminders } from '../../src/api/reminders';
 import { useRefreshOnFocus } from '../../src/hooks/useRefreshOnFocus';
 import type { ReminderRecord } from '../../src/data/reminders';
+import { ReminderText } from '../../src/components/reminders/ReminderText';
+import { reminderMentionNames } from '../../src/logic/reminderMentions';
 
 // Reminder archive — approved reminders the user is part of, from the Mongo reminders API.
 // Flat white rows with hairline dividers on the cool canvas (matches the redesigned Reminders tab).
@@ -57,7 +59,7 @@ export default function ReminderArchive() {
                 <View className="flex-row items-start gap-3">
                   <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 2 }}><Check size={13} color="#fff" strokeWidth={3} /></View>
                   <View className="flex-1">
-                    <Text style={{ color: colors.coolText, fontSize: 15, fontWeight: '500', lineHeight: 21, textDecorationLine: 'line-through' }}>{r.text}</Text>
+                    <ReminderText text={r.text ?? ''} names={reminderMentionNames(r)} style={{ color: colors.coolText, fontSize: 15, fontWeight: '500', lineHeight: 21, textDecorationLine: 'line-through' }} />
                     <View className="flex-row items-center gap-1.5" style={{ marginTop: 4, flexWrap: 'wrap' }}>
                       <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: r.forColor || colors.ink, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{(r.forInitials || '').charAt(0)}</Text></View>
                       <Text style={{ color: colors.coolText3, fontSize: 12.5, fontWeight: '600' }}>{personal ? 'Personal' : `${r.forName} → ${r.byName}`}</Text>
