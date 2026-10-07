@@ -1,32 +1,16 @@
-import { Pressable, Text, View } from 'react-native';
-import { ChevronLeft } from 'lucide-react-native';
+import { useEffect } from 'react';
 import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { RequestForm } from '../../src/components/approvals/ApprovalsScreen';
-import { colors } from '../../src/theme';
+import { useUiStore } from '../../src/store/uiStore';
 
+// Manual approval requests raised in the app are stopped for now (owner 2026-10-07). The Approvals
+// tab no longer links here; an old deep link or notification lands back where it came from with a
+// short note. The form (RequestForm in ApprovalsScreen) is kept so this can be switched back on.
 export default function NewApprovalRequestScreen() {
-  return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back to approvals">
-          <ChevronLeft size={23} color={colors.ink} />
-        </Pressable>
-        <View style={styles.headerCopy}>
-          <Text style={styles.title}>New request</Text>
-          <Text style={styles.subtitle}>Create an approval request for your team</Text>
-        </View>
-      </View>
-      <RequestForm onSuccess={() => router.back()} />
-    </SafeAreaView>
-  );
+  const showToast = useUiStore((s) => s.showToast);
+  useEffect(() => {
+    showToast('New approval requests are paused');
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/approvals');
+  }, [showToast]);
+  return null;
 }
-
-const styles = {
-  screen: { flex: 1, backgroundColor: colors.coolBg },
-  header: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 13, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.coolDivider },
-  backButton: { width: 40, height: 40, alignItems: 'center' as const, justifyContent: 'center' as const, borderRadius: 20, backgroundColor: colors.coolMuted },
-  headerCopy: { flex: 1 },
-  title: { color: colors.ink, fontSize: 21, fontWeight: '800' as const },
-  subtitle: { color: colors.coolText, fontSize: 12, marginTop: 2 },
-};

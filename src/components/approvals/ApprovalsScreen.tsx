@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 import { ageLabel, groupByPerson, isStale } from '../../logic/regularizationQueue';
@@ -1316,15 +1316,8 @@ function Inbox() {
       ) : (
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Approvals</Text>
-          <Pressable
-            onPress={() => router.push('/approval/new')}
-            style={styles.addButton}
-            accessibilityRole="button"
-            accessibilityLabel="Create new approval request"
-          >
-            <Plus size={16} color="#fff" strokeWidth={2.6} />
-            <Text style={styles.addButtonText}>New request</Text>
-          </Pressable>
+          {/* No "New request" (owner 2026-10-07): manual approval requests raised in the app are
+              stopped for now. Requests already raised still show here and can be decided. */}
         </View>
       )}
 
