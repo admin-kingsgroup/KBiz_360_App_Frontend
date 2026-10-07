@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, Check, RotateCcw } from 'lucide-react-native';
 import { colors } from '../../src/theme';
-import { CHAT_THEMES, chatThemeFor, DEFAULT_CHAT_THEME, type ChatTheme } from '../../src/theme/chatThemes';
+import { CHAT_THEMES, chatThemeFor, DEFAULT_CHAT_THEME, chatCanvas, type ChatTheme } from '../../src/theme/chatThemes';
 import { ChatWatermark } from '../../src/components/chat';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useUiStore } from '../../src/store/uiStore';
@@ -68,7 +68,7 @@ export default function ChatThemePicker() {
       <ScrollView contentContainerStyle={{ paddingBottom: 28 }}>
         {/* Live preview — the real bubbles on the real canvas, so the choice is made on the thing
             itself rather than on a swatch. */}
-        <View style={{ backgroundColor: preview.canvas, paddingHorizontal: 14, paddingVertical: 16, overflow: 'hidden' }}>
+        <View style={{ backgroundColor: chatCanvas(preview), paddingHorizontal: 14, paddingVertical: 16, overflow: 'hidden' }}>
           {watermark ? <ChatWatermark theme={preview} size={92} /> : null}
           <View style={{ alignSelf: 'flex-start', maxWidth: '84%', backgroundColor: preview.them, borderColor: preview.themBorder, borderWidth: preview.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderRadius: 16, borderBottomLeftRadius: 5, paddingHorizontal: 11, paddingVertical: 8 }}>
             <Text style={{ color: preview.senderName, fontSize: 11.5, fontWeight: '700', marginBottom: 1 }}>Anubhav Maurya</Text>
@@ -142,7 +142,7 @@ function Tile({ theme, label, selected, onPress, muted }: {
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }}
       accessibilityLabel={label} style={{ width: 96, gap: 6 }}>
-      <View style={{ height: 76, borderRadius: 14, backgroundColor: theme.canvas, padding: 8, justifyContent: 'flex-end', gap: 5, opacity: muted ? 0.55 : 1, borderWidth: selected ? 2.5 : StyleSheet.hairlineWidth, borderColor: selected ? colors.primary : colors.coolDivider }}>
+      <View style={{ height: 76, borderRadius: 14, backgroundColor: chatCanvas(theme), padding: 8, justifyContent: 'flex-end', gap: 5, opacity: muted ? 0.55 : 1, borderWidth: selected ? 2.5 : StyleSheet.hairlineWidth, borderColor: selected ? colors.primary : colors.coolDivider }}>
         <View style={{ alignSelf: 'flex-start', width: '72%', height: 18, borderRadius: 7, backgroundColor: theme.them, borderWidth: theme.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderColor: theme.themBorder }} />
         <View style={{ alignSelf: 'flex-end', width: '72%', height: 18, borderRadius: 7, backgroundColor: theme.mine, borderWidth: theme.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderColor: theme.mineBorder }} />
       </View>
