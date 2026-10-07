@@ -30,7 +30,7 @@ import { DateJumpSheet } from '../../src/components/chat/DateJumpSheet';
 import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
 import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
 import { requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
-import { useChatTheme, type ChatTheme } from '../../src/theme';
+import { useChatTheme, chatCanvas, type ChatTheme } from '../../src/theme';
 import { ChatWatermark, ChatTile } from '../../src/components/chat';
 import { refreshDirectoryUsers, useDirectoryStore } from '../../src/store/directoryStore';
 import { activeMention, applyMention, rankMentionMatches, mentionIdsInText, hasEveryoneMention, MENTION_EVERYONE } from '../../src/logic/mentions';
@@ -989,7 +989,7 @@ export default function ChatDetail() {
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         {/* The canvas carries the brand mark; the list rides transparently on top of it so the
             watermark sits behind every bubble without re-rendering per row. */}
-        <View style={{ flex: 1, backgroundColor: theme.canvas }}>
+        <View style={{ flex: 1, backgroundColor: chatCanvas(theme) }}>
         {watermarkOn ? <ChatWatermark theme={theme} /> : null}
         {messageList}
         </View>
@@ -1064,7 +1064,7 @@ export default function ChatDetail() {
             <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
           </Pressable>
         ) : (
-        <View className="flex-row items-end gap-2" style={{ backgroundColor: theme.canvas, paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
+        <View className="flex-row items-end gap-2" style={{ backgroundColor: chatCanvas(theme), paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
           {/* Cancel sits outside only while recording, where the pill is replaced by the timer.
               Attach (+) lives inside the pill — see below. */}
           {isRecording ? (

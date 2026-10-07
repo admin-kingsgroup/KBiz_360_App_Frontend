@@ -3,7 +3,7 @@ export type { ColorToken } from './colors';
 export { shadow, shadowSm } from './shadows';
 export { fonts, textSizes } from './typography';
 export { spacing, radius } from './spacing';
-export { CHAT_THEMES, DEFAULT_CHAT_THEME, chatThemeFor } from './chatThemes';
+export { CHAT_THEMES, DEFAULT_CHAT_THEME, chatThemeFor, chatCanvas, CHAT_CANVAS_SOFTEN } from './chatThemes';
 export type { ChatTheme } from './chatThemes';
 export { useChatTheme, useGlobalChatTheme, useChatListPalette, ChatThemeContext, useChatThemeCtx } from './useChatTheme';
 export { chatListPalette } from './chatListPalette';

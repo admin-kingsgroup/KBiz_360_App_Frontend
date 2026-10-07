@@ -978,7 +978,7 @@ const KIND_COLOR: Record<HistoryDayKind, string> = {
   present: colors.primary,
   absent: colors.danger,
   holiday: '#B7791F', // darkened orange: legible as 12px text
-  weekOff: colors.coolText,
+  weekOff: colors.coolText3, // muted, as the week-off row has read since 2026-10-06
   leave: colors.teal,
   noData: colors.coolText,
   notEmployed: colors.coolText,

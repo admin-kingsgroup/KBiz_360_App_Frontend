@@ -3,9 +3,9 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { ChevronLeft, MoreVertical, FileText, Bell, BellOff } from 'lucide-react-native';
+import { ChevronLeft, MoreVertical, FileText, Bell, BellOff, ExternalLink } from 'lucide-react-native';
 import { colors, shadow } from '../../src/theme';
-import { channelById, channelGrantModule, groupById, groupForChannel, type PulseChannel } from '../../src/data/pulse';
+import { channelById, channelGrantModule, channelLabel, groupById, groupForChannel, type PulseChannel } from '../../src/data/pulse';
 import { businesses } from '../../src/data/businesses';
 import { reminderPeople } from '../../src/data/reminders';
 import { usePulseStore } from '../../src/store/pulseStore';
@@ -108,11 +108,16 @@ export default function AlertDetail() {
 
   const biz = channel.bizId ? businesses.find((b) => b.id === channel.bizId) : null;
   // "· BOM branch" for a single channel or a one-branch group; "· 2 branches" once chips appear.
-  const branchSubtitle = memberChannels.length > 1
-    ? ` · ${memberChannels.length} branches`
-    : (memberChannels[0]?.branch ? ` · ${memberChannels[0].branch} branch` : '');
+  // A company-wide group (KGD Alerts) has sections, not branches: "· CRM and ERP" / "· CRM".
+  const companyWide = memberChannels.length > 0 && memberChannels.every((c) => c.companyWide);
+  const branchSubtitle = companyWide
+    ? ` · ${memberChannels.map(channelLabel).join(' and ')}`
+    : memberChannels.length > 1
+      ? ` · ${memberChannels.length} branches`
+      : (memberChannels[0]?.branch ? ` · ${memberChannels[0].branch} branch` : '');
   const memberObjs = channel.members.map((mid) => reminderPeople.find((p) => p.id === mid) || { id: mid, name: mid, initials: mid.slice(0, 2).toUpperCase(), color: colors.coolText3 });
-  const pickedBranch = picked === 'all' ? null : memberChannels.find((c) => c.id === picked)?.branch;
+  const pickedChannel = picked === 'all' ? undefined : memberChannels.find((c) => c.id === picked);
+  const pickedBranch = pickedChannel ? channelLabel(pickedChannel) : null;
   const muteName = pickedBranch ? `${channel.name} · ${pickedBranch}` : channel.name;
 
   return (
@@ -135,7 +140,7 @@ export default function AlertDetail() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0, backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}
           contentContainerStyle={{ gap: 8, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10 }}>
-          {([{ id: 'all', label: 'All' }, ...memberChannels.map((c) => ({ id: c.id, label: c.branch || c.name }))]).map((chip) => {
+          {([{ id: 'all', label: 'All' }, ...memberChannels.map((c) => ({ id: c.id, label: channelLabel(c) }))]).map((chip) => {
             const on = picked === chip.id;
             const n = allEvents.filter((e) => (chip.id === 'all' ? memberChannels.some((c) => c.id === e.channelId) : e.channelId === chip.id) && !e.read).length;
             const chipMuted = chip.id !== 'all' && isAlertMuted(mutes, chip.id);
@@ -213,6 +218,18 @@ export default function AlertDetail() {
             {e.context ? <View style={{ alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.coolMuted }}><Text style={{ color: colors.coolText, fontSize: 10.5, fontWeight: '600' }}>{e.context}</Text></View> : null}
             {/* A converted lead's client: tap the number to WhatsApp them, or Call. */}
             {e.contact?.phone ? <ContactActions phone={e.contact.phone} onUse={() => { if (!e.read) markEventRead(e.id); }} /> : null}
+            {/* The thing the alert is about (e.g. the raised ticket) — opened in the in-app browser. */}
+            {e.link ? (
+              <Pressable
+                onPress={() => { if (!e.read) markEventRead(e.id); void WebBrowser.openBrowserAsync(e.link!); }}
+                accessibilityRole="link" accessibilityLabel="Open"
+                className="flex-row items-center gap-1.5"
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.primary }}
+              >
+                <ExternalLink size={13} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '700' }}>{channel.companyWide || memberChannels.some((c) => c.companyWide) ? 'Open ticket' : 'Open'}</Text>
+              </Pressable>
+            ) : null}
             {e.attachment ? (
               <Pressable
                 onPress={() => { void openAttachment(e); }}

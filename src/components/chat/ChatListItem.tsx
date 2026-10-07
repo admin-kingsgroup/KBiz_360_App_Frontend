@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Pressable, View, Text } from 'react-native';
+import { Pressable, View, Text, PixelRatio } from 'react-native';
 import { Check, CheckCheck, BellOff, Pin, Image as ImageIcon } from 'lucide-react-native';
 import { colors, useChatListPalette } from '../../theme';
 import { ChatTile } from './ChatTile';
@@ -25,10 +25,14 @@ export type ChatRowItem = DirectChatItem & {
 // carried by weight and a faint tinted ground rather than by a louder badge.
 // NOTE: keep the style a plain static array — a ({pressed}) => … function style on a Pressable gets
 // dropped by the NativeWind interop here (the row un-cards and stacks vertically). Ripple = feedback.
+const DIVIDER_INSET = 20 + 48 + 12;
+// Two physical pixels on every screen: a one-pixel hairline all but vanished on a 3x phone.
+const DIVIDER_HEIGHT = 2 / PixelRatio.get();
+
 function ChatListItemBase({ chat, onPress, onLongPress }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void }) {
   const unread = !!chat.unread;
   // Painted from the global chat theme, so the list matches the conversations it opens. Read rows sit
-  // on a light tint, unread rows on the full theme colour; no dividers — the two grounds separate rows.
+  // on a light tint, unread rows on the full theme colour, and a WhatsApp hairline closes every row.
   const p = useChatListPalette();
   const ground = unread ? p.rowUnread : p.list;
   return (
@@ -75,6 +79,9 @@ function ChatListItemBase({ chat, onPress, onLongPress }: { chat: ChatRowItem; o
           ) : null}
         </View>
       </View>
+      {/* WhatsApp's divider: one hairline under the text column (it starts where the name starts,
+          past the tile) and runs to the right edge. Inset = padding 20 + tile 48 + gap 12. */}
+      <View pointerEvents="none" style={{ position: 'absolute', left: DIVIDER_INSET, right: 0, bottom: 0, height: DIVIDER_HEIGHT, backgroundColor: p.divider }} />
     </Pressable>
   );
 }
