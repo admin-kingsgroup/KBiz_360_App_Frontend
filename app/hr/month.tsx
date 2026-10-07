@@ -1,10 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, type LayoutChangeEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { CalendarDays, ChevronLeft, ChevronRight, Palmtree } from 'lucide-react-native';
 import { colors } from '../../src/theme';
-import { getMyAttendanceMonth, getHolidays, type MyAttendanceMonth, type MonthDay, type HolidayRow, type DayState } from '../../src/api/hr';
+import { HrMenuButton } from '../../src/components/hr/HrMenu';
+import { AbsentLeaveSheet } from '../../src/components/hr/AbsentLeaveSheet';
+import { shiftDay } from '../../src/logic/leave';
+import { getMyAttendanceMonth, getHolidays, getMyLeave, type MyAttendanceMonth, type MonthDay, type HolidayRow, type DayState, type MyLeave } from '../../src/api/hr';
 
 // My Attendance — the person's own month, read exactly the way the ERP's monthly report reads
 // it (same classifier, served by the backend): present / absent / paid leave / holiday /
@@ -61,13 +64,24 @@ export default function MyAttendanceMonthScreen() {
   const [holidays, setHolidays] = useState<HolidayRow[] | null>(null);
   const [selected, setSelected] = useState<MonthDay | null>(null);
   const [failed, setFailed] = useState(false);
+  const [leave, setLeave] = useState<MyLeave | null>(null);
+  // Tapping an ABSENT day opens the paid-leave request for it (null = sheet closed).
+  const [leaveDay, setLeaveDay] = useState<string | null>(null);
+  // Calendar cell width in whole pixels. A percentage basis (100/7 %) rounds each cell UP on
+  // Android, so seven cells overflowed the row and Sunday wrapped onto the next line.
+  const [cellW, setCellW] = useState<number | null>(null);
+  const onGridLayout = useCallback((e: LayoutChangeEvent): void => {
+    const w = Math.floor(e.nativeEvent.layout.width / 7);
+    setCellW((prev) => (prev === w ? prev : w));
+  }, []);
+  const loadLeave = useCallback((): void => { getMyLeave().then(setLeave).catch(() => undefined); }, []);
 
   const load = useCallback((m: string): void => {
     setData(null); setSelected(null); setFailed(false);
     getMyAttendanceMonth(m).then(setData).catch(() => setFailed(true));
   }, []);
   useEffect(() => { load(month); }, [month, load]);
-  useFocusEffect(useCallback(() => { load(month); }, [load, month]));
+  useFocusEffect(useCallback(() => { load(month); loadLeave(); }, [load, loadLeave, month]));
   useEffect(() => {
     getHolidays(Number(month.slice(0, 4))).then((h) => setHolidays(h.published ? h.holidays : [])).catch(() => setHolidays([]));
   }, [month]);
@@ -78,6 +92,21 @@ export default function MyAttendanceMonthScreen() {
     const lead = (new Date(`${data.month}-01T00:00:00Z`).getUTCDay() + 6) % 7;
     return [...Array.from({ length: lead }, () => null), ...data.days];
   }, [data]);
+
+  // Days covered by a leave request HR has not decided yet — shown as "Leave requested".
+  const requestedDays = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of leave?.applications ?? []) {
+      if (a.status !== 'pending') continue;
+      for (let d = a.from; d <= a.to; d = shiftDay(d, 1)) set.add(d);
+    }
+    return set;
+  }, [leave]);
+  const openAbsent = useMemo(
+    () => (data ? data.days.filter((d) => d.state === 'absent' && !requestedDays.has(d.day)).map((d) => d.day) : []),
+    [data, requestedDays],
+  );
+  const askLeaveFor = useCallback((day: string): void => setLeaveDay(day), []);
 
   const upcoming = useMemo(() => {
     if (!holidays || !data) return [];
@@ -96,15 +125,17 @@ export default function MyAttendanceMonthScreen() {
   }, [data]);
 
   const canGoNext = month < thisMonth();
+  const selRequested = !!selected && selected.state === 'absent' && requestedDays.has(selected.day);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
-        <View>
+        <View className="flex-1">
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>My Attendance</Text>
           <Text style={{ color: colors.coolText, fontSize: 12 }}>{data ? `${data.employee.branch || '—'} branch calendar` : 'Month view'}</Text>
         </View>
+        <HrMenuButton current="month" />
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
@@ -131,7 +162,8 @@ export default function MyAttendanceMonthScreen() {
             {/* Summary tiles */}
             <View className="flex-row gap-2 mb-2">
               <Tile n={data.summary.present} label="Present" color={colors.primary} />
-              <Tile n={data.summary.absent} label="Absent" color={colors.danger} />
+              <Tile n={data.summary.absent} label="Absent" color={colors.danger}
+                onPress={openAbsent.length ? () => askLeaveFor(selected && openAbsent.includes(selected.day) ? selected.day : openAbsent[0]) : undefined} />
               <Tile n={data.summary.leave} label="Leave" color={colors.teal} />
               <Tile n={data.summary.lateMarks} label="Late" color={colors.orange} />
             </View>
@@ -149,22 +181,30 @@ export default function MyAttendanceMonthScreen() {
             <View style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, borderRadius: 16, padding: 10, marginBottom: 12 }}>
               <View className="flex-row">
                 {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((w, i) => (
-                  <View key={i} style={{ flexBasis: `${100 / 7}%`, alignItems: 'center', paddingVertical: 4 }}>
+                  <View key={i} style={{ ...(cellW ? { width: cellW } : { flexBasis: '14.2%' }), alignItems: 'center', paddingVertical: 4 }}>
                     <Text style={{ color: i === 6 ? colors.danger : colors.coolText, fontSize: 10, fontWeight: '800' }}>{w}</Text>
                   </View>
                 ))}
               </View>
-              <View className="flex-row flex-wrap">
+              <View className="flex-row flex-wrap" onLayout={onGridLayout}>
                 {cells.map((d, i) => {
-                  if (d === null) return <View key={`b${i}`} style={{ flexBasis: `${100 / 7}%`, height: 42 }} />;
+                  const cellBox = cellW ? { width: cellW } : { flexBasis: '14.2%' as const };
+                  if (d === null) return <View key={`b${i}`} style={{ ...cellBox, height: 42 }} />;
                   const c = STATE_COLORS[d.state];
                   const faint = d.state === 'future' || d.state === 'notEmployed' || d.state === 'noData';
                   const isSel = selected?.day === d.day;
                   const isToday = d.day === data.today;
+                  // An absent day with a pending request reads as "Leave requested" (dashed teal).
+                  const requested = d.state === 'absent' && requestedDays.has(d.day);
+                  const askable = d.state === 'absent' && !requested;
+                  const tone = requested ? colors.teal : c;
                   return (
-                    <Pressable key={d.day} onPress={() => setSelected(d)} style={{ flexBasis: `${100 / 7}%`, height: 42, alignItems: 'center', justifyContent: 'center' }}>
-                      <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: faint ? 'transparent' : c + '22', borderWidth: isSel ? 2 : isToday ? 1.5 : 0, borderColor: isSel ? colors.ink : colors.primary }}>
-                        <Text style={{ color: faint ? colors.coolText3 : c, fontSize: 13, fontWeight: '700' }}>{Number(d.day.slice(8, 10))}</Text>
+                    <Pressable key={d.day} onPress={() => { setSelected(d); if (askable) askLeaveFor(d.day); }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${d.day}, ${requested ? 'leave requested' : STATE_LABELS[d.state]}${askable ? ', tap to apply paid leave' : ''}`}
+                      style={{ ...cellBox, height: 42, alignItems: 'center', justifyContent: 'center' }}>
+                      <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: faint ? 'transparent' : tone + '22', borderWidth: isSel ? 2 : requested || isToday ? 1.5 : 0, borderStyle: requested && !isSel ? 'dashed' : 'solid', borderColor: isSel ? colors.ink : requested ? colors.teal : colors.primary }}>
+                        <Text style={{ color: faint ? colors.coolText3 : tone, fontSize: 13, fontWeight: '700' }}>{Number(d.day.slice(8, 10))}</Text>
                         {d.late ? <View style={{ position: 'absolute', top: 3, right: 3, width: 5, height: 5, borderRadius: 3, backgroundColor: colors.orange }} /> : null}
                       </View>
                     </Pressable>
@@ -175,7 +215,7 @@ export default function MyAttendanceMonthScreen() {
               {selected ? (
                 <View style={{ marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.coolDivider }}>
                   <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>
-                    {new Date(selected.day + 'T00:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} · <Text style={{ color: STATE_COLORS[selected.state] }}>{STATE_LABELS[selected.state]}{selected.halfLeave ? ' · half-day leave' : ''}{selected.granted && selected.state === 'weekOff' ? ' (granted)' : ''}</Text>
+                    {new Date(selected.day + 'T00:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} · <Text style={{ color: selRequested ? colors.teal : STATE_COLORS[selected.state] }}>{selRequested ? 'Leave requested' : STATE_LABELS[selected.state]}{selected.halfLeave ? ' · half-day leave' : ''}{selected.granted && selected.state === 'weekOff' ? ' (granted)' : ''}</Text>
                   </Text>
                   {selected.state === 'present' ? (
                     <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>
@@ -183,6 +223,14 @@ export default function MyAttendanceMonthScreen() {
                     </Text>
                   ) : selected.holiday ? (
                     <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{selected.holiday.name || 'Optional holiday availed'}</Text>
+                  ) : selRequested ? (
+                    <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>Waiting for HR. The day turns into paid leave once it is approved.</Text>
+                  ) : selected.state === 'absent' ? (
+                    <Pressable onPress={() => askLeaveFor(selected.day)} accessibilityRole="button" className="flex-row items-center justify-center gap-2"
+                      style={{ marginTop: 10, height: 44, borderRadius: 999, backgroundColor: colors.primary }}>
+                      <Palmtree size={17} color="#fff" />
+                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Apply paid leave for this day</Text>
+                    </Pressable>
                   ) : selected.state === 'noData' ? (
                     <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>Before your first punch — not counted as an absence.</Text>
                   ) : null}
@@ -198,7 +246,14 @@ export default function MyAttendanceMonthScreen() {
                   <Text style={{ color: colors.coolText, fontSize: 11 }}>{STATE_LABELS[s]}</Text>
                 </View>
               ))}
+              <View className="flex-row items-center gap-1">
+                <View style={{ width: 10, height: 10, borderRadius: 3, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.teal }} />
+                <Text style={{ color: colors.coolText, fontSize: 11 }}>Leave requested</Text>
+              </View>
             </View>
+            {openAbsent.length ? (
+              <Text style={{ color: colors.coolText, fontSize: 11.5, marginTop: -8, marginBottom: 16, paddingHorizontal: 4 }}>Tap a red day to ask for paid leave for it.</Text>
+            ) : null}
 
             {/* Holiday list for the branch country */}
             <View className="flex-row items-center gap-1.5" style={{ marginBottom: 8, paddingHorizontal: 4 }}>
@@ -239,15 +294,28 @@ export default function MyAttendanceMonthScreen() {
           </>
         )}
       </ScrollView>
+
+      <AbsentLeaveSheet
+        visible={leaveDay !== null}
+        days={openAbsent}
+        initialDay={leaveDay}
+        today={data?.today ?? leave?.today ?? new Date().toISOString().slice(0, 10)}
+        balance={leave?.balance?.balance ?? null}
+        halfDayAllowed={!!leave?.features?.halfDay}
+        onClose={() => setLeaveDay(null)}
+        onSent={loadLeave}
+      />
     </SafeAreaView>
   );
 }
 
-const Tile = memo(function Tile({ n, label, color }: { n: number; label: string; color: string }) {
+const Tile = memo(function Tile({ n, label, color, onPress }: { n: number; label: string; color: string; onPress?: () => void }) {
   return (
-    <View style={{ flex: 1, padding: 10, borderRadius: 14, alignItems: 'center', backgroundColor: color + '12' }}>
+    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? `${n} ${label}. Apply paid leave` : undefined}
+      style={{ flex: 1, padding: 10, borderRadius: 14, alignItems: 'center', backgroundColor: color + '12' }}>
       <Text style={{ color, fontSize: 20, fontWeight: '800' }}>{n}</Text>
       <Text style={{ color, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 }}>{label.toUpperCase()}</Text>
-    </View>
+    </Pressable>
   );
 });
