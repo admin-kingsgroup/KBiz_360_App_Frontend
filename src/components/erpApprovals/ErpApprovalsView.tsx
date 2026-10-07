@@ -279,6 +279,9 @@ function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEn
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  // The ERP's refusal ("Awaiting Verify", "Ledger not in BOM's chart"…) is shown IN the sheet: the
+  // app's toast host sits under an open Modal, so a toast here would never be seen.
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -295,8 +298,9 @@ function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEn
 
   const run = async (fn: () => Promise<unknown>, done: string) => {
     setBusy(true);
+    setActionError('');
     try { await fn(); showToast(done); onDone(); }
-    catch (e) { showToast(errText(e, 'The ERP did not accept that')); setBusy(false); }
+    catch (e) { setActionError(errText(e, 'The ERP did not accept that')); setBusy(false); }
   };
   const doAction = () => {
     if (!action) return;
@@ -355,6 +359,7 @@ function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEn
                 {here && me.viewOnly ? <Text style={st.note}>Your ERP login is view-only.</Text> : null}
                 {here && action && !action.allowed ? <Text style={st.note}>{action.hint}</Text> : null}
                 {here && fxBlocked ? <Text style={st.note}>Approving this needs an exchange rate — approve it in the ERP.</Text> : null}
+                {actionError ? <View style={[st.error, { marginHorizontal: 0 }]}><Text style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}>{actionError}</Text></View> : null}
               </>
             ) : null}
           </ScrollView>
