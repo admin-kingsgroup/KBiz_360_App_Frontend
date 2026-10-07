@@ -14,6 +14,7 @@ export interface AlertEventDto {
   read: boolean; // per-user read flag
   attachment?: { name: string; url: string }; // e.g. an invoice PDF (url may be server-relative)
   contact?: { name?: string; phone: string }; // e.g. a converted lead's client (E.164) → WhatsApp / Call
+  link?: string; // https — e.g. the ticket a KGD alert is about (absent on older backends)
 }
 
 // `mutes` = the caller's muted channels (absent from backends older than 2026-09-30).
