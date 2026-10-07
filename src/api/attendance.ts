@@ -53,6 +53,7 @@ export interface AttendanceHistoryEntry {
   inPhoto?: string | null;  // face photos captured at punch time (admin verification)
   outPhoto?: string | null;
   adjusted?: boolean;       // an admin set or moved this day's times
+  weekOff?: boolean;        // weekly off under the HR policy (Employee Master; default Sunday) — see isWeekOffEntry
 }
 
 // Admin: one office geofence within a branch.

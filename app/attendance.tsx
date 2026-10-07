@@ -26,6 +26,7 @@ import { requestLocationWithDisclosure, openLocationSettings } from '../src/serv
 import { clearPendingExit } from '../src/services/pendingExit';
 import { ApiError } from '../src/api/client';
 import type { PunchMethod, TeamAttendanceEntry } from '../src/types';
+import { isWeekOffEntry } from '../src/logic/attendance';
 const fmt = (d: Date | null) => (d ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null);
 // Device-local 'YYYY-MM-DD' key (matches the backend business day for on-site devices).
 const keyOf = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -656,25 +657,31 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
         ) : null}
         {history.map((e) => {
           const absent = !e.inTime;
+          // Weekly off (Sunday by default): no punch is "Week off", not an absence, and the
+          // ASK button is not offered at all — nothing to correct on an off day.
+          const weekOff = isWeekOffEntry(e);
+          const offDay = weekOff && absent;
           const regPending = pendingDays.has(e.date);
           return (
-            <View key={e.date} className="flex-row items-center gap-2.5 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.danger + '40' : colors.coolDivider, borderRadius: 14 }}>
+            <View key={e.date} className="flex-row items-center gap-2.5 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent && !weekOff ? colors.danger + '40' : colors.coolDivider, borderRadius: 14 }}>
               <View className="flex-1">
                 <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
-                {absent ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent · no check-in</Text>
+                {offDay ? <Text style={{ color: colors.coolText3, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Week off</Text>
+                        : absent ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent · no check-in</Text>
                         : <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {fmt(e.inTime ? new Date(e.inTime) : null)} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>}
                 {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Correction requested · waiting for approval</Text> : null}
               </View>
               {/* ASK for a correction (missed punch / wrong times) — this files a request for the
                   Super Admin to approve. Deliberately NOT a pencil: a pencil reads as "I can edit
-                  my own time", which is exactly what nobody but the super admin may do. */}
-              {!regPending ? (
+                  my own time", which is exactly what nobody but the super admin may do.
+                  Never offered on a weekly off. */}
+              {!regPending && !weekOff ? (
                 <Pressable onPress={() => onRegularize(e)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Ask for a correction for ${e.date}`} className="flex-row items-center gap-1" style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
                   <Send size={12} color={colors.primary} />
                   <Text style={{ color: colors.primary, fontSize: 10.5, fontWeight: '800' }}>ASK</Text>
                 </Pressable>
               ) : null}
-              <Badge on={!absent} />
+              <Badge on={!absent} weekOff={offDay} />
             </View>
           );
         })}
@@ -970,6 +977,7 @@ const PunchThumb = memo(function PunchThumb({ uri, label, onPress, size = 38 }: 
   );
 });
 
-const Badge = memo(function Badge({ on }: { on: boolean }) {
-  return <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: (on ? colors.primary : colors.danger) + '18' }}><Text style={{ color: on ? colors.primary : colors.danger, fontSize: 10, fontWeight: '700' }}>{on ? 'PRESENT' : 'ABSENT'}</Text></View>;
+const Badge = memo(function Badge({ on, weekOff = false }: { on: boolean; weekOff?: boolean }) {
+  const color = weekOff ? colors.coolText3 : on ? colors.primary : colors.danger;
+  return <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: color + '18' }}><Text style={{ color, fontSize: 10, fontWeight: '700' }}>{weekOff ? 'WEEK OFF' : on ? 'PRESENT' : 'ABSENT'}</Text></View>;
 });
