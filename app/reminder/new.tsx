@@ -59,7 +59,9 @@ export default function NewReminder() {
   // default also doubled every "@Name …" reminder — the mention ADDED Name next to the default Myself.
   const [forIds, setForIds] = useState<string[]>([]);
   const [text, setText] = useState(editing ? (editText ?? '') : '');
-  const [selectedDay, setSelectedDay] = useState<string | null>(editInitialDue ? dayKey(editInitialDue) : null);
+  // A NEW reminder is due today unless the writer picks another day (owner 2026-10-07); past days
+  // are greyed out in the picker (minDay = today). Editing keeps the stored date, or none.
+  const [selectedDay, setSelectedDay] = useState<string | null>(editing ? (editInitialDue ? dayKey(editInitialDue) : null) : dayKey(new Date()));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
@@ -252,7 +254,7 @@ export default function NewReminder() {
         </FormField>
         )}
 
-        <FormField label="Due date" hint="Optional — choose a day if this reminder has a deadline.">
+        <FormField label="Due date" hint="Today by default — pick a later day if it can wait. Past days can't be chosen.">
           <Pressable onPress={() => setPickerOpen(true)} className="flex-row items-center gap-2"
             style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }}>
             <CalendarDays size={17} color={colors.primary} />
