@@ -40,8 +40,12 @@ export default function NewReminder() {
   // Edit mode (creator only — the card only offers it to the creator, and the server enforces it):
   // the same composer opens prefilled; assignees are locked because changing WHO it's for is the
   // separate re-assign flow with its own state reset + notification.
-  const { editId, editText, editDueAt, editForId } = useLocalSearchParams<{ editId?: string; editText?: string; editDueAt?: string; editForId?: string }>();
-  const editing = !!editId;
+  // The Reminders screen edits a whole reminder at once: `editIds` lists every per-assignee copy
+  // (comma-separated) and `editSelfId` is the viewer's own copy, if any, whose local alarm must move.
+  // `editId` + `editForId` are the older single-copy form.
+  const { editId, editIds, editText, editDueAt, editForId, editSelfId } = useLocalSearchParams<{ editId?: string; editIds?: string; editText?: string; editDueAt?: string; editForId?: string; editSelfId?: string }>();
+  const idsToEdit = useMemo(() => (editIds ? editIds.split(',').filter(Boolean) : editId ? [editId] : []), [editIds, editId]);
+  const editing = idsToEdit.length > 0;
   const editInitialDue = useMemo(() => {
     if (!editDueAt) return null;
     const d = new Date(editDueAt);
@@ -51,9 +55,13 @@ export default function NewReminder() {
   const myself: Person = { id: meId, name: 'Myself', initials: initialsOf(me?.name ?? 'Me'), color: colors.primary, avatar: me?.avatar ?? null };
   const [people, setPeople] = useState<Person[]>([myself]);
   const [peopleError, setPeopleError] = useState(false);
-  const [forIds, setForIds] = useState<string[]>(meId ? [meId] : []);
+  // Nobody is pre-selected (owner 2026-10-07): the person writing picks Myself or others. A pinned
+  // default also doubled every "@Name …" reminder — the mention ADDED Name next to the default Myself.
+  const [forIds, setForIds] = useState<string[]>([]);
   const [text, setText] = useState(editing ? (editText ?? '') : '');
-  const [selectedDay, setSelectedDay] = useState<string | null>(editInitialDue ? dayKey(editInitialDue) : null);
+  // A NEW reminder is due today unless the writer picks another day (owner 2026-10-07); past days
+  // are greyed out in the picker (minDay = today). Editing keeps the stored date, or none.
+  const [selectedDay, setSelectedDay] = useState<string | null>(editing ? (editInitialDue ? dayKey(editInitialDue) : null) : dayKey(new Date()));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
@@ -69,10 +77,6 @@ export default function NewReminder() {
   // selection event so the field stays uncontrolled (a permanently controlled selection fights
   // the Android keyboard).
   const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
-
-  // The store can still be hydrating when this modal opens, leaving no assignee — backfill Myself
-  // once the real user id lands (otherwise saving fails server-side with "Unknown assignee").
-  useEffect(() => { if (!forIds.length && meId) setForIds([meId]); }, [forIds.length, meId]);
 
   // Load the real directory for the assignee picker ("Myself" stays pinned first).
   useEffect(() => {
@@ -91,7 +95,7 @@ export default function NewReminder() {
   // Date-only UI; dueAt remains a compatible end-of-day timestamp internally.
   const dueAt = useMemo(() => selectedDay ? dateFromDayKey(selectedDay) : null, [selectedDay]);
   const selectedPeople = forIds.map((id) => people.find((p) => p.id === id)).filter((p): p is Person => !!p);
-  const firstSelected = selectedPeople[0] ?? myself;
+  const firstSelected: Person = selectedPeople[0] ?? { id: '', name: 'Choose people', initials: '+', color: colors.coolText3 };
   const firstNames = selectedPeople.map((p) => (p.id === meId ? 'Myself' : p.name.split(' ')[0]));
   const forLabel = firstNames.length === 0 ? 'Choose people'
     : firstNames.length <= 2 ? firstNames.join(', ')
@@ -154,12 +158,14 @@ export default function NewReminder() {
     if (editing) {
       try {
         const label = selectedDay ? dateLabel(selectedDay) : '';
-        await updateReminder(editId!, { text: text.trim(), ...(due && label ? { when: label, dueAt: due.toISOString() } : {}) });
-        // A self-reminder's local notification is pinned to the OLD time — re-arm it at the new one.
-        if (editForId && editForId === meId) {
-          await cancelReminderLocal(editId!);
-          void scheduleLocal('⏰ Reminder', text.trim(), { type: 'reminder', id: editId! }, secondsUntil(due))
-            .then((notifId) => rememberReminderLocal(editId!, notifId));
+        const patch = { text: text.trim(), ...(due && label ? { when: label, dueAt: due.toISOString() } : {}) };
+        await Promise.all(idsToEdit.map((id) => updateReminder(id, patch)));
+        // My own copy's local notification is pinned to the OLD time — re-arm it at the new one.
+        const selfId = editSelfId || (editId && editForId && editForId === meId ? editId : '');
+        if (selfId) {
+          await cancelReminderLocal(selfId);
+          void scheduleLocal('⏰ Reminder', text.trim(), { type: 'reminder', id: selfId }, secondsUntil(due))
+            .then((notifId) => rememberReminderLocal(selfId, notifId));
         }
         showToast(label ? `Reminder updated · ${label}` : 'Reminder updated');
         router.back();
@@ -210,7 +216,7 @@ export default function NewReminder() {
         <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={16} color={colors.coolText} /></Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <FormField label="Reminder" required hint={editing ? 'Edit the reminder or due date — use Re-assign on the card to change who.' : 'Type @ to mention someone — it assigns the reminder to them.'}>
+        <FormField label="Reminder" required hint={editing ? (idsToEdit.length > 1 ? `Edit the reminder or due date — it changes for all ${idsToEdit.length} people.` : 'Edit the reminder or due date.') : 'Type @ to mention someone — it assigns the reminder to them.'}>
           <TextInput value={text} onChangeText={setText} placeholder="What needs doing? Type @ to assign" placeholderTextColor={colors.coolText3} multiline
             selection={sel}
             onSelectionChange={(e) => { setCursor(e.nativeEvent.selection.start); if (sel) setSel(undefined); }}
@@ -248,7 +254,7 @@ export default function NewReminder() {
         </FormField>
         )}
 
-        <FormField label="Due date" hint="Optional — choose a day if this reminder has a deadline.">
+        <FormField label="Due date" hint="Today by default — pick a later day if it can wait. Past days can't be chosen.">
           <Pressable onPress={() => setPickerOpen(true)} className="flex-row items-center gap-2"
             style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }}>
             <CalendarDays size={17} color={colors.primary} />
