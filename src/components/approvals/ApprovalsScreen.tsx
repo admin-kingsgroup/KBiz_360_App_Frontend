@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { useFocusEffect } from 'expo-router';
+import { ErpApprovalsView } from '../erpApprovals/ErpApprovalsView';
+import { useErpAccess } from '../erpApprovals/useErpAccess';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 import { ageLabel, groupByPerson, isStale } from '../../logic/regularizationQueue';
@@ -1095,7 +1097,7 @@ const TABS: { key: 'all' | ApprovalStatus; label: string }[] = [
   { key: 'rejected', label: 'Rejected' },
 ];
 
-function Inbox() {
+function Inbox({ showTitle = true }: { showTitle?: boolean } = {}) {
   const showToast = useUiStore((state) => state.showToast);
   const [approvals, setApprovals] = useState<Approval[] | null>(null);
   const [corrections, setCorrections] = useState<Regularization[]>([]);
@@ -1313,13 +1315,13 @@ function Inbox() {
             <Text style={styles.selAllText}>Select all</Text>
           </Pressable>
         </View>
-      ) : (
+      ) : showTitle ? (
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Approvals</Text>
           {/* No "New request" (owner 2026-10-07): manual approval requests raised in the app are
               stopped for now. Requests already raised still show here and can be decided. */}
         </View>
-      )}
+      ) : null}
 
       {/* Segmented control — one white card slides across a grey track. */}
       <View style={styles.segment}>
@@ -1479,11 +1481,42 @@ function Inbox() {
 }
 
 export default function ApprovalsScreen() {
-  // The header swaps between the screen's own bar and the selection bar, and only Inbox knows which
-  // is showing, so it renders both.
+  // ERP approvals (owner 2026-10-07): a person the ERP recognises gets the ERP's approval section
+  // here — Entries, Requests, Credit, HR, Month Close — next to the app's own requests. Everyone else
+  // sees the app's requests exactly as before.
+  const erp = useErpAccess();
+  const [mode, setMode] = useState<'erp' | 'app'>('erp');
+  if (erp.state === 'checking') {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.header}><Text style={styles.headerTitle}>Approvals</Text></View>
+        <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
+  if (erp.state !== 'ready') {
+    // The header swaps between the screen's own bar and the selection bar, and only Inbox knows
+    // which is showing, so it renders both.
+    return (
+      <SafeAreaView style={styles.screen}>
+        <Inbox />
+      </SafeAreaView>
+    );
+  }
   return (
     <SafeAreaView style={styles.screen}>
-      <Inbox />
+      <View style={styles.header}><Text style={styles.headerTitle}>Approvals</Text></View>
+      <View style={[styles.segment, { marginBottom: 10 }]}>
+        {([['erp', 'ERP approvals'], ['app', 'App requests']] as const).map(([key, label]) => {
+          const on = mode === key;
+          return (
+            <Pressable key={key} onPress={() => setMode(key)} accessibilityRole="tab" accessibilityState={{ selected: on }} style={[styles.segmentTab, on && styles.segmentTabOn]}>
+              <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} /> : <Inbox showTitle={false} />}
     </SafeAreaView>
   );
 }
