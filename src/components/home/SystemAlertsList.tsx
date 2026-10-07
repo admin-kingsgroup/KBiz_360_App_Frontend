@@ -54,7 +54,8 @@ export function SystemAlertsList({ activeBizId, access, onOpen }: { activeBizId:
     if (mine.length === 0) return;
     const evs = pulseEvents.filter((e) => mine.some((ch) => ch.id === e.channelId));
     // Single granted branch → name it on the card ("BOM · Attendance"); several → chips inside.
-    const name = mine.length === 1 && mine[0].branch ? `${mine[0].branch} · ${g.name}` : g.name;
+    const name = mine.length === 1 && mine[0].companyWide ? `${g.name} · ${mine[0].section}`
+      : mine.length === 1 && mine[0].branch ? `${mine[0].branch} · ${g.name}` : g.name;
     cards.push({
       key: g.id, openId: g.id, name, icon: g.icon, color: g.color, description: g.description,
       last: evs.length ? evs.reduce((a, b) => (b.time > a.time ? b : a)) : null,

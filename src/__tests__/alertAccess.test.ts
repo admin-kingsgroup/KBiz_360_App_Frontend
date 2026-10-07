@@ -1,5 +1,5 @@
 import { makeAccessFilters } from '../logic/accessFilters';
-import { financeAlertChannels, crmAlertChannels, leadAlertChannels, grantableAlertChannels, channelGrantModule, pulseChannels, pulseGroups, groupById, groupForChannel, channelById, isVisibleAlertChannel, FINANCE_ALERTS_ENABLED, CRM_ALERTS_ENABLED } from '../data/pulse';
+import { channelLabel, financeAlertChannels, crmAlertChannels, leadAlertChannels, grantableAlertChannels, channelGrantModule, pulseChannels, pulseGroups, groupById, groupForChannel, channelById, isVisibleAlertChannel, FINANCE_ALERTS_ENABLED, CRM_ALERTS_ENABLED } from '../data/pulse';
 import type { AccessControl } from '../types';
 
 const restricted = (alerts: string[], branches: string[] = []): AccessControl => ({
@@ -24,6 +24,7 @@ describe('system-alert access — branch channels', () => {
       ...six.map((b) => `${b}-erp`),
       ...five.map((b) => `${b}-crm-reports`),
       ...six.map((b) => `${b}-erp-reports`),
+      'KGD-crm-tickets', 'KGD-erp-tickets', // KGD Alerts (2026-10-07) — company-wide, grant-only
       ...(CRM_ALERTS_ENABLED ? ['BOM-crm', 'AMD-crm'] : []),
       ...(FINANCE_ALERTS_ENABLED ? ['BOM-accounts', 'AMD-accounts'] : []),
     ]);
@@ -73,7 +74,7 @@ describe('system-alert channel groups', () => {
 
   it('no branch cards are left — every family moved to a group chat', () => {
     expect(pulseGroups.map((g) => g.name)).toEqual([
-      'HR', 'CRM', 'ERP', 'CRM Reports', 'ERP Reports',
+      'HR', 'CRM', 'ERP', 'CRM Reports', 'ERP Reports', 'KGD Alerts',
       ...(CRM_ALERTS_ENABLED ? ['CRM Payments'] : []),
       ...(FINANCE_ALERTS_ENABLED ? ['Finance'] : []),
     ]);
@@ -187,9 +188,21 @@ describe('Alerts groups — HR · CRM · ERP · CRM Reports · ERP Reports', () 
     expect(visibleTo(['BOM-erp'])).not.toContain('tk_erprep_bom'); // live feed ≠ the daily reports
   });
 
-  it('Team & Users switches exactly HR / ERP / ERP Reports (18) — the branch-wide groups are not switches', () => {
-    expect(grantableAlertChannels).toHaveLength(18);
-    expect(new Set(grantableAlertChannels.map(channelGrantModule))).toEqual(new Set(['attendance', 'erp', 'erp-reports']));
+  it('Team & Users switches exactly HR / ERP / ERP Reports (18) + KGD Alerts (2) — the branch-wide groups are not switches', () => {
+    expect(grantableAlertChannels).toHaveLength(20);
+    expect(new Set(grantableAlertChannels.map(channelGrantModule))).toEqual(new Set(['attendance', 'erp', 'erp-reports', 'crm-tickets', 'erp-tickets']));
+  });
+
+  it('KGD Alerts — one company-wide channel per system, labelled by section', () => {
+    expect(groupForChannel('tk_kgd_crm')?.name).toBe('KGD Alerts');
+    expect(groupForChannel('tk_kgd_erp')?.name).toBe('KGD Alerts');
+    const crm = channelById('tk_kgd_crm')!;
+    const erp = channelById('tk_kgd_erp')!;
+    expect(`${crm.branch}-${channelGrantModule(crm)}`).toBe('KGD-crm-tickets');
+    expect(`${erp.branch}-${channelGrantModule(erp)}`).toBe('KGD-erp-tickets');
+    expect([channelLabel(crm), channelLabel(erp)]).toEqual(['CRM', 'ERP']);
+    expect(channelLabel(channelById('tk_hr_bom')!)).toBe('BOM');
+    expect(crm.companyWide && erp.companyWide).toBe(true);
   });
 
   it('push deep links land on the right card', () => {
