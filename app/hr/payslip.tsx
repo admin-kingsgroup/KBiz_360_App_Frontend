@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, ChevronRight, ReceiptIndianRupee } from 'lucide-react-native';
 import { colors } from '../../src/theme';
+import { HrMenuButton } from '../../src/components/hr/HrMenu';
 import { getMyPayslip, type Payslip } from '../../src/api/hr';
 
 // My Payslip — the person's OWN month, priced with the ERP salary register's exact arithmetic
@@ -41,10 +42,11 @@ export default function PayslipScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
-        <View>
+        <View className="flex-1">
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>My Payslip</Text>
           <Text style={{ color: colors.coolText, fontSize: 12 }}>Indicative — HR’s salary register is final</Text>
         </View>
+        <HrMenuButton current="payslip" />
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
