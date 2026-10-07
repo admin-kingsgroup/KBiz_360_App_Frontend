@@ -9,6 +9,7 @@ import { Avatar } from '../src/components/ui';
 import { DayTimesSheet, type DayTimesTarget } from '../src/components/attendance/DayTimesSheet';
 import { RegularizeSheet } from '../src/components/attendance/RegularizeSheet';
 import { HrMenuButton } from '../src/components/hr/HrMenu';
+import { historyDayView, type HistoryDayKind } from '../src/logic/attendanceHistory';
 import { colors } from '../src/theme';
 import { useGeoFence } from '../src/hooks/useGeoFence';
 import { useEventCallback } from '../src/hooks/useEventCallback';
@@ -655,26 +656,28 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
           <Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center', paddingVertical: 16 }}>No attendance history yet.</Text>
         ) : null}
         {history.map((e) => {
-          const absent = !e.inTime;
+          // Holidays, week offs and paid leave come back with their HR state — not absences.
+          const view = historyDayView(e);
+          const absent = view.kind === 'absent';
           const regPending = pendingDays.has(e.date);
           return (
             <View key={e.date} className="flex-row items-center gap-2.5 p-3" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: absent ? colors.danger + '40' : colors.coolDivider, borderRadius: 14 }}>
               <View className="flex-1">
                 <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
-                {absent ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Absent · no check-in</Text>
-                        : <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {fmt(e.inTime ? new Date(e.inTime) : null)} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>}
+                {e.inTime ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>In {fmt(new Date(e.inTime))} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}</Text>
+                          : <Text style={{ color: KIND_COLOR[view.kind], fontSize: 12, fontWeight: '700', marginTop: 2 }}>{view.note}</Text>}
                 {regPending ? <Text style={{ color: colors.orange, fontSize: 11, fontWeight: '700', marginTop: 2 }}>Correction requested · waiting for approval</Text> : null}
               </View>
               {/* ASK for a correction (missed punch / wrong times) — this files a request for the
                   Super Admin to approve. Deliberately NOT a pencil: a pencil reads as "I can edit
                   my own time", which is exactly what nobody but the super admin may do. */}
-              {!regPending ? (
+              {!regPending && view.canAsk ? (
                 <Pressable onPress={() => onRegularize(e)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Ask for a correction for ${e.date}`} className="flex-row items-center gap-1" style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
                   <Send size={12} color={colors.primary} />
                   <Text style={{ color: colors.primary, fontSize: 10.5, fontWeight: '800' }}>ASK</Text>
                 </Pressable>
               ) : null}
-              <Badge on={!absent} />
+              <KindBadge kind={view.kind} text={view.badge} />
             </View>
           );
         })}
@@ -865,12 +868,12 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
               <Text style={{ color: colors.coolText3, fontSize: 12.5, paddingVertical: 4 }}>No attendance records yet.</Text>
             ) : (
               userHistory.map((e) => (
-                <View key={e.date} className="flex-row items-center justify-between gap-2" style={{ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.coolBg, borderWidth: 1, borderColor: e.inTime ? colors.coolDivider : colors.danger + '40' }}>
+                <View key={e.date} className="flex-row items-center justify-between gap-2" style={{ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.coolBg, borderWidth: 1, borderColor: historyDayView(e).kind === 'absent' ? colors.danger + '40' : colors.coolDivider }}>
                   <View className="flex-1">
                     <Text style={{ color: colors.ink, fontSize: 12.5, fontWeight: '600' }}>{dateLabel(e.date)}</Text>
                     {e.inTime
                       ? <Text style={{ color: colors.coolText, fontSize: 11.5 }}>In {fmt(new Date(e.inTime))} · Out {e.outTime ? fmt(new Date(e.outTime)) : '—'}{e.via ? ' · ' + e.via : ''}{e.adjusted ? ' · edited' : ''}</Text>
-                      : <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '700' }}>Absent</Text>}
+                      : <Text style={{ color: KIND_COLOR[historyDayView(e).kind], fontSize: 11.5, fontWeight: '700' }}>{historyDayView(e).kind === 'absent' ? 'Absent' : historyDayView(e).note}</Text>}
                   </View>
                   {/* Punch face photos for that day — tap to view. */}
                   {e.inPhoto ? <PunchThumb uri={e.inPhoto} label="IN" size={30} onPress={onViewPhoto} /> : null}
@@ -968,6 +971,23 @@ const PunchThumb = memo(function PunchThumb({ uri, label, onPress, size = 38 }: 
       <Text style={{ color: colors.coolText, fontSize: 8.5, fontWeight: '700', marginTop: 1 }}>{label}</Text>
     </Pressable>
   );
+});
+
+// History day colours — the same hues My Attendance uses for these states.
+const KIND_COLOR: Record<HistoryDayKind, string> = {
+  present: colors.primary,
+  absent: colors.danger,
+  holiday: '#B7791F', // darkened orange: legible as 12px text
+  weekOff: colors.coolText,
+  leave: colors.teal,
+  noData: colors.coolText,
+  notEmployed: colors.coolText,
+  future: colors.coolText,
+};
+
+const KindBadge = memo(function KindBadge({ kind, text }: { kind: HistoryDayKind; text: string }) {
+  const c = KIND_COLOR[kind];
+  return <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: c + '18' }}><Text style={{ color: c, fontSize: 10, fontWeight: '700' }}>{text}</Text></View>;
 });
 
 const Badge = memo(function Badge({ on }: { on: boolean }) {

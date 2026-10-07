@@ -53,6 +53,11 @@ export interface AttendanceHistoryEntry {
   inPhoto?: string | null;  // face photos captured at punch time (admin verification)
   outPhoto?: string | null;
   adjusted?: boolean;       // an admin set or moved this day's times
+  // The day's HR state (server: the My Attendance / ERP muster classifier) — tells a holiday,
+  // week off or paid leave apart from an absence. Missing on an older server or a failed HR read.
+  state?: 'present' | 'absent' | 'holiday' | 'weekOff' | 'leave' | 'future' | 'notEmployed' | 'noData';
+  holidayName?: string | null;
+  halfLeave?: boolean;
 }
 
 // Admin: one office geofence within a branch.
