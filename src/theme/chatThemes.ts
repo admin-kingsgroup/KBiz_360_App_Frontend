@@ -9,6 +9,8 @@
 // added by eye fails the build rather than shipping.
 //
 // Device-local, like the wallpapers before them: nothing here syncs to the server.
+import { mixHex } from './chatListPalette';
+
 export interface ChatTheme {
   key: string;
   label: string;
@@ -149,6 +151,16 @@ export const CHAT_THEMES: ChatTheme[] = [
     meQuote: '#E0B84A', themLink: '#7A5F0E',
   },
 ];
+
+/** How far an open chat's background moves from the theme canvas toward its bar — the canvas painted
+ *  at ~50% opacity over the bar (white on the light themes, the lifted dark bar on Midnight).
+ *  Owner 2026-10-07: the full-strength canvases were too heavy behind a conversation. */
+export const CHAT_CANVAS_SOFTEN = 0.5;
+
+/** The background an open chat actually paints (thread + composer band, and the theme previews).
+ *  `canvas` itself stays the full colour: the Chats list's unread rows and the bubble-contrast tests
+ *  still key on it. */
+export const chatCanvas = (t: ChatTheme): string => mixHex(t.canvas, t.bar, CHAT_CANVAS_SOFTEN);
 
 /** The theme a chat falls back to when nothing is set — and when a retired key is still stored. */
 export const DEFAULT_CHAT_THEME = 'slate';
