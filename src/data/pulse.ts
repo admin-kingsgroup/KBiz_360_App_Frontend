@@ -11,12 +11,17 @@ export interface PulseChannel {
   // Every user of the branch sees it — the server grants it by branch membership, so it is not a
   // per-user switch in Team & Users.
   branchWide?: boolean;
+  // A company-wide channel (KGD Alerts) is one channel for the whole company, not one per branch:
+  // its `branch` is only the grant prefix ("KGD-crm-tickets"), so screens label it by `section`.
+  companyWide?: boolean;
+  section?: string;
 }
 export interface PulseEvent {
   id: string; channelId: string; source: string; title: string; body: string;
   context: string; time: number; read: boolean; actions?: { label: string; primary?: boolean }[];
   attachment?: { name: string; url: string }; // e.g. the ERP's invoice PDF; url may be server-relative
   contact?: { name?: string; phone: string }; // e.g. a converted lead's client (E.164) → WhatsApp / Call
+  link?: string; // https — e.g. the ticket a KGD alert is about, opened in the in-app browser
 }
 
 // Real, backend-fed Finance + CRM channels — events are pushed live by the KBiz Books ERP and CRM
@@ -67,6 +72,19 @@ export const erpAlertChannels = branchChannels('tk_erp', 'erp', ERP_LOOK, 'ERP',
 export const crmReportChannels = branchChannels('tk_crmrep', 'crm-reports', CRM_REPORTS_LOOK, 'CRM Reports', 'Daily query ageing', CRM_BRANCHES, true);
 // ERP Reports — the daily 11:00 Receivables / Payables ageing and Bank & Cash PDFs.
 export const erpReportChannels = branchChannels('tk_erprep', 'erp-reports', ERP_REPORTS_LOOK, 'ERP Reports', 'Daily receivables, payables & bank', ALL_BRANCHES);
+
+// KGD Alerts (owner, 2026-10-07) — a ticket raised in the CRM or in KBiz Books. Two company-wide
+// channels, one per system; grant-only ("KGD-crm-tickets" / "KGD-erp-tickets"), switched per user
+// from the ERP's Settings ▸ Users & Roles ▸ Mobile Alerts. Ids match the backend's alertChannels.ts.
+const KGD_LOOK = { icon: '🎫', color: '#E2533B', tint: '#FCE4DF' };
+export const kgdAlertChannels: PulseChannel[] = [
+  { id: 'tk_kgd_crm', bizId: 'tk', module: 'crm', grantModule: 'crm-tickets', branch: 'KGD', companyWide: true, section: 'CRM', name: 'KGD Alerts - CRM', ...KGD_LOOK, description: 'Tickets raised in the CRM', members: [] },
+  { id: 'tk_kgd_erp', bizId: 'tk', module: 'accounts', grantModule: 'erp-tickets', branch: 'KGD', companyWide: true, section: 'ERP', name: 'KGD Alerts - ERP', ...KGD_LOOK, description: 'Tickets raised in KBiz Books', members: [] },
+];
+
+/** How a channel is named inside its group: the section of a company-wide channel ("CRM"), else the
+ *  branch ("BOM"), else its own name. */
+export const channelLabel = (ch: PulseChannel): string => ch.section || ch.branch || ch.name;
 
 // The grant family a channel is checked against: alertOK(ch.branch, channelGrantModule(ch)).
 export const channelGrantModule = (ch: PulseChannel): string => ch.grantModule ?? ch.module;
@@ -122,6 +140,7 @@ export const pulseChannels: PulseChannel[] = [
   ...erpAlertChannels,
   ...crmReportChannels,
   ...erpReportChannels,
+  ...kgdAlertChannels,
   ...(CRM_ALERTS_ENABLED ? crmAlertChannels : []),
   ...(FINANCE_ALERTS_ENABLED ? financeAlertChannels : []),
 ];
@@ -147,6 +166,7 @@ const allChannels: PulseChannel[] = [
   ...erpAlertChannels,
   ...crmReportChannels,
   ...erpReportChannels,
+  ...kgdAlertChannels,
   ...crmAlertChannels,
   ...financeAlertChannels,
 ];
@@ -180,6 +200,7 @@ export const alertGroups: PulseChannelGroup[] = [
   group('grp_erp', 'ERP', ERP_LOOK, 'Approved invoices, deals & vouchers from KBiz Books', erpAlertChannels),
   group('grp_crm_reports', 'CRM Reports', CRM_REPORTS_LOOK, 'Daily 11:00 query ageing PDF', crmReportChannels),
   group('grp_erp_reports', 'ERP Reports', ERP_REPORTS_LOOK, 'Daily receivables, payables & bank-and-cash PDFs', erpReportChannels),
+  group('grp_kgd', 'KGD Alerts', { module: 'crm', ...KGD_LOOK }, 'Tickets raised in the CRM and in KBiz Books', kgdAlertChannels),
 ];
 
 export const pulseGroups: PulseChannelGroup[] = [
