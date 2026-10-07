@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { ChevronRight, Users, Shield, LogOut, LogIn, Building2, Activity, Clock, MapPin, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palette, Palmtree, ClipboardCheck, CalendarDays, ReceiptIndianRupee } from 'lucide-react-native';
+import { ChevronRight, Users, LogOut, LogIn, Activity, Clock, X, Pencil, KeyRound, Camera, HardDrive, Lock, Palette, Palmtree, ClipboardCheck, Briefcase } from 'lucide-react-native';
 import { ROLE_ICONS } from '../../src/components/ui/roleIcons';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
@@ -19,6 +19,7 @@ import { authApi } from '../../src/api';
 import { getMyAttendance } from '../../src/api/attendance';
 import { useAttendanceStore } from '../../src/store/attendanceStore';
 import { getMyAttendanceMonth } from '../../src/api/hr';
+import { TimeCorrectionSheet } from '../../src/components/attendance/TimeCorrectionSheet';
 
 // "HH:MM" wall-clock for an ISO timestamp (hero attendance stat) — mirrors the Chats header chip.
 const hhmm = (iso: string): string => {
@@ -54,6 +55,7 @@ export default function Profile() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [tcOpen, setTcOpen] = useState(false); // Time correction quick action sheet
   const [curPw, setCurPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confPw, setConfPw] = useState('');
@@ -171,7 +173,8 @@ export default function Profile() {
   const quickActions = [
     ...(exempt ? [] : [{ key: 'punch', label: punchAction.label, Icon: punchAction.Icon, tint: colors.primary, onPress: () => router.navigate('/attendance') }]),
     { key: 'leave', label: 'Apply leave', Icon: Palmtree, tint: colors.teal, onPress: () => router.push('/hr/leave') },
-    { key: 'payslip', label: 'Payslip', Icon: ReceiptIndianRupee, tint: colors.purple, onPress: () => router.push('/hr/payslip') },
+    // Opens the correction sheet right here: pick the day, the times and the reason.
+    ...(exempt ? [] : [{ key: 'correction', label: 'Time correction', Icon: ClipboardCheck, tint: colors.orange, onPress: () => setTcOpen(true) }]),
   ];
 
   return (
@@ -235,7 +238,7 @@ export default function Profile() {
             <Pressable key={a.key} onPress={a.onPress} android_ripple={{ color: colors.coolMuted }}
               className="flex-1 items-center" style={{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 8, gap: 6 }}>
               <a.Icon size={20} color={a.tint} />
-              <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 12.5, fontWeight: '600' }}>{a.label}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ color: colors.ink, fontSize: 12.5, fontWeight: '600' }}>{a.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -245,13 +248,12 @@ export default function Profile() {
         {[
           // Work vs app settings were one undifferentiated 7-row list; splitting them lets the eye
           // skip the half it isn't looking for.
+          // HR: one row into the HR home (Attendance, Paid leave, My Attendance, My Payslip live behind
+          // it and its header menu). The chip still answers "am I checked in?" without opening it.
           {
-            title: 'Work',
+            title: 'HR',
             rows: [
-              { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, tint: colors.primary, value: punch === 'in' && !exempt ? 'In' : null, chip: true, onPress: () => router.navigate('/attendance') },
-              { key: 'leave', label: 'Paid leave', sub: 'Balance & leave applications', Icon: Palmtree, tint: colors.teal, value: month?.leaveBalance != null ? days(month.leaveBalance) : null, chip: false, onPress: () => router.push('/hr/leave') },
-              { key: 'my-month', label: 'My Attendance', sub: 'Month calendar & holiday list', Icon: CalendarDays, tint: colors.blue, value: null, chip: false, onPress: () => router.push('/hr/month') },
-              { key: 'payslip', label: 'My Payslip', sub: 'Monthly earnings & deductions', Icon: ReceiptIndianRupee, tint: colors.purple, value: null, chip: false, onPress: () => router.push('/hr/payslip') },
+              { key: 'hr', label: 'HR', sub: 'Attendance, leave & payslip', Icon: Briefcase, tint: colors.primary, value: punch === 'in' && !exempt ? 'In' : null, chip: true, onPress: () => router.push('/hr') },
             ],
           },
           {
@@ -267,12 +269,7 @@ export default function Profile() {
           ...(isSuper ? [{
             title: 'Administration',
             rows: [
-              { key: 'office-locations', label: 'Office locations', sub: 'Set branch geofences for attendance', Icon: MapPin, tint: colors.coral, value: null, chip: false, onPress: () => router.push('/admin/office-locations') },
-              { key: 'regularizations', label: 'Time corrections', sub: 'Approve staff attendance-time requests', Icon: ClipboardCheck, tint: colors.orange, value: null, chip: false, onPress: () => router.push('/admin/regularizations') },
-              { key: 'businesses', label: 'Businesses', sub: loaded ? `${counts.companies} business${counts.companies === 1 ? '' : 'es'} · ${counts.branches} branches` : 'Companies & branches', Icon: Building2, tint: colors.blue, value: null, chip: false, onPress: () => router.push('/admin/businesses') },
               { key: 'users', label: 'Team & Users', sub: loaded ? `${counts.users} people` : 'Team directory', Icon: Users, tint: colors.purple, value: null, chip: false, onPress: () => router.push('/admin/users') },
-              { key: 'roles', label: 'Roles & Permissions', sub: loaded ? `${counts.roles}-tier access hierarchy` : 'Access hierarchy', Icon: Shield, tint: colors.teal, value: null, chip: false, onPress: () => router.push('/admin/roles') },
-              { key: 'kbiz-members', label: 'KBiz360 Members', sub: 'Toggle who belongs to KBiz360 · BOM', Icon: Building2, tint: colors.primary, value: null, chip: false, onPress: () => router.push('/admin/kbiz-members') },
               { key: 'chat-analytics', label: 'Chat Analytics', sub: 'Messaging insights & activity', Icon: Activity, tint: colors.blue, value: null, chip: false, onPress: () => router.push('/admin/chat-analytics') },
             ],
           }] : []),
@@ -342,6 +339,9 @@ export default function Profile() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Time correction — the same request the Attendance history files, with the day picked here */}
+      <TimeCorrectionSheet visible={tcOpen} onClose={() => setTcOpen(false)} />
 
       {/* Change password */}
       <Modal visible={pwOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setPwOpen(false)}>

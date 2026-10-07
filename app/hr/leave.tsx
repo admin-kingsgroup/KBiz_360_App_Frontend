@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { CalendarDays, ChevronLeft, Palmtree, Send } from 'lucide-react-native';
 import { colors } from '../../src/theme';
+import { HrMenuButton } from '../../src/components/hr/HrMenu';
 import { DaySheet } from '../../src/components/forms/DaySheet';
 import { SheetSave } from '../../src/components/forms/SheetSave';
 import { useUiStore } from '../../src/store/uiStore';
@@ -82,10 +83,11 @@ export default function LeaveScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
-        <View>
+        <View className="flex-1">
           <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>Paid leave</Text>
           <Text style={{ color: colors.coolText, fontSize: 12 }}>Balance · apply · your applications</Text>
         </View>
+        <HrMenuButton current="leave" />
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">

@@ -167,6 +167,7 @@ function GateController() {
       <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
       <Stack.Screen name="share" options={{ presentation: 'modal' }} />
       <Stack.Screen name="attendance" />
+      <Stack.Screen name="hr/index" />
       <Stack.Screen name="hr/leave" />
       <Stack.Screen name="hr/month" />
       <Stack.Screen name="hr/payslip" />
