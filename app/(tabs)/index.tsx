@@ -7,12 +7,15 @@ import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors, useChatListPalette, type ChatListPalette } from '../../src/theme';
+import { mixHex } from '../../src/theme/chatListPalette';
 import { useAuthStore } from '../../src/store/authStore';
+import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
-import { useDirectoryStore } from '../../src/store/directoryStore';
+import { useDirectoryStore, refreshDirectoryUsers } from '../../src/store/directoryStore';
 import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
+import { withSender } from '../../src/logic/groupsStrip';
 import { relTime } from '../../src/utils/time';
 
 // Media types whose preview gets the small image glyph in the approved row.
@@ -28,6 +31,7 @@ function convToItem(
   branchCode: string | null,
   companyCode: string | null,
   draft?: string,
+  sender?: string | null,
 ) {
   const last = c.lastMessage;
   return {
@@ -35,7 +39,8 @@ function convToItem(
     name: c.name,
     initials: (c.name[0] ?? '?').toUpperCase(),
     color: c.type === 'group' ? colors.purple : colors.blue,
-    preview: last ? (last.type === 'text' ? oneLine(last.text) : `[${last.type}]`) : 'No messages yet',
+    // A group's preview is led by who wrote it ("Sana: …"), as WhatsApp lists groups.
+    preview: last ? withSender(last.type === 'text' ? oneLine(last.text) : `[${last.type}]`, sender) : 'No messages yet',
     time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
     ts: c.lastActivityAt ? new Date(c.lastActivityAt).getTime() : 0,
     unread: c.unread,
@@ -55,14 +60,14 @@ function convToItem(
 // One chat row. Memoised on the conversation object and a handful of primitives: the store keeps a
 // conversation's identity until that conversation actually changes, so a message landing in one chat
 // (or someone coming online) repaints one row instead of the whole list.
-const ChatRow = memo(function ChatRow({ conv, online, myUserId, branchCode, companyCode, draft, onOpen, onActions }: {
+const ChatRow = memo(function ChatRow({ conv, online, myUserId, branchCode, companyCode, draft, sender, onOpen, onActions }: {
   conv: ChatConversation; online: boolean; myUserId: string | null; branchCode: string | null; companyCode: string | null;
-  draft?: string; onOpen: (id: string) => void; onActions: (id: string) => void;
+  draft?: string; sender: string | null; onOpen: (id: string) => void; onActions: (id: string) => void;
 }) {
   const id = conv.id;
   const press = useCallback(() => onOpen(id), [onOpen, id]);
   const longPress = useCallback(() => onActions(id), [onActions, id]);
-  return <ChatListItem chat={convToItem(conv, online, myUserId, branchCode, companyCode, draft)} onPress={press} onLongPress={longPress} />;
+  return <ChatListItem chat={convToItem(conv, online, myUserId, branchCode, companyCode, draft, sender)} onPress={press} onLongPress={longPress} />;
 });
 
 const convKey = (c: ChatConversation): string => c.id;
@@ -76,7 +81,7 @@ type ChatFilter = 'all' | 'unread' | 'groups';
 
 export default function Home() {
   const router = useRouter();
-  // Filter chips (client-side): All / Unread / Groups — the approved chip row. Unread = every chat
+  // Filter (client-side): All / Unread / Groups — a segmented control. Unread = every chat
   // with unread (direct or group); Groups = every group, filed by business -> branch (GroupsPane).
   const [filter, setFilter] = useState<ChatFilter>('all');
   const realUser = useAuthStore((s) => s.user);
@@ -104,6 +109,10 @@ export default function Home() {
     company: new Map(dirBusinesses.filter((b) => b.code).map((b) => [b.id, b.code])),
   }), [dirBranches, dirBusinesses]);
   useFocusEffect(useCallback(() => { void useDirectoryStore.getState().load(); }, []));
+  // People, for the sender's name in group previews. Throttled inside, so a focus is usually free.
+  const users = useAccessStore((s) => s.users);
+  const userNames = useMemo(() => new Map(users.map((u) => [u.id, u.name])), [users]);
+  useFocusEffect(useCallback(() => { void refreshDirectoryUsers(); }, []));
   // Long-pressed row -> the mute/pin/archive sheet.
   const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
   useFocusEffect(useCallback(() => {
@@ -145,13 +154,17 @@ export default function Home() {
     // no live entry has arrived at all.
     const live = c.type === 'direct' ? presence[c.otherUserId ?? ''] : undefined;
     const online = c.type === 'direct' ? (live ? live.status === 'online' : !!c.online) : false;
+    // Who wrote a group's last message — not for my own (the ticks say that) nor a system line.
+    const last = c.lastMessage;
+    const sender = c.type === 'group' && last && last.senderId !== myUserId && last.type !== 'system'
+      ? userNames.get(last.senderId) ?? null : null;
     return (
       <ChatRow conv={c} online={online} myUserId={myUserId}
         branchCode={(c.branchId && codes.branch.get(c.branchId)) || null}
         companyCode={(c.companyId && codes.company.get(c.companyId)) || null}
-        draft={drafts[c.id]} onOpen={openChat} onActions={openActions} />
+        draft={drafts[c.id]} sender={sender} onOpen={openChat} onActions={openActions} />
     );
-  }, [presence, myUserId, codes, drafts, openChat, openActions]);
+  }, [presence, myUserId, codes, drafts, userNames, openChat, openActions]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
@@ -171,25 +184,28 @@ export default function Home() {
         </Pressable>
       </View>
 
-      {/* Filter chips — All / Unread / Groups. Selected is a solid green pill; the rest are outlined,
-          so the row reads as one control instead of three grey blocks. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12, gap: 8 }}>
-        {([['all', 'All', 0], ['unread', 'Unread', unreadChats], ['groups', 'Groups', unreadGroupChats]] as const).map(([k, label, count]) => {
-          const on = filter === k;
-          return (
-            <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center"
-              accessibilityRole="button" accessibilityState={{ selected: on }}
-              style={[chip, on ? chipOn(p) : chipOff(p)]}>
-              <Text style={{ color: on ? p.onAccent : p.text, fontSize: 13, fontWeight: on ? '700' : '600' }}>{label}</Text>
-              {count > 0 ? (
-                <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.onAccent : p.accent }}>
-                  <Text style={{ color: on ? p.accent : p.onAccent, fontSize: 11, fontWeight: '700' }}>{count > 99 ? '99+' : count}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {/* All / Unread / Groups — a segmented control, not pills: the Groups view under it has its
+          own business switcher and branch tiles, and three rows of the same pill (the old layout)
+          read as one jumble of filters. Fills the width, so each segment is a big target. */}
+      <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
+        <View className="flex-row" accessibilityRole="tablist" style={[segTrack, { backgroundColor: p.field }]}>
+          {([['all', 'All', 0], ['unread', 'Unread', unreadChats], ['groups', 'Groups', unreadGroupChats]] as const).map(([k, label, count]) => {
+            const on = filter === k;
+            return (
+              <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center justify-center"
+                accessibilityRole="tab" accessibilityState={{ selected: on }}
+                style={[seg, on ? segOn(p) : null]}>
+                <Text style={{ color: on ? p.text : p.mute, fontSize: 13.5, fontWeight: on ? '700' : '600' }}>{label}</Text>
+                {count > 0 ? (
+                  <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: p.accent }}>
+                    <Text style={{ color: p.onAccent, fontSize: 11, fontWeight: '700' }}>{count > 99 ? '99+' : count}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
 
       {/* Chats — flat full-width rows under a hairline, per the approved list. A virtualised list:
           only the rows on (and near) the screen are mounted, however many conversations there are. */}
@@ -247,7 +263,11 @@ export default function Home() {
 const listStyle = (p: ChatListPalette) => ({ flex: 1, backgroundColor: p.list, borderTopWidth: 1, borderTopColor: p.line });
 const listContent = { paddingBottom: 16, flexGrow: 1 };
 
-// 34px filter chip (approved dimensions): selected = solid theme accent, the rest outlined.
-const chip = { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 };
-const chipOn = (p: ChatListPalette) => ({ backgroundColor: p.accent, borderWidth: 1, borderColor: p.accent });
-const chipOff = (p: ChatListPalette) => ({ backgroundColor: p.bar, borderWidth: 1, borderColor: p.line });
+// Segmented control: a sunken track in the search field's colour, the picked segment a raised thumb.
+// On a dark theme the bar is darker than the field, so the thumb is the field lifted toward white.
+const segTrack = { height: 38, borderRadius: 12, padding: 3, gap: 2 };
+const seg = { flex: 1, borderRadius: 9, gap: 6 };
+const segOn = (p: ChatListPalette) => ({
+  backgroundColor: p.dark ? mixHex(p.field, '#FFFFFF', 0.08) : p.bar,
+  shadowColor: '#101519', shadowOpacity: 0.12, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1,
+});
