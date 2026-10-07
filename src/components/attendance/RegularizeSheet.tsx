@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { View, Text, Pressable, Modal, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDownLeft, ArrowUpRight, Check, X } from 'lucide-react-native';
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronRight, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { to12h, to24h } from '../../logic/timeWheel';
 import { buildDayTimes, localDayKey, seedDayTimes, type DayTimesDraft } from '../../logic/attendanceEdit';
@@ -15,6 +15,12 @@ export interface RegularizeSheetProps {
   saving: boolean;
   onClose: () => void;
   onSave: (body: { checkInAt: string; checkOutAt: string | null; reason: string }) => void;
+  /** Set when the sheet must also let the person pick the DAY (the Profile quick action). Shows a
+   *  DATE field that calls this; the parent opens a day picker and passes the new target in. */
+  onChangeDate?: () => void;
+  /** Rendered INSIDE this sheet's Modal — a second Modal (the day picker) opened as a sibling
+   *  stays hidden behind this one on Android, so it has to live in this Modal's tree. */
+  children?: ReactNode;
 }
 
 const fmtHM = (hour: number, minute: number): string => {
@@ -28,19 +34,21 @@ const EMPTY: DayTimesTarget = { date: '', inTime: null, outTime: null };
 // Saving files a REQUEST — the ERP's own time-correction row (Approvals ▸ Leave, FM → Director →
 // Owner), which the Super Admin can also decide in the app. Nothing changes on the record until
 // one of them approves it.
-export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: RegularizeSheetProps) {
+export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave, onChangeDate, children }: RegularizeSheetProps) {
   const insets = useSafeAreaInsets(); // keep the sheet clear of the Android nav bar / iOS home indicator
   const [draft, setDraft] = useState<DayTimesDraft>(() => seedDayTimes(EMPTY, new Date()));
   const [which, setWhich] = useState<'in' | 'out'>('in');
   const [reason, setReason] = useState('');
   const [openSeq, setOpenSeq] = useState(0); // remount key so the wheel re-seeds on each open
+  const wasOpen = useRef(false); // the reason survives a DAY change; it clears on a fresh open
 
   // Re-seed each time a day is opened.
   useEffect(() => {
-    if (!target) return;
+    if (!target) { wasOpen.current = false; return; }
     setDraft(seedDayTimes(target, new Date()));
     setWhich('in');
-    setReason('');
+    if (!wasOpen.current) setReason('');
+    wasOpen.current = true;
     setOpenSeq((n) => n + 1);
   }, [target]);
 
@@ -83,6 +91,19 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
             </View>
             <Pressable onPress={() => { Keyboard.dismiss(); onClose(); }} hitSlop={9} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
           </View>
+
+          {onChangeDate ? (
+            <View className="px-5 pt-3">
+              <Text style={{ color: colors.textMuted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6 }}>DATE</Text>
+              <Pressable onPress={onChangeDate} accessibilityRole="button" accessibilityLabel={`Date: ${dateLabel}. Change date`} className="flex-row items-center gap-2"
+                style={{ minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, paddingHorizontal: 12 }}>
+                <CalendarDays size={17} color={colors.primary} />
+                <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '700' }}>{dateLabel}</Text>
+                <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Change</Text>
+                <ChevronRight size={16} color={colors.primary} />
+              </Pressable>
+            </View>
+          ) : null}
 
           <View className="flex-row gap-2 px-5 pt-3">
             <TimeChip label="Check-in" Icon={ArrowDownLeft} value={fmtHM(draft.inHour, draft.inMinute)} active={which === 'in'} onPress={() => setWhich('in')} />
@@ -141,6 +162,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave }: 
         </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
+      {children}
     </Modal>
   );
 }

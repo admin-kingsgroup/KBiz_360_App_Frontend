@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { View, Text, Pressable, ScrollView, AppState, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -8,6 +8,7 @@ import { Modal } from 'react-native';
 import { Avatar } from '../src/components/ui';
 import { DayTimesSheet, type DayTimesTarget } from '../src/components/attendance/DayTimesSheet';
 import { RegularizeSheet } from '../src/components/attendance/RegularizeSheet';
+import { HrMenuButton } from '../src/components/hr/HrMenu';
 import { colors } from '../src/theme';
 import { useGeoFence } from '../src/hooks/useGeoFence';
 import { useEventCallback } from '../src/hooks/useEventCallback';
@@ -363,7 +364,7 @@ export default function Attendance() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
-      <Header title="Attendance" subtitle="At the office · face photo" onBack={onBack} />
+      <Header title="Attendance" subtitle="At the office · face photo" onBack={onBack} right={<HrMenuButton current="attendance" />} />
       {/* NO flexGrow on contentContainerStyle: flexGrow:1 pins the content container to exactly
           the viewport height — children (history/team rows) still DRAW past the bottom edge, but
           the scrollable range computes to zero, so the page looks full yet cannot scroll at all.
@@ -474,14 +475,15 @@ const LiveClock = memo(function LiveClock() {
   );
 });
 
-const Header = memo(function Header({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack: () => void }) {
+const Header = memo(function Header({ title, subtitle, onBack, right }: { title: string; subtitle?: string; onBack: () => void; right?: ReactNode }) {
   return (
     <View className="flex-row items-center gap-2 px-2" style={{ minHeight: 60, paddingVertical: 8, borderBottomColor: colors.coolDivider, borderBottomWidth: 1, backgroundColor: colors.card }}>
       <Pressable onPress={onBack} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
-      <View>
+      <View className="flex-1">
         <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '700' }}>{title}</Text>
         {subtitle ? <Text style={{ color: colors.coolText, fontSize: 12 }}>{subtitle}</Text> : null}
       </View>
+      {right}
     </View>
   );
 });
