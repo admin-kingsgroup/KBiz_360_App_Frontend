@@ -78,6 +78,9 @@ export const CHAT_THEMES: ChatTheme[] = [
     pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#CAD2D9', input: '#EDF1F4',
     mute: '#4A545C', tick: '#2F6FD0', watermarkHub: '#101519',
+
+    // @mentions + reply quotes in YOUR bubble (2026-10-08): senderName read 3.7:1 on the sent fill; 6.1:1.
+    meQuote: '#173F4B',
   },
   {
     key: 'ink', label: 'Ink & Paper', dark: false,
@@ -90,6 +93,9 @@ export const CHAT_THEMES: ChatTheme[] = [
     pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#0C0E14', input: '#EFEFEC',
     mute: '#45464B', tick: '#9CC4FF', watermarkHub: '#0C0E14',
+
+    // @mentions + reply quotes in YOUR bubble (2026-10-08): the dark senderName was invisible on the near-black sent fill (1.15:1); 9.4:1.
+    meQuote: '#9CC4FF',
   },
   {
     key: 'blueprint', label: 'Blueprint', dark: false,
@@ -104,6 +110,9 @@ export const CHAT_THEMES: ChatTheme[] = [
     pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#0C0E14', input: '#EEF3F9',
     mute: '#45464B', tick: '#9CC4FF', watermarkHub: '#0C0E14',
+
+    // @mentions + reply quotes in YOUR bubble (2026-10-08): the dark senderName was invisible on the near-black sent fill (1.15:1); 9.4:1.
+    meQuote: '#9CC4FF',
   },
   {
     key: 'eclipse', label: 'Eclipse', dark: false,
@@ -117,6 +126,9 @@ export const CHAT_THEMES: ChatTheme[] = [
     pill: '#FFFFFF',
     bar: '#FFFFFF', line: '#D3DBE2', input: '#EDF1F4',
     mute: '#4E5862', tick: '#6FB0FF', watermarkHub: '#0C0E14',
+
+    // @mentions + reply quotes in YOUR bubble (2026-10-08): senderName read 4.2:1 on the green sent fill; 5.9:1.
+    meQuote: '#7DF2C9',
   },
   {
     key: 'midnight', label: 'Midnight', dark: true,
@@ -128,6 +140,9 @@ export const CHAT_THEMES: ChatTheme[] = [
     pill: '#222A33',
     bar: '#141A20', line: '#252D36', input: '#222A33',
     mute: '#A3ADB6', tick: '#6FB0FF', watermarkHub: '#FFFFFF',
+
+    // @mentions + reply quotes in YOUR bubble (2026-10-08): senderName read 3.1:1 on the green sent fill; 5.9:1.
+    meQuote: '#7DF2C9',
   },
   {
     key: 'royal', label: 'Royal', dark: false,
