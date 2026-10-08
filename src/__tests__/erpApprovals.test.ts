@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -90,5 +90,20 @@ describe('helpers', () => {
     expect(money(123456, 'INR')).toBe('₹1,23,456');
     expect(money(1234.5, 'USD')).toBe('$1,234.5');
     expect(money(undefined, 'INR')).toBe('');
+  });
+});
+
+describe('erpText — ERP fields are never rendered raw', () => {
+  it('reads the label of a { role, label } signer (the Credit tab crash, 2026-10-08)', () => {
+    expect(erpText({ role: 'director', label: 'Director' })).toBe('Director');
+    expect(erpText({ role: 'owner' })).toBe('owner');
+    expect(erpText({ name: 'A. Person' })).toBe('A. Person');
+  });
+  it('passes text and numbers through, joins arrays, blanks the rest', () => {
+    expect(erpText('Finance Manager')).toBe('Finance Manager');
+    expect(erpText(30)).toBe('30');
+    expect(erpText([{ label: 'FM' }, 'Director'])).toBe('FM, Director');
+    expect(erpText(null)).toBe('');
+    expect(erpText(undefined)).toBe('');
   });
 });

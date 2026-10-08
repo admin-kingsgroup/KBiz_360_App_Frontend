@@ -54,7 +54,9 @@ export interface ErpLeaveApplication {
 }
 export interface ErpCreditRequest {
   id: string; status: string; op?: string; kind?: string; branch?: string; name?: string; counterparty?: string;
-  currency?: string; limit?: number; creditDays?: number; maker?: { name?: string } | string; waitingFor?: string; yourTurn?: boolean;
+  currency?: string; limit?: number; creditDays?: number; maker?: { name?: string } | string;
+  // The ERP sends the next signer as { role, label } (or null) — never render it raw (2026-10-08 crash).
+  waitingFor?: { role?: string; label?: string } | string | null; yourTurn?: boolean;
 }
 export interface ErpCloseRow { branch: string; label?: string; from?: string; upTo?: string; status: string; months?: number }
 
