@@ -123,6 +123,21 @@ export function nextErpAction(e: ErpEntryDetail, me: Pick<ErpMe, 'email' | 'name
   return { stage, action: 'approve', label: 'Approve & Post', allowed, hint };
 }
 
+/** Text for an ERP field that may be a string, a number or an object like { role, label } / { name }.
+ *  React Native throws on an object child ("Objects are not valid as a React child"), which took the
+ *  whole Approvals screen down on the Credit tab (2026-10-08) — so every such field goes through here. */
+export function erpText(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map(erpText).filter(Boolean).join(', ');
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return erpText(o.label ?? o.name ?? o.title ?? o.role ?? '');
+  }
+  return '';
+}
+
 export const STAGE_LABEL: Record<string, string> = { check: 'Check', verify: 'Verify', approve: 'Approve', director: 'Director', owner: 'Owner' };
 
 /** "₹1,23,456" / "$1,234.50" — the book's own currency when the ERP names it. */

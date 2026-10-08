@@ -9,7 +9,7 @@ import {
   type ErpLeaveApplication, type ErpMe, type ErpPendingEntry, type ErpPendingWork,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, STAGE_LABEL, actsHere, branchOptions, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain,
+  ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, branchOptions, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain,
 } from '../../logic/erpApprovals';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
@@ -177,12 +177,12 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
               const allowed = a.turn?.allowed !== false;
               return (
                 <View key={a.id} style={st.card}>
-                  <Text style={st.rowRef}>{a.name}{a.branch ? ` · ${a.branch}` : ''}</Text>
+                  <Text style={st.rowRef}>{erpText(a.name)}{a.branch ? ` · ${erpText(a.branch)}` : ''}</Text>
                   <Text style={st.rowTitle}>{kind} · {day(a.from)}{a.to && a.to !== a.from ? ` – ${day(a.to)}` : ''}{a.days ? ` · ${a.days} day${a.days === 1 ? '' : 's'}` : ''}</Text>
                   {a.kind === 'time' && (a.checkIn || a.checkOut) ? <Text style={st.rowSub}>In {a.checkIn || '—'} · Out {a.checkOut || '—'}</Text> : null}
-                  {a.reason ? <Text style={st.rowSub}>“{a.reason}”</Text> : null}
-                  {a.waitingOn ? <Text style={st.rowSub}>Waiting on {a.waitingOn}</Text> : null}
-                  {!allowed && a.turn?.why ? <Text style={[st.rowSub, { color: colors.orange }]}>{a.turn.why}</Text> : null}
+                  {erpText(a.reason) ? <Text style={st.rowSub}>“{erpText(a.reason)}”</Text> : null}
+                  {erpText(a.waitingOn) ? <Text style={st.rowSub}>Waiting on {erpText(a.waitingOn)}</Text> : null}
+                  {!allowed && erpText(a.turn?.why) ? <Text style={[st.rowSub, { color: colors.orange }]}>{erpText(a.turn?.why)}</Text> : null}
                   <View style={st.actions}>
                     {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${kind.toLowerCase()}`, cta: 'Reject', run: (note) => erpApi.decideLeave(a.id, 'reject', note) })} /> : null}
                     <ActionButton label="Approve" disabled={!allowed || !!busy} busy={busy === a.id} onPress={() => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`)} />
@@ -204,9 +204,9 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
             {credit.rows.length === 0 && !credit.refused && !credit.error ? <Text style={st.empty}>No credit requests are waiting.</Text> : null}
             {credit.rows.map((c) => (
               <View key={c.id} style={st.card}>
-                <Text style={st.rowRef}>{c.name || c.counterparty || 'Credit line'}{c.branch ? ` · ${c.branch}` : ''}</Text>
+                <Text style={st.rowRef}>{erpText(c.name) || erpText(c.counterparty) || 'Credit line'}{c.branch ? ` · ${erpText(c.branch)}` : ''}</Text>
                 <Text style={st.rowTitle}>{prettyType(c.op || c.kind || 'Request')}{c.limit != null ? ` · ${money(c.limit, c.currency)}` : ''}{c.creditDays ? ` · ${c.creditDays} days` : ''}</Text>
-                {c.waitingFor ? <Text style={st.rowSub}>Waiting for {c.waitingFor}</Text> : null}
+                {erpText(c.waitingFor) ? <Text style={st.rowSub}>Waiting for {erpText(c.waitingFor)}</Text> : null}
                 {c.yourTurn ? <Text style={[st.rowSub, { color: colors.primary, fontWeight: '700' }]}>Your turn to sign</Text> : null}
               </View>
             ))}
@@ -220,8 +220,8 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
             {closeRows.length === 0 && !close.refused && !close.error ? <Text style={st.empty}>No month close is waiting.</Text> : null}
             {closeRows.map((r) => (
               <View key={`${r.branch}-${r.upTo}`} style={st.card}>
-                <Text style={st.rowRef}>{r.branch}</Text>
-                <Text style={st.rowTitle}>{r.label || [day(r.from), day(r.upTo)].filter(Boolean).join(' – ')}</Text>
+                <Text style={st.rowRef}>{erpText(r.branch)}</Text>
+                <Text style={st.rowTitle}>{erpText(r.label) || [day(r.from), day(r.upTo)].filter(Boolean).join(' – ')}</Text>
                 <Text style={[st.rowSub, { color: r.status === 'held' ? colors.orange : colors.coolText }]}>{r.status === 'held' ? 'On hold — signed by the FM, waiting for the Owner to lock' : 'Being checked'}</Text>
               </View>
             ))}
@@ -246,10 +246,10 @@ function RequestRow({ r, busy, onAct }: { r: ErpChangeRequest; busy: boolean; on
   return (
     <View style={st.card}>
       <Text style={st.rowRef}>{prettyType(r.type)}{r.branch ? ` · ${r.branch}` : ''}</Text>
-      {r.maker?.name ? <Text style={st.rowTitle}>Raised by {r.maker.name}{r.maker.role ? ` (${r.maker.role})` : ''}</Text> : null}
+      {erpText(r.maker?.name) ? <Text style={st.rowTitle}>Raised by {erpText(r.maker?.name)}{r.maker?.role ? ` (${erpText(r.maker.role)})` : ''}</Text> : null}
       {summary ? <Text style={st.rowSub}>{summary}</Text> : null}
       {(r.chain ?? []).length ? <Text style={st.rowSub}>{(r.chain ?? []).map((c) => `${c.label || c.role}${signed.includes(c.role) ? ' ✓' : ''}`).join(' → ')}</Text> : null}
-      {next ? <Text style={st.rowSub}>Waiting on {next.label || next.role}</Text> : null}
+      {next ? <Text style={st.rowSub}>Waiting on {erpText(next.label) || erpText(next.role)}</Text> : null}
       <View style={st.actions}>
         <ActionButton label="Send back" tone="plain" disabled={busy} onPress={() => onAct('send_back')} />
         <ActionButton label="Reject" tone="danger" disabled={busy} onPress={() => onAct('reject')} />
