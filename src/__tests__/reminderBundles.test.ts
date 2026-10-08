@@ -92,7 +92,7 @@ describe('reminder PDF', () => {
 
   it('builds a real PDF across several pages', async () => {
     const many = Array.from({ length: 60 }, (_, i) => rec({ id: oid(T0 + i * 100, i), text: `Reminder number ${i} → with a long enough line to wrap across the width of an A4 page at ten and a half points`, forId: `u${i}` }));
-    const spec = reminderPdfSpec('Team Task', [sectionOf('Team Task', bundleReminders(many))], 'Anubhav Maurya');
+    const spec = reminderPdfSpec('Assign By Me', [sectionOf('Assign By Me', bundleReminders(many))], 'Anubhav Maurya');
     expect(spec.subtitle).toMatch(/^60 reminders · Generated .* by Anubhav Maurya$/);
     const b64 = await buildReminderPdf(spec);
     const head = Buffer.from(b64, 'base64').subarray(0, 5).toString('latin1');

@@ -30,11 +30,12 @@ const tabs: Array<{ key: Tab; label: string; Icon: typeof CalendarDays; color: s
 // Owner 2026-10-07 — My Task splits into three:
 //   Self Task      I wrote it for myself (Anubhav → Anubhav)
 //   Assigned to Me someone else wrote it for me ("For me" in the ask)
-//   Team Task      I wrote it for other people (one line for all of them: Anubhav → Abc, Xyz)
+//   Assign By Me   I wrote it for other people (one line for all of them: Anubhav → Abc, Xyz)
+//                  — named "Team Task" until the owner renamed it on 2026-10-08
 const MY_SECTIONS: Array<{ key: 'self' | 'forme' | 'team'; title: string; empty: string }> = [
   { key: 'self', title: 'Self Task', empty: 'No reminders you set for yourself.' },
   { key: 'forme', title: 'Assigned to Me', empty: 'No one has assigned you a reminder.' },
-  { key: 'team', title: 'Team Task', empty: 'You have not assigned any active team tasks.' },
+  { key: 'team', title: 'Assign By Me', empty: 'You have not assigned any active reminders to anyone.' },
 ];
 
 type Actions = { onComplete: (b: ReminderBundle) => void; onDelete: (b: ReminderBundle) => void; onEdit: (b: ReminderBundle) => void };
