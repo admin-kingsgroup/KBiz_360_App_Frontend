@@ -126,6 +126,12 @@ describe('chat themes', () => {
     },
   );
 
+  // Owner 2026-10-08 screenshot: "@Sujeet …" in his own Ink bubble was dark-on-near-black. The ink a
+  // mention / reply quote uses inside YOUR bubble must read on the sent fill in every theme.
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))('%s — @mentions and reply quotes read in your own bubble', (_label, theme) => {
+    expect(contrast(theme.mine, theme.meQuote ?? theme.senderName)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it.each(CHAT_THEMES.filter((t) => t.meQuote || t.themLink || t.bubbleBorderWidth).map((t) => [t.label, t] as const))(
     '%s overrides keep quotes, mentions and links readable on their bubble',
     (_label, theme) => {
