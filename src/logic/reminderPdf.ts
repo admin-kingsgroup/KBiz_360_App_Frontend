@@ -2,7 +2,7 @@ import type { PDFFont } from 'pdf-lib';
 import { bundlePeopleLine, bundleStatus, type ReminderBundle } from './reminderBundles';
 
 // Reminder PDF export (owner 2026-10-07: every reminder section exports its own PDF — Self Task,
-// Assigned to Me, Team Task, each user, each branch). Pure JS via pdf-lib, so it ships over the air:
+// Assigned to Me, Assign By Me, each user, each branch). Pure JS via pdf-lib, so it ships over the air:
 // no native print module is needed. The file is written and shared by services/reminderPdf.ts.
 
 export interface PdfRow { text: string; people: string; due: string; status: string }
