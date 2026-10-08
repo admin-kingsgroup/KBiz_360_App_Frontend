@@ -9,7 +9,7 @@ import {
   type ErpLeaveApplication, type ErpMe, type ErpPendingEntry, type ErpPendingWork,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, branchOptions, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain,
+  ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain,
 } from '../../logic/erpApprovals';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
@@ -174,18 +174,31 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
             {leave.rows.length === 0 && hrRequests.length === 0 && !leave.refused && !leave.error ? <Text style={st.empty}>No leave or HR requests are waiting.</Text> : null}
             {leave.rows.map((a) => {
               const kind = a.kind === 'time' ? 'Time correction' : a.kind === 'cancel' ? 'Leave cancellation' : 'Leave';
-              const allowed = a.turn?.allowed !== false;
+              // One level at a time (owner, 2026-10-08): Approve only on the viewer's own turn.
+              const myTurn = mayApproveLeaveNow(a.turn);
+              const steps = leaveChainSteps(a.chain, a.approvals);
+              const note = leaveTurnNote(a.turn);
               return (
                 <View key={a.id} style={st.card}>
                   <Text style={st.rowRef}>{erpText(a.name)}{a.branch ? ` · ${erpText(a.branch)}` : ''}</Text>
                   <Text style={st.rowTitle}>{kind} · {day(a.from)}{a.to && a.to !== a.from ? ` – ${day(a.to)}` : ''}{a.days ? ` · ${a.days} day${a.days === 1 ? '' : 's'}` : ''}</Text>
                   {a.kind === 'time' && (a.checkIn || a.checkOut) ? <Text style={st.rowSub}>In {a.checkIn || '—'} · Out {a.checkOut || '—'}</Text> : null}
                   {erpText(a.reason) ? <Text style={st.rowSub}>“{erpText(a.reason)}”</Text> : null}
-                  {erpText(a.waitingOn) ? <Text style={st.rowSub}>Waiting on {erpText(a.waitingOn)}</Text> : null}
-                  {!allowed && erpText(a.turn?.why) ? <Text style={[st.rowSub, { color: colors.orange }]}>{erpText(a.turn?.why)}</Text> : null}
+                  {steps.length ? (
+                    <Text style={[st.rowSub, { marginTop: 6 }]}>
+                      {steps.map((s, i) => (
+                        <Text key={s.label}>
+                          {i ? <Text style={{ color: colors.coolText3 }}>{'  →  '}</Text> : null}
+                          <Text style={{ color: s.done ? colors.primary : colors.coolText, fontWeight: s.done ? '800' : '600' }}>{s.label}{s.done ? ' ✓' : ''}</Text>
+                        </Text>
+                      ))}
+                    </Text>
+                  ) : null}
+                  {erpText(a.waitingOn) ? <Text style={[st.rowSub, { color: colors.danger, fontWeight: '700' }]}>Waiting on {erpText(a.waitingOn)}</Text> : null}
+                  {note ? <Text style={[st.rowSub, { color: colors.orange }]}>{note}</Text> : null}
                   <View style={st.actions}>
                     {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${kind.toLowerCase()}`, cta: 'Reject', run: (note) => erpApi.decideLeave(a.id, 'reject', note) })} /> : null}
-                    <ActionButton label="Approve" disabled={!allowed || !!busy} busy={busy === a.id} onPress={() => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`)} />
+                    {myTurn ? <ActionButton label="Approve" disabled={!!busy} busy={busy === a.id} onPress={() => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`)} /> : null}
                   </View>
                 </View>
               );

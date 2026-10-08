@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, erpText, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -105,5 +105,42 @@ describe('erpText — ERP fields are never rendered raw', () => {
     expect(erpText([{ label: 'FM' }, 'Director'])).toBe('FM, Director');
     expect(erpText(null)).toBe('');
     expect(erpText(undefined)).toBe('');
+  });
+});
+
+describe('HR approvals: one level at a time (owner, 2026-10-08)', () => {
+  const chain = [
+    { order: 3, role: 'Owner', label: 'Approve (Owner)' },
+    { order: 1, role: 'FinanceManager', label: 'Review (FM)' },
+    { order: 2, role: 'Director', label: 'Confirm (Director)' },
+  ];
+
+  it('lists the chain in order and ticks each level that signed', () => {
+    expect(leaveChainSteps(chain, [])).toEqual([
+      { label: 'Review (FM)', done: false }, { label: 'Confirm (Director)', done: false }, { label: 'Approve (Owner)', done: false },
+    ]);
+    expect(leaveChainSteps(chain, [{ role: 'FinanceManager' }, { role: 'Director' }]).map((s) => s.done)).toEqual([true, true, false]);
+  });
+
+  it('a level signed past (skipped) is not a tick', () => {
+    expect(leaveChainSteps(chain, [{ role: 'FinanceManager', skipped: true }])[0].done).toBe(false);
+  });
+
+  it('the Owner may not approve while FM or Director has not signed', () => {
+    expect(mayApproveLeaveNow({ allowed: true, past: ['Review (FM)', 'Confirm (Director)'] })).toBe(false);
+    expect(mayApproveLeaveNow({ allowed: true, past: ['Confirm (Director)'] })).toBe(false);
+  });
+
+  it('approval opens on the viewer\'s own turn', () => {
+    expect(mayApproveLeaveNow({ allowed: true, past: [] })).toBe(true);
+    expect(mayApproveLeaveNow({ allowed: true })).toBe(true);
+    expect(mayApproveLeaveNow({ allowed: false, why: 'It is not your turn — this leave is waiting for Review (FM).' })).toBe(false);
+    expect(mayApproveLeaveNow(undefined)).toBe(false);
+  });
+
+  it('keeps the ERP reason except the plain "not your turn" (the red Waiting on says that)', () => {
+    expect(leaveTurnNote({ allowed: false, why: 'It is not your turn — this leave is waiting for Review (FM).' })).toBe('');
+    expect(leaveTurnNote({ allowed: false, why: 'This is your own leave — the next level signs it.' })).toBe('This is your own leave — the next level signs it.');
+    expect(leaveTurnNote({ allowed: true })).toBe('');
   });
 });
