@@ -50,7 +50,10 @@ export interface ErpChangeRequest {
 export interface ErpLeaveApplication {
   id: string; name: string; branch?: string; from: string; to: string; days?: number; dayType?: string;
   reason?: string; kind?: string; waitingOn?: string; checkIn?: string; checkOut?: string;
-  turn?: { allowed?: boolean; why?: string; past?: string[] }; canReject?: boolean;
+  turn?: { allowed?: boolean; final?: boolean; why?: string; past?: string[] }; canReject?: boolean;
+  // The approval chain (FM → Director → Owner) and who has signed it — drives the ticks.
+  chain?: Array<{ order?: number; role: string; label?: string }>;
+  approvals?: Array<{ role: string; by?: string; at?: string | null; skipped?: boolean }>;
 }
 export interface ErpCreditRequest {
   id: string; status: string; op?: string; kind?: string; branch?: string; name?: string; counterparty?: string;

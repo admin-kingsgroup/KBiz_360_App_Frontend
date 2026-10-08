@@ -138,6 +138,38 @@ export function erpText(v: unknown): string {
   return '';
 }
 
+// ── HR approvals: one level at a time (owner, 2026-10-08) ──
+// Afshin's voice note: "don't let me approve ahead of Farhan — on mobile, FM approves, then the
+// Director, and only then do I. Show 'Waiting on …' in red, tick FM and Director as they sign, and
+// open my approval after both." The ERP itself still lets the Owner sign past earlier levels (with a
+// reason); the APP no longer offers that: Approve shows only when it is the viewer's own turn.
+
+export interface ChainStep { label: string; done: boolean }
+
+/** The leave chain in order, each level ticked once it has signed (a skipped level is not a tick). */
+export function leaveChainSteps(
+  chain: Array<{ order?: number; role: string; label?: string }> | undefined,
+  approvals: Array<{ role: string; skipped?: boolean }> | undefined,
+): ChainStep[] {
+  const signed = new Set((approvals ?? []).filter((a) => !a.skipped).map((a) => a.role));
+  return [...(chain ?? [])]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((l) => ({ label: erpText(l.label) || erpText(l.role), done: signed.has(l.role) }));
+}
+
+/** Approve is offered only when it is the viewer's own turn: the ERP allows it AND no earlier level
+ *  would be signed past. */
+export function mayApproveLeaveNow(turn: { allowed?: boolean; past?: string[]; why?: string; final?: boolean } | undefined): boolean {
+  return !!turn?.allowed && !(turn.past && turn.past.length);
+}
+
+/** The ERP's "why not" text, minus the plain "not your turn" — the red "Waiting on …" says that. */
+export function leaveTurnNote(turn: { allowed?: boolean; why?: string } | undefined): string {
+  if (!turn || turn.allowed) return '';
+  const why = erpText(turn.why);
+  return /not your turn/i.test(why) ? '' : why;
+}
+
 export const STAGE_LABEL: Record<string, string> = { check: 'Check', verify: 'Verify', approve: 'Approve', director: 'Director', owner: 'Owner' };
 
 /** "₹1,23,456" / "$1,234.50" — the book's own currency when the ERP names it. */
