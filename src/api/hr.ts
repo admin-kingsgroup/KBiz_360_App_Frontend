@@ -174,7 +174,7 @@ export const getHolidays = (year?: number): Promise<HolidayList> =>
   apiFetch(`/api/hr/holidays${year ? `?year=${year}` : ''}`);
 
 export const getMyRegularizations = (): Promise<Regularization[]> => apiFetch('/api/hr/regularizations');
-export const requestRegularization = (body: { date: string; checkInAt: string; checkOutAt: string | null; reason: string }): Promise<Regularization> =>
+export const requestRegularization = (body: { date: string; checkInAt: string; checkOutAt: string; reason: string }): Promise<Regularization> =>
   apiFetch('/api/hr/regularizations', { method: 'POST', body });
 export const cancelRegularization = (id: string): Promise<Regularization> =>
   apiFetch(`/api/hr/regularizations/${id}/cancel`, { method: 'PUT' });

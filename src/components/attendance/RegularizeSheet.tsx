@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { View, Text, Pressable, Modal, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronRight, X } from 'lucide-react-native';
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, ChevronRight, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { to12h, to24h } from '../../logic/timeWheel';
-import { buildDayTimes, localDayKey, seedDayTimes, type DayTimesDraft } from '../../logic/attendanceEdit';
+import { buildDayTimes, localDayKey, seedRequestTimes, type DayTimesDraft } from '../../logic/attendanceEdit';
 import { SheetSave } from '../forms/SheetSave';
 import { TimeWheel } from '../forms/TimeWheel';
 import type { DayTimesTarget } from './DayTimesSheet';
@@ -14,7 +14,7 @@ export interface RegularizeSheetProps {
   dateLabel: string;
   saving: boolean;
   onClose: () => void;
-  onSave: (body: { checkInAt: string; checkOutAt: string | null; reason: string }) => void;
+  onSave: (body: { checkInAt: string; checkOutAt: string; reason: string }) => void;
   /** Set when the sheet must also let the person pick the DAY (the Profile quick action). Shows a
    *  DATE field that calls this; the parent opens a day picker and passes the new target in. */
   onChangeDate?: () => void;
@@ -33,10 +33,11 @@ const EMPTY: DayTimesTarget = { date: '', inTime: null, outTime: null };
 // same wheel, same client-side bounds (buildDayTimes mirrors the server), plus a REQUIRED reason.
 // Saving files a REQUEST — the ERP's own time-correction row (Approvals ▸ Leave, FM → Director →
 // Owner), which the Super Admin can also decide in the app. Nothing changes on the record until
-// one of them approves it.
+// one of them approves it. Both times are compulsory, today included (owner, 2026-10-09): one sent
+// with only a check-in could never be signed once its day had passed, so there is no "still in" here.
 export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave, onChangeDate, children }: RegularizeSheetProps) {
   const insets = useSafeAreaInsets(); // keep the sheet clear of the Android nav bar / iOS home indicator
-  const [draft, setDraft] = useState<DayTimesDraft>(() => seedDayTimes(EMPTY, new Date()));
+  const [draft, setDraft] = useState<DayTimesDraft>(() => seedRequestTimes(EMPTY, new Date()));
   const [which, setWhich] = useState<'in' | 'out'>('in');
   const [reason, setReason] = useState('');
   const [openSeq, setOpenSeq] = useState(0); // remount key so the wheel re-seeds on each open
@@ -45,7 +46,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave, on
   // Re-seed each time a day is opened.
   useEffect(() => {
     if (!target) { wasOpen.current = false; return; }
-    setDraft(seedDayTimes(target, new Date()));
+    setDraft(seedRequestTimes(target, new Date()));
     setWhich('in');
     if (!wasOpen.current) setReason('');
     wasOpen.current = true;
@@ -68,7 +69,7 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave, on
   const save = (): void => {
     if (!target || !reason.trim()) return;
     const r = buildDayTimes(target.date, draft, new Date());
-    if (!r.ok) return;
+    if (!r.ok || !r.checkOutAt) return;
     Keyboard.dismiss();
     onSave({ checkInAt: r.checkInAt, checkOutAt: r.checkOutAt, reason: reason.trim() });
   };
@@ -107,34 +108,23 @@ export function RegularizeSheet({ target, dateLabel, saving, onClose, onSave, on
 
           <View className="flex-row gap-2 px-5 pt-3">
             <TimeChip label="Check-in" Icon={ArrowDownLeft} value={fmtHM(draft.inHour, draft.inMinute)} active={which === 'in'} onPress={() => setWhich('in')} />
-            <TimeChip label="Check-out" Icon={ArrowUpRight} value={draft.hasOut ? fmtHM(draft.outHour, draft.outMinute) : 'Still in'} active={which === 'out'} onPress={() => setWhich('out')} />
+            <TimeChip label="Check-out" Icon={ArrowUpRight} value={fmtHM(draft.outHour, draft.outMinute)} active={which === 'out'} onPress={() => setWhich('out')} />
           </View>
 
-          {which === 'out' && !draft.hasOut ? (
-            <View style={{ height: 210, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
-              <Text style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center' }}>No check-out — only today can be requested open; a past day always needs one.</Text>
-            </View>
-          ) : (
-            <TimeWheel
-              key={`${openSeq}-${which}`}
-              hour={hour}
-              minute={minute}
-              hour24
-              onHour12={(h12) => setHour((h) => to24h(h12, to12h(h).meridiem))}
-              onHour24={(nextHour) => setHour(() => nextHour)}
-              onMinute={setMinute}
-              onMeridiem={(mer) => setHour((h) => to24h(to12h(h).h12, mer))}
-            />
-          )}
+          <TimeWheel
+            key={`${openSeq}-${which}`}
+            hour={hour}
+            minute={minute}
+            hour24
+            onHour12={(h12) => setHour((h) => to24h(h12, to12h(h).meridiem))}
+            onHour24={(nextHour) => setHour(() => nextHour)}
+            onMinute={setMinute}
+            onMeridiem={(mer) => setHour((h) => to24h(to12h(h).h12, mer))}
+          />
 
-          {/* Only today may be left open — a past day always needs a check-out. */}
+          {/* Both times are compulsory — today's is sent once the person has left. */}
           {isToday ? (
-            <Pressable onPress={() => setDraft((d) => ({ ...d, hasOut: !d.hasOut }))} accessibilityRole="checkbox" accessibilityState={{ checked: !draft.hasOut }} className="flex-row items-center gap-2 mx-5" style={{ paddingVertical: 8 }}>
-              <View style={{ width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: draft.hasOut ? colors.coolDivider : colors.primary, backgroundColor: draft.hasOut ? 'transparent' : colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-                {!draft.hasOut ? <Check size={13} color="#fff" /> : null}
-              </View>
-              <Text style={{ color: colors.ink, fontSize: 13, fontWeight: '600' }}>Still in — no check-out yet</Text>
-            </Pressable>
+            <Text className="mx-5" style={{ color: colors.textMuted, fontSize: 11.5, paddingVertical: 6 }}>Put the time you left too — today’s request goes once you have checked out.</Text>
           ) : null}
 
           {/* Why — required; travels to the Super Admin with the request. */}
