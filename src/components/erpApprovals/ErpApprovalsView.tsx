@@ -6,7 +6,7 @@ import {
   erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpLeaveApplication, type ErpMe, type ErpPaymentRequestRow,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, money,
+  ALL_BRANCHES, erpText, leaveChainSteps, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, money, type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
   RECENT_DAYS, atFocus, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
@@ -276,7 +276,16 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
               const note = leaveTurnNote(a.turn);
               return (
                 <View key={a.id} style={st.card}>
-                  <Text style={st.rowRef}>{erpText(a.name)}{a.branch ? ` · ${erpText(a.branch)}` : ''}</Text>
+                  <View style={st.cardHead}>
+                    <Text style={[st.rowRef, { flexShrink: 1 }]}>{erpText(a.name)}{a.branch ? ` · ${erpText(a.branch)}` : ''}</Text>
+                    <View style={st.tags}>
+                      {leaveTags(a).map((t) => (
+                        <View key={t.tone} style={[st.tag, { backgroundColor: TAG_TONE[t.tone].bg, borderColor: TAG_TONE[t.tone].edge }]}>
+                          <Text style={[st.tagText, { color: TAG_TONE[t.tone].fg }]}>{t.label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
                   <Text style={st.rowTitle}>{kind} · {day(a.from)}{a.to && a.to !== a.from ? ` – ${day(a.to)}` : ''}{a.days ? ` · ${a.days} day${a.days === 1 ? '' : 's'}` : ''}</Text>
                   {a.kind === 'time' && (a.checkIn || a.checkOut) ? <Text style={st.rowSub}>In {a.checkIn || '—'} · Out {a.checkOut || '—'}</Text> : null}
                   {erpText(a.reason) ? <Text style={st.rowSub}>“{erpText(a.reason)}”</Text> : null}
@@ -446,6 +455,14 @@ function ReasonSheet({ title, cta, tone = 'danger', placeholder = 'Reason (requi
   );
 }
 
+// HR card tags: green Paid leave, blue Time correction, orange Leave cancellation, grey Half day.
+const TAG_TONE: Record<LeaveTagTone, { bg: string; fg: string; edge: string }> = {
+  paid: { bg: colors.primarySoft, fg: colors.primary, edge: '#BFE3DA' },
+  time: { bg: '#EAF1FF', fg: '#2457C5', edge: '#C9DAFB' },
+  cancel: { bg: '#FDF1DE', fg: '#9A5B0B', edge: '#F2D5A6' },
+  half: { bg: colors.coolMuted, fg: colors.coolText, edge: '#E2E5EA' },
+};
+
 const st = {
   chip: { height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, alignItems: 'center' as const, justifyContent: 'center' as const },
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
@@ -460,6 +477,10 @@ const st = {
   countText: { color: colors.coolText, fontSize: 11, fontWeight: '700' as const },
   countTextOn: { color: colors.ink },
   rowRef: { color: colors.ink, fontSize: 14, fontWeight: '800' as const },
+  cardHead: { flexDirection: 'row' as const, alignItems: 'flex-start' as const, justifyContent: 'space-between' as const, gap: 10 },
+  tags: { flexDirection: 'row' as const, gap: 4, flexShrink: 0 },
+  tag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
+  tagText: { fontSize: 10.5, fontWeight: '700' as const, letterSpacing: 0.2 },
   rowTitle: { color: colors.ink, fontSize: 13.5, marginTop: 2 },
   rowSub: { color: colors.coolText, fontSize: 12, marginTop: 2 },
   card: { marginHorizontal: 16, marginTop: 10, padding: 14, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider },

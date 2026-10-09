@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -142,5 +142,18 @@ describe('HR approvals: one level at a time (owner, 2026-10-08)', () => {
     expect(leaveTurnNote({ allowed: false, why: 'It is not your turn — this leave is waiting for Review (FM).' })).toBe('');
     expect(leaveTurnNote({ allowed: false, why: 'This is your own leave — the next level signs it.' })).toBe('This is your own leave — the next level signs it.');
     expect(leaveTurnNote({ allowed: true })).toBe('');
+  });
+});
+
+describe('HR card tags', () => {
+  it('a plain leave is paid leave; a half-day one also says Half day', () => {
+    expect(leaveTags({ kind: 'leave', dayType: 'full' })).toEqual([{ label: 'Paid leave', tone: 'paid' }]);
+    expect(leaveTags({})).toEqual([{ label: 'Paid leave', tone: 'paid' }]);
+    expect(leaveTags({ kind: 'leave', dayType: 'half' }).map((t) => t.label)).toEqual(['Half day', 'Paid leave']);
+  });
+
+  it('a time correction and a leave cancellation get their own tag', () => {
+    expect(leaveTags({ kind: 'time', dayType: 'full' })).toEqual([{ label: 'Time correction', tone: 'time' }]);
+    expect(leaveTags({ kind: 'cancel' })).toEqual([{ label: 'Leave cancellation', tone: 'cancel' }]);
   });
 });
