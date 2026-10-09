@@ -1,31 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronRight, X } from 'lucide-react-native';
 import { ApiError } from '../../api/client';
 import {
-  erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpEntryDetail, type ErpJournal,
-  type ErpLeaveApplication, type ErpMe, type ErpPendingEntry, type ErpPendingWork,
+  erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpLeaveApplication, type ErpMe, type ErpPaymentRequestRow,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain,
+  ALL_BRANCHES, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, money,
 } from '../../logic/erpApprovals';
+import {
+  RECENT_DAYS, atFocus, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
+  paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, waitingLabel,
+} from '../../logic/erpPayables';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
 
-// ERP approvals inside the app (owner, 2026-10-07): the same five tabs as the ERP's Approvals ▸
-// All approvals — Entries, Requests, Credit, HR, Month Close — for a person with ERP access. Every
-// read and action goes through the app's backend to the ERP as this person; the ERP applies all of
-// its rules and its refusal reason is shown as is. Credit and Month Close are view-only here (the
-// ERP signs those on their own screens).
+// ERP approvals inside the app (owner, 2026-10-07) for a person with ERP access. The tabs follow the ERP's
+// Approvals ▸ All approvals — Receivables, Payables, Requests, Credit, HR, Month Close. Entries is NOT here
+// (owner, 2026-10-09: "remove entries section from app"); Receivables and Payables joined the same day,
+// "with the same functionality as the ERP". Every read and action goes through the app's backend to the ERP
+// as this person; the ERP applies all of its rules and its refusal reason is shown as is. Credit and
+// Month Close are view-only here (the ERP signs those on their own screens).
 
-type Tab = 'entries' | 'requests' | 'credit' | 'hr' | 'close';
+type Tab = 'receivables' | 'payables' | 'requests' | 'credit' | 'hr' | 'close';
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'entries', label: 'Entries' }, { key: 'requests', label: 'Requests' }, { key: 'credit', label: 'Credit' },
-  { key: 'hr', label: 'HR' }, { key: 'close', label: 'Month Close' },
+  { key: 'receivables', label: 'Receivables' }, { key: 'payables', label: 'Payables' }, { key: 'requests', label: 'Requests' },
+  { key: 'credit', label: 'Credit' }, { key: 'hr', label: 'HR' }, { key: 'close', label: 'Month Close' },
 ];
-const isHrRequest = (r: ErpChangeRequest): boolean => /^hr_/i.test(r.type || '');
 const errText = (e: unknown, fallback: string): string => (e instanceof ApiError && e.message ? e.message : fallback);
 const roleRefused = (e: unknown): boolean => e instanceof ApiError && e.status === 403;
 const prettyType = (t: string): string => String(t || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -34,23 +35,34 @@ const day = (s?: string): string => {
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
+const when = (s?: string | null): string => {
+  const d = s ? new Date(s) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+};
+const ageOf = (s?: string): string => {
+  const t = s ? new Date(s).getTime() : NaN;
+  if (Number.isNaN(t)) return '';
+  const h = Math.max(0, Math.floor((Date.now() - t) / 3_600_000));
+  return h < 1 ? 'just now' : h < 48 ? `${h}h waiting` : `${Math.floor(h / 24)}d waiting`;
+};
 
 interface Loaded<T> { rows: T; refused?: boolean; error?: string }
+interface Asking { title: string; cta: string; tone?: 'primary' | 'danger'; placeholder?: string; run: (reason: string) => Promise<unknown>; done?: string }
 
-export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) {
+export function ErpApprovalsView({ me }: { me: ErpMe }) {
   const showToast = useUiStore((s) => s.showToast);
   const options = useMemo(() => branchOptions(me), [me]);
   const [branch, setBranch] = useState<string>(options[0] ?? ALL_BRANCHES);
-  const [tab, setTab] = useState<Tab>('entries');
+  const [tab, setTab] = useState<Tab>('receivables');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [pw, setPw] = useState<Loaded<ErpPendingWork | null>>({ rows: null });
   const [crs, setCrs] = useState<Loaded<ErpChangeRequest[]>>({ rows: [] });
+  const [approvedPay, setApprovedPay] = useState<Loaded<ErpChangeRequest[]>>({ rows: [] });
+  const [recentPay, setRecentPay] = useState<Loaded<ErpPaymentRequestRow[]>>({ rows: [] });
   const [leave, setLeave] = useState<Loaded<ErpLeaveApplication[]>>({ rows: [] });
   const [credit, setCredit] = useState<Loaded<ErpCreditRequest[]>>({ rows: [] });
   const [close, setClose] = useState<Loaded<ErpCloseRow[]>>({ rows: [] });
-  const [open, setOpen] = useState<ErpPendingEntry | null>(null);
-  const [asking, setAsking] = useState<{ title: string; cta: string; run: (reason: string) => Promise<unknown> } | null>(null);
+  const [asking, setAsking] = useState<Asking | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const scoped = branch === ALL_BRANCHES ? undefined : branch;
@@ -59,8 +71,14 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
       try { set({ rows: await p }); } catch (e) { set({ rows: empty, refused: roleRefused(e), error: roleRefused(e) ? undefined : errText(e, 'Could not load') }); }
     };
     await Promise.all([
-      settle(erpApi.pendingWork(scoped), null, setPw),
       settle(erpApi.changeRequests(), [], setCrs),
+      // Payables, as on the ERP: the payment requests signed off but not applied, and those approved this week.
+      settle(erpApi.changeRequests('approved', 'payment_request'), [], setApprovedPay),
+      // A server without this read yet (the app backend's ERP route list is older — 404) simply shows no list.
+      settle(erpApi.recentlyApprovedPayments(scoped ?? ALL_BRANCHES, RECENT_DAYS).catch((e) => {
+        if (e instanceof ApiError && e.status === 404) return [] as ErpPaymentRequestRow[];
+        throw e;
+      }), [], setRecentPay),
       settle(erpApi.leaveApplications(scoped), [], setLeave),
       settle(erpApi.creditRequests(scoped), [], setCredit),
       settle(erpApi.closeBoard(), [], setClose),
@@ -70,13 +88,15 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
   }, [scoped]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const entries = useMemo(() => pendingEntries(pw.rows, branch), [pw.rows, branch]);
-  const stages = useMemo(() => stageCounts(entries), [entries]);
   const atBranch = useCallback((b?: string) => branch === ALL_BRANCHES || String(b || '').toUpperCase() === branch, [branch]);
-  const requests = useMemo(() => crs.rows.filter((r) => !isHrRequest(r) && atBranch(r.branch)), [crs.rows, atBranch]);
+  // Requests leaves out HR's types (the HR tab) and payment requests (the Payables tab) — the ERP's split.
+  const requests = useMemo(() => crs.rows.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && atBranch(r.branch)), [crs.rows, atBranch]);
   const hrRequests = useMemo(() => crs.rows.filter((r) => isHrRequest(r) && atBranch(r.branch)), [crs.rows, atBranch]);
+  const payables = useMemo(() => atFocus(crs.rows.filter(isPaymentRequest), branch), [crs.rows, branch]);
+  const stuckPay = useMemo(() => atFocus(approvedPay.rows.filter((r) => isPaymentRequest(r) && isStuck(r)), branch), [approvedPay.rows, branch]);
   const closeRows = useMemo(() => close.rows.filter((r) => (r.status === 'held' || r.status === 'checking') && atBranch(r.branch)), [close.rows, atBranch]);
-  const counts: Record<Tab, number> = { entries: entries.length, requests: requests.length, credit: credit.rows.length, hr: leave.rows.length + hrRequests.length, close: closeRows.length };
+  // Receivables reads nothing, so it carries no badge (as on the ERP).
+  const counts: Record<Tab, number | null> = { receivables: null, payables: payables.length, requests: requests.length, credit: credit.rows.length, hr: leave.rows.length + hrRequests.length, close: closeRows.length };
 
   const act = async (key: string, run: () => Promise<unknown>, done: string) => {
     if (busy) return;
@@ -85,6 +105,39 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
     catch (e) { showToast(errText(e, 'The ERP did not accept that')); }
     finally { setBusy(null); }
   };
+
+  /* A payment request is signed like the ERP signs it: in turn, with a confirm; past a level that has not
+     signed, only with a reason (CRED-GATE-03). It is a central act — no acting branch, as the ERP sends none. */
+  const actOnPayment = (cr: ErpChangeRequest, action: 'approve' | 'reject' | 'send_back') => {
+    if (action === 'approve') {
+      const past = signPastLevels(cr, me.role);
+      if (past.length) {
+        setAsking({
+          title: `${past.join(' and ')} ${past.length > 1 ? 'have' : 'has'} not signed`,
+          placeholder: `Why are you signing past ${past.length > 1 ? 'them' : 'it'}? (e.g. not available)`,
+          cta: 'Approve', tone: 'primary', done: 'Payment request approved',
+          run: (reason) => erpApi.actChangeRequest(cr._id, 'approve', reason, ''),
+        });
+        return;
+      }
+      Alert.alert('Approve this payment request?', paymentSubject(paymentAfterOf(cr), cr.bookCurrency) || 'Payment request', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Approve', onPress: () => void act(cr._id, () => erpApi.actChangeRequest(cr._id, 'approve', '', ''), 'Payment request approved') },
+      ]);
+      return;
+    }
+    setAsking(action === 'reject'
+      ? { title: 'Reject payment request', placeholder: 'Reason for rejection', cta: 'Reject', run: (reason) => erpApi.actChangeRequest(cr._id, 'reject', reason, '') }
+      : { title: 'Send back', placeholder: 'What should the maker correct?', cta: 'Send back', run: (reason) => erpApi.actChangeRequest(cr._id, 'send_back', reason, '') });
+  };
+  const rerun = (cr: ErpChangeRequest) => Alert.alert('Re-run this change?', 'It was approved already — this applies it, and decides nothing.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Re-run', onPress: () => void act(cr._id, () => erpApi.retryChangeRequest(cr._id), 'Applied') },
+  ]);
+  const closeStuck = (cr: ErpChangeRequest) => setAsking({
+    title: 'Close without applying', placeholder: 'Why? (e.g. duplicate, already paid)', cta: 'Close', done: 'Closed — nothing was changed',
+    run: (reason) => erpApi.closeChangeRequest(cr._id, reason),
+  });
 
   const refusedNote = (what: string) => <Text style={st.empty}>{what} are not open to your ERP role.</Text>;
   const errorNote = (msg?: string) => (msg ? <Pressable onPress={() => void load()} style={st.error}><Text style={{ color: colors.danger, fontSize: 12.5 }}>{msg} — tap to retry</Text></Pressable> : null);
@@ -105,14 +158,15 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
         </ScrollView>
       ) : null}
 
-      {/* The five tabs, each with its pending count — as on the ERP. */}
+      {/* The tabs, each with its pending count — as on the ERP. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.coolDivider }} contentContainerStyle={{ paddingHorizontal: 12, gap: 4 }}>
         {TABS.map((t) => {
           const on = t.key === tab;
+          const n = counts[t.key];
           return (
             <Pressable key={t.key} onPress={() => setTab(t.key)} style={[st.tab, on && st.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
               <Text style={[st.tabText, on && st.tabTextOn]}>{t.label}</Text>
-              <View style={[st.count, on && st.countOn]}><Text style={[st.countText, on && st.countTextOn]}>{counts[t.key]}</Text></View>
+              {n != null ? <View style={[st.count, on && st.countOn]}><Text style={[st.countText, on && st.countTextOn]}>{n}</Text></View> : null}
             </Pressable>
           );
         })}
@@ -124,33 +178,75 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
       >
         {loading ? <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View> : null}
 
-        {!loading && tab === 'entries' ? (
-          <>
-            <View style={st.strip}>
-              <Text style={st.stripTitle}>PENDING BY STAGE · {branch === ALL_BRANCHES ? 'All branches' : branch} · {stages.total} pending</Text>
-              <Text style={st.stripLine}>Check {stages.check}  ·  Verify {stages.verify}  ·  Approve {stages.approve}</Text>
+        {!loading && tab === 'receivables' ? (
+          crs.refused ? (
+            <View style={st.emptyBox}>
+              <Text style={st.emptyTitle}>Receivables — not open to you</Text>
+              <Text style={st.emptyHint}>Worked at TK Group by AE / FM / Director / Owner — your role does not open it.</Text>
             </View>
-            {pw.refused ? refusedNote('Entries') : errorNote(pw.error)}
-            {entries.length === 0 && !pw.refused && !pw.error ? <Text style={st.empty}>Nothing is waiting for approval here.</Text> : null}
-            {entries.map((e) => {
-              const here = actsHere(e, me);
-              return (
-                <Pressable key={e.id} onPress={() => setOpen(e)} style={st.row} accessibilityRole="button" accessibilityLabel={`Open ${e.ref}`}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={st.rowRef} numberOfLines={1}>{e.ref || e.type}</Text>
-                    <Text style={st.rowTitle} numberOfLines={1}>{e.title}</Text>
-                    <Text style={st.rowSub} numberOfLines={1}>{[e.sub, e.branch, e.days ? `${e.days}d waiting` : ''].filter(Boolean).join(' · ')}</Text>
+          ) : (
+            <>
+              <Text style={st.note}>The receivable side of Financial Planning — beside Payables.</Text>
+              <View style={st.emptyBox}>
+                <Text style={st.emptyTitle}>Nothing is raised for approval on the receivable side yet.</Text>
+                <Text style={st.emptyHint}>Supplier payment requests raised from the Financial Planning Dashboard wait on Payables.</Text>
+              </View>
+            </>
+          )
+        ) : null}
+
+        {!loading && tab === 'payables' ? (
+          <>
+            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard — signed FM → Director → Owner; the supplier is paid only after the Owner signs.</Text>
+            {crs.refused ? refusedNote('Payables') : errorNote(crs.error)}
+            {payables.length === 0 && !crs.refused && !crs.error ? <Text style={st.empty}>No payment request is waiting.</Text> : null}
+            {payables.map((cr) => <PaymentCard key={cr._id} cr={cr} me={me} busy={busy === cr._id} anyBusy={!!busy} onAct={(a) => actOnPayment(cr, a)} />)}
+
+            {/* Signed off, but the payment request did not go through — nothing has been altered yet. */}
+            {errorNote(approvedPay.error)}
+            {stuckPay.length ? (
+              <View style={[st.card, st.warnCard]}>
+                <Text style={[st.rowRef, { color: colors.orange }]}>Approved but not applied ({stuckPay.length})</Text>
+                <Text style={[st.rowSub, { lineHeight: 17 }]}>These were signed off, but the change itself did not go through — nothing has been altered yet. Re-running applies the change that was already approved; it decides nothing. When it can never apply, close it — that records that nothing changed.</Text>
+                {!mayReapply(me.role) ? <Text style={[st.rowSub, { fontWeight: '700' }]}>{REAPPLY_REASON}</Text> : null}
+                {stuckPay.map((cr) => (
+                  <View key={cr._id} style={st.stuckRow}>
+                    <Text style={st.rowTitle}>{cr.branch || 'group-wide'} · {paymentSubject(paymentAfterOf(cr), cr.bookCurrency) || 'Payment request'}</Text>
+                    <Text style={[st.rowSub, { color: colors.danger }]}>{erpText(cr.applyError) ? `Did not apply: ${erpText(cr.applyError)}` : 'Reason not recorded — Re-run once to see it.'}</Text>
+                    {mayReapply(me.role) ? (
+                      <View style={st.actions}>
+                        <ActionButton label="Close" tone="plain" disabled={!!busy} onPress={() => closeStuck(cr)} />
+                        <ActionButton label="Re-run" busy={busy === cr._id} disabled={!!busy} onPress={() => rerun(cr)} />
+                      </View>
+                    ) : null}
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 5 }}>
-                    {e.amount != null ? <Text style={st.amount}>{money(e.amount, e.currency)}</Text> : null}
-                    {here
-                      ? <View style={st.stage}><Text style={st.stageText}>{STAGE_LABEL[e.stage] || 'Approve'}</Text></View>
-                      : <Text style={st.withText}>⏳ With {e.actionBranch}</Text>}
-                  </View>
-                  <ChevronRight size={16} color={colors.coolText3} />
-                </Pressable>
-              );
-            })}
+                ))}
+              </View>
+            ) : null}
+
+            {/* Where an approved payment request went — it leaves the list above on its last signature. */}
+            {recentPay.error ? <Text style={[st.note, { color: colors.danger }]}>Could not load the recently approved payment requests — {recentPay.error}.</Text> : null}
+            {recentPay.rows.length ? (
+              <>
+                <Text style={st.section}>APPROVED IN THE LAST {RECENT_DAYS} DAYS ({recentPay.rows.length})</Text>
+                {recentPay.rows.map((r) => {
+                  const s = paymentState(r);
+                  const tone = s.tone === 'success' ? colors.primary : s.tone === 'info' ? colors.coolText : colors.orange;
+                  const signer = lastSigner(r);
+                  return (
+                    <View key={r.id} style={st.card}>
+                      <Text style={st.rowTitle}><Text style={{ fontWeight: '800' }}>{r.branch}</Text> · {recentSubject(r)}</Text>
+                      <Text style={st.rowSub}>raised by {erpText(r.maker?.name) || erpText(r.maker?.userId) || '—'} · approved {when(r.appliedAt)}{signer ? ` by ${signer}` : ''}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                        <View style={[st.badge, { backgroundColor: tone + '22' }]}><Text style={[st.badgeText, { color: tone }]}>{s.word}</Text></View>
+                        {r.payment?.vno ? <Text style={[st.rowSub, { marginTop: 0, fontWeight: '700', color: colors.ink }]}>{r.payment.vno}</Text> : null}
+                        {s.note ? <Text style={[st.rowSub, { marginTop: 0 }]}>{s.note}</Text> : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            ) : null}
           </>
         ) : null}
 
@@ -184,20 +280,11 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
                   <Text style={st.rowTitle}>{kind} · {day(a.from)}{a.to && a.to !== a.from ? ` – ${day(a.to)}` : ''}{a.days ? ` · ${a.days} day${a.days === 1 ? '' : 's'}` : ''}</Text>
                   {a.kind === 'time' && (a.checkIn || a.checkOut) ? <Text style={st.rowSub}>In {a.checkIn || '—'} · Out {a.checkOut || '—'}</Text> : null}
                   {erpText(a.reason) ? <Text style={st.rowSub}>“{erpText(a.reason)}”</Text> : null}
-                  {steps.length ? (
-                    <Text style={[st.rowSub, { marginTop: 6 }]}>
-                      {steps.map((s, i) => (
-                        <Text key={s.label}>
-                          {i ? <Text style={{ color: colors.coolText3 }}>{'  →  '}</Text> : null}
-                          <Text style={{ color: s.done ? colors.primary : colors.coolText, fontWeight: s.done ? '800' : '600' }}>{s.label}{s.done ? ' ✓' : ''}</Text>
-                        </Text>
-                      ))}
-                    </Text>
-                  ) : null}
+                  {steps.length ? <ChainLine steps={steps} /> : null}
                   {erpText(a.waitingOn) ? <Text style={[st.rowSub, { color: colors.danger, fontWeight: '700' }]}>Waiting on {erpText(a.waitingOn)}</Text> : null}
                   {note ? <Text style={[st.rowSub, { color: colors.orange }]}>{note}</Text> : null}
                   <View style={st.actions}>
-                    {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${kind.toLowerCase()}`, cta: 'Reject', run: (note) => erpApi.decideLeave(a.id, 'reject', note) })} /> : null}
+                    {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${kind.toLowerCase()}`, cta: 'Reject', run: (n) => erpApi.decideLeave(a.id, 'reject', n) })} /> : null}
                     {myTurn ? <ActionButton label="Approve" disabled={!!busy} busy={busy === a.id} onPress={() => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`)} /> : null}
                   </View>
                 </View>
@@ -242,12 +329,68 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
         ) : null}
       </ScrollView>
 
-      {open ? <EntrySheet entry={open} me={me} chain={chain} onClose={() => setOpen(null)} onDone={() => { setOpen(null); void load(); }} /> : null}
-      {asking ? <ReasonSheet title={asking.title} cta={asking.cta} onClose={() => setAsking(null)} onSubmit={async (reason) => {
+      {asking ? <ReasonSheet title={asking.title} cta={asking.cta} tone={asking.tone} placeholder={asking.placeholder} onClose={() => setAsking(null)} onSubmit={async (reason) => {
         const job = asking;
         setAsking(null);
-        await act(job.title, () => job.run(reason), `${job.cta} — done`);
+        await act(job.title, () => job.run(reason), job.done || `${job.cta} — done`);
       }} /> : null}
+    </View>
+  );
+}
+
+// The chain as ticks — "Review (FM) ✓ → Confirm (Director) → Approve (Owner)".
+function ChainLine({ steps }: { steps: Array<{ label: string; done: boolean }> }) {
+  return (
+    <Text style={[st.rowSub, { marginTop: 6 }]}>
+      {steps.map((s, i) => (
+        <Text key={s.label}>
+          {i ? <Text style={{ color: colors.coolText3 }}>{'  →  '}</Text> : null}
+          <Text style={{ color: s.done ? colors.primary : colors.coolText, fontWeight: s.done ? '800' : '600' }}>{s.label}{s.done ? ' ✓' : ''}</Text>
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+/* One pending payment request, as the ERP's Payables row shows it: who is paid, how much, when, each bill,
+   who raised it, the chain, whom it waits on — and only the buttons the ERP would accept from this person,
+   with the reason the others are off. */
+function PaymentCard({ cr, me, busy, anyBusy, onAct }: { cr: ErpChangeRequest; me: ErpMe; busy: boolean; anyBusy: boolean; onAct: (a: 'approve' | 'reject' | 'send_back') => void }) {
+  const a = paymentAfterOf(cr);
+  const subject = paymentSubject(a, cr.bookCurrency);
+  const rows = paymentDetailRows(a, cr.bookCurrency).filter((r) => r.to || r.from);
+  const steps = chainSteps(cr);
+  const waiting = waitingLabel(cr);
+  const outside = outsideChainWhy(cr, me);
+  const approveWhy = outside || ownRequestWhy(cr, me) || signedWhy(cr, me);
+  const declineWhy = outside || signedWhy(cr, me, 'decline');
+  const why = approveWhy || declineWhy;
+  return (
+    <View style={st.card}>
+      <Text style={st.rowRef}>Payment request{cr.branch ? ` · ${cr.branch}` : ''}</Text>
+      {subject ? <Text style={st.rowTitle}>{subject}</Text> : null}
+      {rows.length ? (
+        <View style={{ marginTop: 6, gap: 2 }}>
+          {rows.map((r, i) => (
+            <Text key={`${r.label}-${i}`} style={[st.rowSub, { marginTop: 0 }]}>
+              <Text>{r.label}: </Text>
+              {r.from ? <Text style={{ color: colors.coolText3 }}>{r.from}  →  </Text> : null}
+              <Text style={{ color: colors.ink, fontWeight: '700' }}>{r.to}</Text>
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      <Text style={[st.rowSub, { marginTop: 6 }]}>Raised by {erpText(cr.maker?.name) || erpText(cr.maker?.userId) || '—'}{cr.createdAt ? ` · ${ageOf(cr.createdAt)}` : ''}</Text>
+      {steps.length ? <ChainLine steps={steps} /> : null}
+      {waiting ? <Text style={[st.rowSub, { color: colors.danger, fontWeight: '700' }]}>Waiting on {waiting}</Text> : null}
+      {why ? <Text style={[st.rowSub, { color: colors.orange }]}>{why}</Text> : null}
+      {!declineWhy || !approveWhy ? (
+        <View style={st.actions}>
+          {!declineWhy ? <ActionButton label="Send back" tone="plain" disabled={anyBusy} onPress={() => onAct('send_back')} /> : null}
+          {!declineWhy ? <ActionButton label="Reject" tone="danger" disabled={anyBusy} onPress={() => onAct('reject')} /> : null}
+          {!approveWhy ? <ActionButton label="Approve" busy={busy} disabled={anyBusy} onPress={() => onAct('approve')} /> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -283,125 +426,19 @@ function ActionButton({ label, onPress, disabled, busy, tone = 'primary' }: { la
   );
 }
 
-// One entry: what it is, who has signed, the would-be journal, and the single next action.
-function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEntry; me: ErpMe; chain: ErpChain; onClose: () => void; onDone: () => void }) {
-  const insets = useSafeAreaInsets();
-  const showToast = useUiStore((s) => s.showToast);
-  const [detail, setDetail] = useState<ErpEntryDetail | null>(null);
-  const [journal, setJournal] = useState<ErpJournal | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-  // The ERP's refusal ("Awaiting Verify", "Ledger not in BOM's chart"…) is shown IN the sheet: the
-  // app's toast host sits under an open Modal, so a toast here would never be seen.
-  const [actionError, setActionError] = useState('');
-
-  useEffect(() => {
-    let alive = true;
-    Promise.all([erpApi.entry(entry.kind, entry.id), erpApi.journal(entry.kind, entry.id).catch(() => null)])
-      .then(([raw, j]) => { if (!alive) return; setDetail(toEntryDetail(entry.kind, raw)); setJournal(j); })
-      .catch((e) => { if (alive) setError(errText(e, 'Could not open this entry')); });
-    return () => { alive = false; };
-  }, [entry.kind, entry.id]);
-
-  const here = actsHere(entry, me);
-  const action = detail ? nextErpAction(detail, me, chain) : null;
-  const fxBlocked = !!detail?.approvalNeedsFx && action?.action === 'approve';
-  const actingBranch = entry.actionBranch || entry.branch;
-
-  const run = async (fn: () => Promise<unknown>, done: string) => {
-    setBusy(true);
-    setActionError('');
-    try { await fn(); showToast(done); onDone(); }
-    catch (e) { setActionError(errText(e, 'The ERP did not accept that')); setBusy(false); }
-  };
-  const doAction = () => {
-    if (!action) return;
-    if (action.action === 'approve') {
-      Alert.alert('Approve & post?', 'This posts the entry to the books.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Approve & Post', onPress: () => void run(() => erpApi.approve(entry.kind, entry.id, actingBranch), 'Approved and posted') },
-      ]);
-    } else {
-      void run(() => erpApi.review(entry.kind, entry.id, action.action, actingBranch), `${action.label} — done`);
-    }
-  };
-
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={() => undefined} style={{ backgroundColor: colors.coolBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%', paddingBottom: Math.max(20, insets.bottom + 12) }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 8 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800' }} numberOfLines={1}>{detail?.number || entry.ref}</Text>
-              <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{[detail?.type || entry.type, entry.branch, day(detail?.date)].filter(Boolean).join(' · ')}</Text>
-            </View>
-            <Pressable onPress={onClose} accessibilityLabel="Close" style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={15} color={colors.coolText} /></Pressable>
-          </View>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-            {error ? <Text style={{ color: colors.danger, padding: 12 }}>{error}</Text> : null}
-            {!detail && !error ? <ActivityIndicator style={{ padding: 24 }} color={colors.primary} /> : null}
-            {detail ? (
-              <>
-                <View style={st.card}>
-                  <Text style={st.rowTitle}>{detail.party || entry.title}</Text>
-                  {entry.amount != null ? <Text style={[st.amount, { marginTop: 4 }]}>{money(entry.amount, entry.currency)}</Text> : null}
-                  {detail.narration ? <Text style={[st.rowSub, { marginTop: 6 }]}>{detail.narration}</Text> : null}
-                  <Text style={[st.rowSub, { marginTop: 8 }]}>Entered by {detail.submittedBy || '—'}</Text>
-                  <Text style={st.rowSub}>Checked: {detail.checkedBy ? `${detail.checkedBy}${detail.checkedAt ? ` · ${day(detail.checkedAt)}` : ''}` : 'not yet'}</Text>
-                  <Text style={st.rowSub}>Verified: {detail.verifiedBy ? `${detail.verifiedBy}${detail.verifiedAt ? ` · ${day(detail.verifiedAt)}` : ''}` : 'not yet'}</Text>
-                </View>
-                {journal && journal.postings?.length ? (
-                  <View style={st.card}>
-                    <Text style={[st.rowRef, { marginBottom: 6 }]}>Journal</Text>
-                    {journal.postings.map((p, i) => (
-                      <View key={i} style={{ flexDirection: 'row', paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.coolDivider }}>
-                        <Text style={{ flex: 1, color: colors.ink, fontSize: 12.5 }} numberOfLines={2}>{p.ledger}</Text>
-                        <Text style={{ width: 90, textAlign: 'right', color: colors.ink, fontSize: 12.5 }}>{p.debit ? money(p.debit, entry.currency) : ''}</Text>
-                        <Text style={{ width: 90, textAlign: 'right', color: colors.ink, fontSize: 12.5 }}>{p.credit ? money(p.credit, entry.currency) : ''}</Text>
-                      </View>
-                    ))}
-                    <View style={{ flexDirection: 'row', paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.coolDivider }}>
-                      <Text style={{ flex: 1, color: colors.coolText, fontSize: 12, fontWeight: '700' }}>Total{journal.balanced === false ? ' · not balanced' : ''}</Text>
-                      <Text style={{ width: 90, textAlign: 'right', fontSize: 12, fontWeight: '700', color: colors.ink }}>{money(journal.totalDebit, entry.currency)}</Text>
-                      <Text style={{ width: 90, textAlign: 'right', fontSize: 12, fontWeight: '700', color: colors.ink }}>{money(journal.totalCredit, entry.currency)}</Text>
-                    </View>
-                  </View>
-                ) : null}
-                {!here ? <Text style={st.note}>⏳ Its next step is given in {actingBranch}, outside your branch access.</Text> : null}
-                {here && me.viewOnly ? <Text style={st.note}>Your ERP login is view-only.</Text> : null}
-                {here && action && !action.allowed ? <Text style={st.note}>{action.hint}</Text> : null}
-                {here && fxBlocked ? <Text style={st.note}>Approving this needs an exchange rate — approve it in the ERP.</Text> : null}
-                {actionError ? <View style={[st.error, { marginHorizontal: 0 }]}><Text style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}>{actionError}</Text></View> : null}
-              </>
-            ) : null}
-          </ScrollView>
-          {detail && here && !me.viewOnly ? (
-            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 8 }}>
-              <View style={{ flex: 1 }}><ActionButton label="Reject" tone="danger" disabled={busy} onPress={() => setRejecting(true)} /></View>
-              {action ? <View style={{ flex: 2 }}><ActionButton label={action.label} busy={busy} disabled={busy || !action.allowed || fxBlocked} onPress={doAction} /></View> : null}
-            </View>
-          ) : null}
-        </Pressable>
-      </Pressable>
-      {rejecting ? <ReasonSheet title={`Reject ${detail?.number || entry.ref}`} cta="Reject" onClose={() => setRejecting(false)} onSubmit={(reason) => { setRejecting(false); void run(() => erpApi.reject(entry.kind, entry.id, reason, actingBranch), 'Rejected'); }} /> : null}
-    </Modal>
-  );
-}
-
-// A reason is required for every refusal — the ERP's screens ask for one too.
-function ReasonSheet({ title, cta, onClose, onSubmit }: { title: string; cta: string; onClose: () => void; onSubmit: (reason: string) => void | Promise<void> }) {
+// A reason is required for every refusal — and for signing past a level that has not signed — as on the ERP.
+function ReasonSheet({ title, cta, tone = 'danger', placeholder = 'Reason (required)', onClose, onSubmit }: { title: string; cta: string; tone?: 'primary' | 'danger'; placeholder?: string; onClose: () => void; onSubmit: (reason: string) => void | Promise<void> }) {
   const [reason, setReason] = useState('');
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 }}>
         <Pressable onPress={() => undefined} style={{ backgroundColor: colors.card, borderRadius: 16, padding: 16 }}>
           <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>{title}</Text>
-          <TextInput value={reason} onChangeText={setReason} placeholder="Reason (required)" placeholderTextColor={colors.coolText3} multiline autoFocus
+          <TextInput value={reason} onChangeText={setReason} placeholder={placeholder} placeholderTextColor={colors.coolText3} multiline autoFocus
             style={{ marginTop: 12, minHeight: 80, borderRadius: 10, backgroundColor: colors.coolMuted, padding: 12, color: colors.ink, textAlignVertical: 'top' }} />
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
             <ActionButton label="Cancel" tone="plain" onPress={onClose} />
-            <ActionButton label={cta} tone="danger" disabled={!reason.trim()} onPress={() => void onSubmit(reason.trim())} />
+            <ActionButton label={cta} tone={tone} disabled={!reason.trim()} onPress={() => void onSubmit(reason.trim())} />
           </View>
         </Pressable>
       </Pressable>
@@ -422,20 +459,20 @@ const st = {
   countOn: { backgroundColor: colors.orange + '33' },
   countText: { color: colors.coolText, fontSize: 11, fontWeight: '700' as const },
   countTextOn: { color: colors.ink },
-  strip: { marginHorizontal: 16, marginTop: 12, marginBottom: 4, padding: 12, borderRadius: 12, backgroundColor: colors.coolMuted },
-  stripTitle: { color: colors.coolText, fontSize: 11, fontWeight: '800' as const, letterSpacing: 0.4 },
-  stripLine: { color: colors.ink, fontSize: 13.5, fontWeight: '700' as const, marginTop: 4 },
-  row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.coolDivider, backgroundColor: colors.card },
   rowRef: { color: colors.ink, fontSize: 14, fontWeight: '800' as const },
   rowTitle: { color: colors.ink, fontSize: 13.5, marginTop: 2 },
   rowSub: { color: colors.coolText, fontSize: 12, marginTop: 2 },
-  amount: { color: colors.ink, fontSize: 14, fontWeight: '800' as const },
-  stage: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.orange + '22' },
-  stageText: { color: colors.orange, fontSize: 11, fontWeight: '800' as const },
-  withText: { color: colors.coolText, fontSize: 11.5, fontWeight: '600' as const },
   card: { marginHorizontal: 16, marginTop: 10, padding: 14, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.coolDivider },
+  warnCard: { borderColor: colors.orange + '66', backgroundColor: colors.orange + '12' },
+  stuckRow: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.orange + '44' },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  badgeText: { fontSize: 11, fontWeight: '800' as const },
+  section: { color: colors.coolText, fontSize: 11, fontWeight: '800' as const, letterSpacing: 0.4, marginHorizontal: 16, marginTop: 18 },
   actions: { flexDirection: 'row' as const, justifyContent: 'flex-end' as const, gap: 8, marginTop: 12 },
   empty: { color: colors.coolText, textAlign: 'center' as const, padding: 28, fontSize: 13 },
+  emptyBox: { marginHorizontal: 16, marginTop: 16, padding: 20, borderRadius: 14, borderWidth: 1, borderStyle: 'dashed' as const, borderColor: colors.coolDivider, alignItems: 'center' as const, gap: 6 },
+  emptyTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' as const, textAlign: 'center' as const },
+  emptyHint: { color: colors.coolText, fontSize: 12.5, textAlign: 'center' as const, lineHeight: 18 },
   note: { color: colors.coolText, fontSize: 12.5, marginHorizontal: 16, marginTop: 12, lineHeight: 18 },
   error: { marginHorizontal: 16, marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: '#FEF2F2' },
 };
