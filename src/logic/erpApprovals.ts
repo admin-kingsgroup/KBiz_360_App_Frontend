@@ -170,6 +170,18 @@ export function leaveTurnNote(turn: { allowed?: boolean; why?: string } | undefi
   return /not your turn/i.test(why) ? '' : why;
 }
 
+export type LeaveTagTone = 'paid' | 'time' | 'cancel' | 'half';
+export interface LeaveTag { label: string; tone: LeaveTagTone }
+
+/** The tags at the top right of an HR card: what kind of request it is. Every plain leave draws on the
+ *  paid-leave balance, so it reads "Paid leave"; a half-day one also gets "Half day". */
+export function leaveTags(a: { kind?: string; dayType?: string }): LeaveTag[] {
+  if (a.kind === 'time') return [{ label: 'Time correction', tone: 'time' }];
+  if (a.kind === 'cancel') return [{ label: 'Leave cancellation', tone: 'cancel' }];
+  const paid: LeaveTag = { label: 'Paid leave', tone: 'paid' };
+  return a.dayType === 'half' ? [{ label: 'Half day', tone: 'half' }, paid] : [paid];
+}
+
 export const STAGE_LABEL: Record<string, string> = { check: 'Check', verify: 'Verify', approve: 'Approve', director: 'Director', owner: 'Owner' };
 
 /** "₹1,23,456" / "$1,234.50" — the book's own currency when the ERP names it. */
