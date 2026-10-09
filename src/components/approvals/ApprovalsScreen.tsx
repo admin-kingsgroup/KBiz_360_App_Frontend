@@ -1097,7 +1097,12 @@ const TABS: { key: 'all' | ApprovalStatus; label: string }[] = [
   { key: 'rejected', label: 'Rejected' },
 ];
 
-function Inbox({ showTitle = true }: { showTitle?: boolean } = {}) {
+// includeCorrections=false (owner 2026-10-09): for someone who sees ERP approvals, attendance time
+// corrections are decided ONLY in ERP approvals ▸ HR — one level at a time (FM → Director → Owner,
+// with ticks). They are the SAME records (the app files them into the ERP's shared queue), so listing
+// them here too showed every correction twice, and this list let a Super Admin approve ahead of the
+// chain, which Afshin asked to stop.
+function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: boolean; includeCorrections?: boolean } = {}) {
   const showToast = useUiStore((state) => state.showToast);
   const [approvals, setApprovals] = useState<Approval[] | null>(null);
   const [corrections, setCorrections] = useState<Regularization[]>([]);
@@ -1127,6 +1132,7 @@ function Inbox({ showTitle = true }: { showTitle?: boolean } = {}) {
     // Attendance time corrections belong in this queue too — they are decisions waiting on the same
     // person. The endpoint is super-admin only and 403s everyone else, so a failure here is the
     // normal case for most viewers and simply means "no corrections to show".
+    if (!includeCorrections) { setCorrections([]); return; }
     Promise.all([
       getRegularizationsForAdmin('pending').catch(() => [] as Regularization[]),
       getRegularizationsForAdmin('approved').catch(() => [] as Regularization[]),
@@ -1134,7 +1140,7 @@ function Inbox({ showTitle = true }: { showTitle?: boolean } = {}) {
     ])
       .then((sets) => setCorrections(sets.flat()))
       .catch(() => setCorrections([]));
-  }, []);
+  }, [includeCorrections]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1153,9 +1159,11 @@ function Inbox({ showTitle = true }: { showTitle?: boolean } = {}) {
   // The bottom tab shows the same number. Pushing it from here — rather than letting the store
   // refetch — means a decision moves the tab badge the instant the list reflects it, with no
   // window where the two disagree.
+  // Without corrections in this list (ERP users), the badge keeps its own count — app requests plus
+  // pending corrections — so it does not drop the corrections now decided under ERP approvals ▸ HR.
   useEffect(() => {
-    if (approvals !== null) useApprovalBadgeStore.getState().setCount(pendingCount);
-  }, [pendingCount, approvals]);
+    if (approvals !== null && includeCorrections) useApprovalBadgeStore.getState().setCount(pendingCount);
+  }, [pendingCount, approvals, includeCorrections]);
 
   // Group under the person who raised each request — a reviewer settles one colleague's asks
   // together instead of hopping between names. groupByPerson keeps the incoming ordering, so the
@@ -1516,7 +1524,7 @@ export default function ApprovalsScreen() {
           );
         })}
       </View>
-      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} /> : <Inbox showTitle={false} />}
+      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} /> : <Inbox showTitle={false} includeCorrections={false} />}
     </SafeAreaView>
   );
 }
