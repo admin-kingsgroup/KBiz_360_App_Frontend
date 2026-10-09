@@ -74,7 +74,11 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
       settle(erpApi.changeRequests(), [], setCrs),
       // Payables, as on the ERP: the payment requests signed off but not applied, and those approved this week.
       settle(erpApi.changeRequests('approved', 'payment_request'), [], setApprovedPay),
-      settle(erpApi.recentlyApprovedPayments(scoped ?? ALL_BRANCHES, RECENT_DAYS), [], setRecentPay),
+      // A server without this read yet (the app backend's ERP route list is older — 404) simply shows no list.
+      settle(erpApi.recentlyApprovedPayments(scoped ?? ALL_BRANCHES, RECENT_DAYS).catch((e) => {
+        if (e instanceof ApiError && e.status === 404) return [] as ErpPaymentRequestRow[];
+        throw e;
+      }), [], setRecentPay),
       settle(erpApi.leaveApplications(scoped), [], setLeave),
       settle(erpApi.creditRequests(scoped), [], setCredit),
       settle(erpApi.closeBoard(), [], setClose),
