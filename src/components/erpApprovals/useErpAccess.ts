@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { erpApi, type ErpMe } from '../../api/erp';
-import { EMPTY_CHAIN, type ErpChain } from '../../logic/erpApprovals';
 import { useAuthStore } from '../../store/authStore';
 
 // Does this person see ERP approvals in the app? Yes when the app's backend has the ERP link set up
 // AND the ERP recognises them (active Books grant, ERP access on). Anyone else — no Books grant, ERP
 // access off, link not configured, ERP unreachable — simply does not see the section. Checked once
 // per app session (and again after 5 minutes), so opening the tab stays instant.
-export type ErpAccess = { state: 'checking' } | { state: 'none' } | { state: 'ready'; me: ErpMe; chain: ErpChain };
+export type ErpAccess = { state: 'checking' } | { state: 'none' } | { state: 'ready'; me: ErpMe };
 
 const TTL_MS = 5 * 60_000;
 // Keyed by the signed-in user, so a different person on the same phone never sees the previous
@@ -21,11 +20,9 @@ async function probe(): Promise<ErpAccess> {
     if (!configured) return { state: 'none' };
     const me = await erpApi.me();
     if (!me || !me.email) return { state: 'none' };
-    const [verify, approve, director, owner] = await Promise.all([
-      erpApi.configList('approval.verifyEmails'), erpApi.configList('approval.approveEmails'),
-      erpApi.configList('approval.directorEmails'), erpApi.configList('approval.ownerEmails'),
-    ]);
-    return { state: 'ready', me, chain: { ...EMPTY_CHAIN, verify, approve, director, owner } };
+    // The voucher approval chain (verify / approve emails) was read for the Entries tab, which left the app
+    // on 2026-10-09 — nothing here needs it now.
+    return { state: 'ready', me };
   } catch {
     return { state: 'none' };
   }

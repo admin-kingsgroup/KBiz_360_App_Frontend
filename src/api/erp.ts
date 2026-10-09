@@ -42,6 +42,10 @@ export interface ErpJournal {
 
 export interface ErpChangeRequest {
   _id: string; type: string; branch: string; status: string; createdAt?: string;
+  /** The currency the request's branch keeps its books in (the ERP adds it; a payment request's amounts carry none). */
+  bookCurrency?: string;
+  /** Set once an approved change went through; approved with none = signed off but not applied. */
+  appliedAt?: string | null; applyError?: string;
   maker?: { userId?: string; name?: string; role?: string };
   payload?: { before?: unknown; after?: unknown; summary?: string; reason?: string; [k: string]: unknown };
   chain?: Array<{ order?: number; role: string; label?: string }>;
@@ -60,6 +64,15 @@ export interface ErpCreditRequest {
   currency?: string; limit?: number; creditDays?: number; maker?: { name?: string } | string;
   // The ERP sends the next signer as { role, label } (or null) — never render it raw (2026-10-08 crash).
   waitingFor?: { role?: string; label?: string } | string | null; yourTurn?: boolean;
+}
+/** One payment request as Approvals ▸ Payables' "recently approved" list reads it — flat, with the payment that used it. */
+export interface ErpPaymentRequestRow {
+  id: string; branch: string; bookCurrency?: string; status: string; createdAt?: string; appliedAt?: string | null;
+  maker?: { userId?: string; name?: string; role?: string };
+  approvals?: Array<{ role: string; by?: string; at?: string }>;
+  kind?: string; hub?: boolean; party?: string; payOn?: string; amount?: number; advance?: boolean; note?: string; bank?: string;
+  bills?: Array<{ billVno?: string; supplierRef?: string; dueOn?: string; outstanding?: number; amount?: number }>;
+  payment?: { id: string; vno: string; status?: string; posted: boolean } | null;
 }
 export interface ErpCloseRow { branch: string; label?: string; from?: string; upTo?: string; status: string; months?: number }
 
@@ -86,9 +99,18 @@ export const erpApi = {
   reject: (kind: 'voucher' | 'file', id: string, reason: string, branch?: string): Promise<unknown> =>
     unwrap(apiFetch(`/api/erp/${kind === 'file' ? 'booking-orders' : 'vouchers'}/${id}/reject${qs({ branch })}`, { method: 'POST', body: { reason } })),
 
-  changeRequests: (): Promise<ErpChangeRequest[]> =>
-    unwrap(apiFetch<Envelope<ErpChangeRequest[] | { items?: ErpChangeRequest[] }>>('/api/erp/tk/change-requests?status=pending'))
+  /** Pending requests by default; `status: 'approved'` + `type` finds the ones signed off but not applied. */
+  changeRequests: (status: string = 'pending', type?: string): Promise<ErpChangeRequest[]> =>
+    unwrap(apiFetch<Envelope<ErpChangeRequest[] | { items?: ErpChangeRequest[] }>>(`/api/erp/tk/change-requests${qs({ status, type })}`))
       .then((d) => (Array.isArray(d) ? d : d?.items ?? [])),
+  /** Re-run an approved request whose change did not go through — applies what was approved, decides nothing. */
+  retryChangeRequest: (id: string): Promise<unknown> => unwrap(apiFetch(`/api/erp/tk/change-requests/${id}/retry`, { method: 'POST', body: {} })),
+  /** Close an approved request that can never apply — records that nothing changed. */
+  closeChangeRequest: (id: string, reason: string): Promise<unknown> => unwrap(apiFetch(`/api/erp/tk/change-requests/${id}/close`, { method: 'POST', body: { reason } })),
+  /** Payment requests signed off in the last `days`, each with the payment that used it. */
+  recentlyApprovedPayments: (branch: string, days: number): Promise<ErpPaymentRequestRow[]> =>
+    unwrap(apiFetch<Envelope<ErpPaymentRequestRow[]>>(`/api/erp/payment-requests${qs({ branch: branch || 'ALL', approvedDays: String(days) })}`))
+      .then((d) => (Array.isArray(d) ? d : [])),
   actChangeRequest: (id: string, action: 'approve' | 'reject' | 'send_back', reason: string, actingBranch: string): Promise<unknown> =>
     unwrap(apiFetch(`/api/erp/tk/change-requests/${id}/act`, { method: 'POST', body: { action, reason, actingBranch } })),
 
