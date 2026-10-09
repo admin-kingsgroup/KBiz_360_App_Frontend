@@ -264,7 +264,7 @@ export default function Attendance() {
   // Self-service: file a regularisation request for the day open in the sheet. Nothing changes on
   // the record here — a Super Admin approves it (the server then applies the same evidence-preserving
   // correction the admin editor uses) or rejects it with a note.
-  const sendRegularization = useEventCallback((body: { checkInAt: string; checkOutAt: string | null; reason: string }): void => {
+  const sendRegularization = useEventCallback((body: { checkInAt: string; checkOutAt: string; reason: string }): void => {
     if (!regTarget) return;
     setSendingReg(true);
     requestRegularization({ date: regTarget.date, ...body })
