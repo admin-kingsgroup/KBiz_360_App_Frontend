@@ -1524,7 +1524,7 @@ export default function ApprovalsScreen() {
           );
         })}
       </View>
-      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} /> : <Inbox showTitle={false} includeCorrections={false} />}
+      {mode === 'erp' ? <ErpApprovalsView me={erp.me} /> : <Inbox showTitle={false} includeCorrections={false} />}
     </SafeAreaView>
   );
 }
