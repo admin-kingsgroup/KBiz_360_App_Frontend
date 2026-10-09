@@ -54,7 +54,7 @@ export function TimeCorrectionSheet({ visible, onClose, onSent }: { visible: boo
     return () => { active = false; };
   }, [visible, targetFor]);
 
-  const send = (body: { checkInAt: string; checkOutAt: string | null; reason: string }): void => {
+  const send = (body: { checkInAt: string; checkOutAt: string; reason: string }): void => {
     if (!target) return;
     setSaving(true);
     requestRegularization({ date: target.date, ...body })
