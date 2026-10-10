@@ -1,7 +1,7 @@
 import type { ErpChangeRequest } from '../api/erp';
 import {
-  atFocus, chainRoleOf, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
-  paymentDetailRows, paymentState, paymentSubject, recentSubject, signPastLevels, signedWhy, waitingLabel,
+  approvalsAt, atFocus, branchCounts, chainRoleOf, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
+  paymentDetailRows, paymentState, paymentSubject, recentSubject, signPastLevels, signedWhy, tabCounts, waitingLabel,
 } from '../logic/erpPayables';
 
 // Approvals ▸ Payables in the app (owner, 2026-10-09) mirrors the ERP's own rules (Books tk-group/utils
@@ -128,5 +128,38 @@ describe('recently approved — where each went', () => {
     expect(recentSubject(row)).toBe('Lodge · $300 · pay 2026-10-09 · advance');
     expect(lastSigner(row)).toBe('owner@');
     expect(lastSigner({ approvals: [] })).toBe('');
+  });
+});
+
+describe('branch chip counts (owner, 2026-10-10)', () => {
+  const lists = {
+    crs: [
+      cr({ _id: 'p-bom', branch: 'BOM' }), cr({ _id: 'p-nbo', branch: 'NBO' }), cr({ _id: 'p-group', branch: '' }),
+      cr({ _id: 'r-bom', type: 'hub_fx', branch: 'bom' }), cr({ _id: 'r-group', type: 'hub_fx', branch: '' }),
+      cr({ _id: 'h-nbo', type: 'hr_change', branch: 'NBO' }),
+    ],
+    leave: [{ branch: 'BOM' }, { branch: 'BOM' }, { branch: 'DAR' }],
+    credit: [{ branch: 'NBO' }, { branch: 'AMD' }],
+    close: [{ branch: 'BOM', status: 'held' }, { branch: 'NBO', status: 'checking' }, { branch: 'AMD', status: 'locked' }],
+  };
+
+  it('splits each tab at a branch the way the tabs show it', () => {
+    expect(tabCounts(approvalsAt(lists, 'BOM'))).toEqual({ payables: 2, requests: 1, credit: 0, hr: 2, close: 1 });
+    expect(tabCounts(approvalsAt(lists, 'NBO'))).toEqual({ payables: 2, requests: 0, credit: 1, hr: 1, close: 1 });
+    expect(tabCounts(approvalsAt(lists, 'ALL'))).toEqual({ payables: 3, requests: 2, credit: 2, hr: 4, close: 2 });
+  });
+
+  it('a chip carries the sum of the badges its branch shows', () => {
+    const n = branchCounts(lists, ['ALL', 'BOM', 'NBO', 'AMD', 'DAR', 'FBM']);
+    // A group-wide payment request waits in every branch; a group-wide request only under All branches.
+    expect(n).toEqual({ ALL: 13, BOM: 6, NBO: 5, AMD: 2, DAR: 2, FBM: 1 });
+    for (const b of Object.keys(n)) {
+      const c = tabCounts(approvalsAt(lists, b));
+      expect(n[b]).toBe(c.payables + c.requests + c.credit + c.hr + c.close);
+    }
+  });
+
+  it('nothing loaded → every chip reads 0', () => {
+    expect(branchCounts({ crs: [], leave: [], credit: [], close: [] }, ['ALL', 'BOM'])).toEqual({ ALL: 0, BOM: 0 });
   });
 });

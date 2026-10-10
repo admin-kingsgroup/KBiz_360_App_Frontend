@@ -9,8 +9,8 @@ import {
   ALL_BRANCHES, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, money,
 } from '../../logic/erpApprovals';
 import {
-  RECENT_DAYS, atFocus, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
-  paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, waitingLabel,
+  RECENT_DAYS, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
+  paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, waitingLabel,
 } from '../../logic/erpPayables';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
@@ -79,8 +79,9 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
         if (e instanceof ApiError && e.status === 404) return [] as ErpPaymentRequestRow[];
         throw e;
       }), [], setRecentPay),
-      settle(erpApi.leaveApplications(scoped), [], setLeave),
-      settle(erpApi.creditRequests(scoped), [], setCredit),
+      // HR and Credit are read for every branch and split here, so each branch chip can show its count.
+      settle(erpApi.leaveApplications(), [], setLeave),
+      settle(erpApi.creditRequests(), [], setCredit),
       settle(erpApi.closeBoard(), [], setClose),
     ]);
     setLoading(false);
@@ -88,15 +89,14 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
   }, [scoped]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const atBranch = useCallback((b?: string) => branch === ALL_BRANCHES || String(b || '').toUpperCase() === branch, [branch]);
   // Requests leaves out HR's types (the HR tab) and payment requests (the Payables tab) — the ERP's split.
-  const requests = useMemo(() => crs.rows.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && atBranch(r.branch)), [crs.rows, atBranch]);
-  const hrRequests = useMemo(() => crs.rows.filter((r) => isHrRequest(r) && atBranch(r.branch)), [crs.rows, atBranch]);
-  const payables = useMemo(() => atFocus(crs.rows.filter(isPaymentRequest), branch), [crs.rows, branch]);
+  const lists = useMemo(() => ({ crs: crs.rows, leave: leave.rows, credit: credit.rows, close: close.rows }), [crs.rows, leave.rows, credit.rows, close.rows]);
+  const here = useMemo(() => approvalsAt(lists, branch), [lists, branch]);
+  const { payables, requests, hrRequests, leave: leaveRows, credit: creditRows, close: closeRows } = here;
   const stuckPay = useMemo(() => atFocus(approvedPay.rows.filter((r) => isPaymentRequest(r) && isStuck(r)), branch), [approvedPay.rows, branch]);
-  const closeRows = useMemo(() => close.rows.filter((r) => (r.status === 'held' || r.status === 'checking') && atBranch(r.branch)), [close.rows, atBranch]);
-  // Receivables reads nothing, so it carries no badge (as on the ERP).
-  const counts: Record<Tab, number | null> = { receivables: null, payables: payables.length, requests: requests.length, credit: credit.rows.length, hr: leave.rows.length + hrRequests.length, close: closeRows.length };
+  const counts: Record<Tab, number | null> = { receivables: null, ...tabCounts(here) };
+  // Each branch chip carries the sum of the badges that branch would show.
+  const chipCounts = useMemo(() => branchCounts(lists, options), [lists, options]);
 
   const act = async (key: string, run: () => Promise<unknown>, done: string) => {
     if (busy) return;
@@ -144,14 +144,22 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Branch focus — the ERP's branch selector. ALL only for an all-branch login. */}
+      {/* Branch focus — the ERP's branch selector, each chip with what waits there. ALL only for an all-branch login. */}
       {options.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 6 }}>
           {options.map((b) => {
             const on = b === branch;
+            const label = b === ALL_BRANCHES ? 'All branches' : b;
+            const n = loading ? null : chipCounts[b] ?? 0;
             return (
-              <Pressable key={b} onPress={() => setBranch(b)} style={[st.chip, on && st.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                <Text style={[st.chipText, on && st.chipTextOn]}>{b === ALL_BRANCHES ? 'All branches' : b}</Text>
+              <Pressable key={b} onPress={() => setBranch(b)} style={[st.chip, on && st.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}
+                accessibilityLabel={n == null ? label : `${label}, ${n} waiting`}>
+                <Text style={[st.chipText, on && st.chipTextOn]}>{label}</Text>
+                {n != null ? (
+                  <View style={[st.chipCount, n > 0 && st.chipCountBusy, on && st.chipCountOn]}>
+                    <Text style={[st.chipCountText, n > 0 && st.chipCountTextBusy, on && st.chipCountTextOn]}>{n}</Text>
+                  </View>
+                ) : null}
               </Pressable>
             );
           })}
@@ -267,8 +275,8 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
         {!loading && tab === 'hr' ? (
           <>
             {leave.refused ? refusedNote('HR approvals') : errorNote(leave.error)}
-            {leave.rows.length === 0 && hrRequests.length === 0 && !leave.refused && !leave.error ? <Text style={st.empty}>No leave or HR requests are waiting.</Text> : null}
-            {leave.rows.map((a) => {
+            {leaveRows.length === 0 && hrRequests.length === 0 && !leave.refused && !leave.error ? <Text style={st.empty}>No leave or HR requests are waiting.</Text> : null}
+            {leaveRows.map((a) => {
               const kind = a.kind === 'time' ? 'Time correction' : a.kind === 'cancel' ? 'Leave cancellation' : 'Leave';
               // One level at a time (owner, 2026-10-08): Approve only on the viewer's own turn.
               const myTurn = mayApproveLeaveNow(a.turn);
@@ -301,8 +309,8 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
           <>
             <Text style={st.note}>Credit requests are signed in the ERP’s Credit Facility Management. They are listed here so you can see what waits on you.</Text>
             {credit.refused ? refusedNote('Credit requests') : errorNote(credit.error)}
-            {credit.rows.length === 0 && !credit.refused && !credit.error ? <Text style={st.empty}>No credit requests are waiting.</Text> : null}
-            {credit.rows.map((c) => (
+            {creditRows.length === 0 && !credit.refused && !credit.error ? <Text style={st.empty}>No credit requests are waiting.</Text> : null}
+            {creditRows.map((c) => (
               <View key={c.id} style={st.card}>
                 <Text style={st.rowRef}>{erpText(c.name) || erpText(c.counterparty) || 'Credit line'}{c.branch ? ` · ${erpText(c.branch)}` : ''}</Text>
                 <Text style={st.rowTitle}>{prettyType(c.op || c.kind || 'Request')}{c.limit != null ? ` · ${money(c.limit, c.currency)}` : ''}{c.creditDays ? ` · ${c.creditDays} days` : ''}</Text>
@@ -447,10 +455,17 @@ function ReasonSheet({ title, cta, tone = 'danger', placeholder = 'Reason (requi
 }
 
 const st = {
-  chip: { height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, alignItems: 'center' as const, justifyContent: 'center' as const },
+  chip: { height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 },
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.ink, fontSize: 12.5, fontWeight: '600' as const },
   chipTextOn: { color: '#fff', fontWeight: '700' as const },
+  // A branch with work waiting reads green; an empty one stays grey.
+  chipCount: { minWidth: 20, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
+  chipCountBusy: { backgroundColor: colors.primarySoft },
+  chipCountOn: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  chipCountText: { color: colors.coolText3, fontSize: 11, fontWeight: '700' as const },
+  chipCountTextBusy: { color: colors.primary },
+  chipCountTextOn: { color: '#fff' },
   tab: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, paddingHorizontal: 10, paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabOn: { borderBottomColor: colors.orange },
   tabText: { color: colors.coolText, fontSize: 14, fontWeight: '600' as const },

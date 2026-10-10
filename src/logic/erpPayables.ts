@@ -1,4 +1,4 @@
-import type { ErpChangeRequest, ErpMe, ErpPaymentRequestRow } from '../api/erp';
+import type { ErpChangeRequest, ErpCloseRow, ErpMe, ErpPaymentRequestRow } from '../api/erp';
 import { money } from './erpApprovals';
 
 // Approvals ▸ Payables in the app (owner, 2026-10-09: "show Receivables and Payables in the app with the
@@ -19,6 +19,39 @@ export function atFocus<T extends { branch?: string }>(rows: T[] | null | undefi
   const c = String(code || '').trim().toUpperCase();
   if (!c || c === 'ALL') return list;
   return list.filter((r) => !r || !r.branch || String(r.branch).toUpperCase() === c);
+}
+
+/** What each tab holds at a branch focus. Payables keeps the group-wide requests in every branch (atFocus);
+ *  Requests, HR, Credit and Month Close keep a branch's own rows, the group-wide ones only under ALL. */
+export function approvalsAt<L extends { branch?: string }, C extends { branch?: string }>(
+  lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[]; close: ErpCloseRow[] }, focus: string,
+) {
+  const f = String(focus || '').trim().toUpperCase();
+  const at = (b?: string) => !f || f === 'ALL' || String(b || '').toUpperCase() === f;
+  return {
+    payables: atFocus(lists.crs.filter(isPaymentRequest), f),
+    requests: lists.crs.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && at(r.branch)),
+    hrRequests: lists.crs.filter((r) => isHrRequest(r) && at(r.branch)),
+    leave: lists.leave.filter((a) => at(a.branch)),
+    credit: lists.credit.filter((c) => at(c.branch)),
+    close: lists.close.filter((r) => (r.status === 'held' || r.status === 'checking') && at(r.branch)),
+  };
+}
+
+/** The badge on each tab. Receivables reads nothing, so it has none (as on the ERP). */
+export function tabCounts(a: ReturnType<typeof approvalsAt>): { payables: number; requests: number; credit: number; hr: number; close: number } {
+  return { payables: a.payables.length, requests: a.requests.length, credit: a.credit.length, hr: a.leave.length + a.hrRequests.length, close: a.close.length };
+}
+
+/** The number on each branch chip (owner, 2026-10-10: "branches should show how many approvals are in which
+ *  branch") — the sum of the tab badges that branch shows, so the chip and the tabs never disagree. */
+export function branchCounts(lists: Parameters<typeof approvalsAt>[0], branches: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const b of branches) {
+    const c = tabCounts(approvalsAt(lists, b));
+    out[b] = c.payables + c.requests + c.credit + c.hr + c.close;
+  }
+  return out;
 }
 
 /** The chain level a signed-in role holds, by the ERP's canonical names. */
