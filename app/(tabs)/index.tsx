@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, FlatList, type ListRenderItem } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
-import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
+import { Search, Plus, MessageCircle, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors, useChatListPalette, type ChatListPalette } from '../../src/theme';
@@ -170,17 +170,12 @@ export default function Home() {
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
       <HomeHeader title="Chats" palette={p} />
 
-      {/* Search — a grey field that opens the search screen, with voice as its own button beside it
-          (the approved header row), so the mic is a full 44px target rather than an inset glyph. */}
-      <View className="flex-row" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 10 }}>
+      {/* Search — a grey field that opens the search screen. No voice button beside it (owner,
+          2026-10-10); the search screen keeps its own mic. */}
+      <View className="flex-row" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 }}>
         <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: p.field, paddingHorizontal: 14, gap: 10 }}>
           <Search size={18} color={p.mute} strokeWidth={2} />
           <Text numberOfLines={1} style={{ color: p.mute, fontSize: 15, flex: 1 }}>Search chats, people, tickets</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push({ pathname: '/chat/search', params: { voice: '1' } })}
-          accessibilityRole="button" accessibilityLabel="Voice search"
-          style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: p.field, alignItems: 'center', justifyContent: 'center' }}>
-          <Mic size={18} color={p.mute} strokeWidth={2} />
         </Pressable>
       </View>
 

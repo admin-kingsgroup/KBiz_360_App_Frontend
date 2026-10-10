@@ -1,14 +1,61 @@
 import {
-  ALL_BRANCHES, resolveStripPick, stripBranchPrefix, withSender, orderGroups, groupBizId, scopeCounts,
+  stripBranchPrefix, withSender, orderGroups, groupBizId, scopeCounts,
+  brandLogoFor, branchLogoFor, resolveCompanyPick, foldKey, isSectionOpen, setAllSections,
 } from '../logic/groupsStrip';
 
-describe('resolveStripPick', () => {
-  const codes = ['MHUB', 'BOM', 'KGD'];
-  it('opens on All when nothing is remembered', () => expect(resolveStripPick(codes)).toBe(ALL_BRANCHES));
-  it('keeps the remembered branch while it still has a tile', () => expect(resolveStripPick(codes, 'BOM')).toBe('BOM'));
-  it('falls back to All when the remembered branch is gone', () => expect(resolveStripPick(codes, 'INB')).toBe(ALL_BRANCHES));
-  it('keeps an explicit All pick', () => expect(resolveStripPick(codes, ALL_BRANCHES)).toBe(ALL_BRANCHES));
-  it('is never a real code', () => expect(codes).not.toContain(ALL_BRANCHES));
+describe('brandLogoFor', () => {
+  it('knows the three companies by name', () => {
+    expect(brandLogoFor({ name: 'Travkings' })).toBe('travkings');
+    expect(brandLogoFor({ name: 'Travkings Tours and Travels' })).toBe('travkings');
+    expect(brandLogoFor({ name: 'Quin Aliza' })).toBe('quinaliza');
+    expect(brandLogoFor({ name: 'QuinAliza' })).toBe('quinaliza');
+    expect(brandLogoFor({ name: 'KBiz360' })).toBe('kbiz');
+    expect(brandLogoFor({ name: 'KBiz 360 Technologies' })).toBe('kbiz');
+  });
+  it('falls back to the short code', () => {
+    expect(brandLogoFor({ name: 'Kings Travel', code: 'TK' })).toBe('travkings');
+    expect(brandLogoFor({ name: 'Q.A. Ltd', code: 'QA' })).toBe('quinaliza');
+  });
+  it('gives the company that owns KGD the KBiz logo, whatever it is called', () => {
+    expect(brandLogoFor({ name: 'KGD', code: 'KGD' }, ['KGD'])).toBe('kbiz');
+  });
+  it('leaves other companies on their code tile', () => {
+    expect(brandLogoFor({ name: 'Hotel Kings Palace', code: 'HK' }, ['HKP'])).toBeNull();
+  });
+});
+
+describe('branchLogoFor', () => {
+  it('puts the KBiz logo on the KBiz360 desk only', () => {
+    expect(branchLogoFor('KGD')).toBe('kbiz');
+    expect(branchLogoFor('KBIZ')).toBe('kbiz');
+    expect(branchLogoFor('BOM')).toBeNull();
+    expect(branchLogoFor('OTHER')).toBeNull();
+  });
+});
+
+describe('resolveCompanyPick', () => {
+  it('keeps the remembered tile', () => expect(resolveCompanyPick(['all', 'tk', 'qa'], 'qa')).toBe('qa'));
+  it('falls back to All when the remembered one is gone', () => expect(resolveCompanyPick(['all', 'tk'], 'gone')).toBe('all'));
+  it('falls back to the first company when there is no All tile', () => expect(resolveCompanyPick(['tk', 'qa'], 'all')).toBe('tk'));
+  it('leaves the pick alone when there are no tiles', () => expect(resolveCompanyPick([], 'all')).toBe('all'));
+});
+
+describe('branch section folds', () => {
+  it('start folded when there are several sections', () => expect(isSectionOpen({}, 'tk', 'BOM', 6)).toBe(false));
+  it('start open when there is only one', () => expect(isSectionOpen({}, 'kbiz', 'KGD', 1)).toBe(true));
+  it('follow what the person chose, per company tile', () => {
+    const open = { [foldKey('tk', 'BOM')]: true, [foldKey('kbiz', 'KGD')]: false };
+    expect(isSectionOpen(open, 'tk', 'BOM', 6)).toBe(true);
+    expect(isSectionOpen(open, 'all', 'BOM', 6)).toBe(false);
+    expect(isSectionOpen(open, 'kbiz', 'KGD', 1)).toBe(false);
+  });
+  it('open or fold every section of one tile, leaving other tiles and the input alone', () => {
+    const before = { [foldKey('qa', 'X')]: true };
+    const after = setAllSections(before, 'tk', ['BOM', 'MHUB'], true);
+    expect(after).toEqual({ 'qa:X': true, 'tk:BOM': true, 'tk:MHUB': true });
+    expect(setAllSections(after, 'tk', ['BOM', 'MHUB'], false)).toEqual({ 'qa:X': true, 'tk:BOM': false, 'tk:MHUB': false });
+    expect(before).toEqual({ 'qa:X': true });
+  });
 });
 
 describe('stripBranchPrefix', () => {
