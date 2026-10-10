@@ -1,6 +1,6 @@
 import type { ErpChangeRequest } from '../api/erp';
 import {
-  approvalsAt, atFocus, branchCounts, chainRoleOf, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
+  allBranchesTotal, approvalsAt, atFocus, branchCounts, chainRoleOf, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentDetailRows, paymentState, paymentSubject, recentSubject, signPastLevels, signedWhy, tabCounts, waitingLabel,
 } from '../logic/erpPayables';
 
@@ -161,5 +161,11 @@ describe('branch chip counts (owner, 2026-10-10)', () => {
 
   it('nothing loaded → every chip reads 0', () => {
     expect(branchCounts({ crs: [], leave: [], credit: [], close: [] }, ['ALL', 'BOM'])).toEqual({ ALL: 0, BOM: 0 });
+  });
+
+  it('the all-branches total is the All branches chip — each row once, not the sum of the branch chips', () => {
+    expect(allBranchesTotal(lists)).toBe(13);
+    expect(allBranchesTotal(lists)).toBe(branchCounts(lists, ['ALL']).ALL);
+    expect(allBranchesTotal({ crs: [], leave: [], credit: [], close: [] })).toBe(0);
   });
 });

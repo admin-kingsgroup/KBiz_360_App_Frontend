@@ -54,6 +54,12 @@ export function branchCounts(lists: Parameters<typeof approvalsAt>[0], branches:
   return out;
 }
 
+/** Everything waiting in ERP approvals across all branches, each row once — the "All branches" chip's
+ *  number. The Approvals tab badge adds the app's own requests to it (owner, 2026-10-10). */
+export function allBranchesTotal(lists: Parameters<typeof approvalsAt>[0]): number {
+  return branchCounts(lists, ['ALL']).ALL;
+}
+
 /** The chain level a signed-in role holds, by the ERP's canonical names. */
 export function chainRoleOf(role: string | undefined): string {
   const r = String(role || '').trim();
