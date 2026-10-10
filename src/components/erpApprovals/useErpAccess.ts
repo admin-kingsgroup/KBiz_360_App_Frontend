@@ -28,6 +28,13 @@ async function probe(): Promise<ErpAccess> {
   }
 }
 
+/** The same answer outside React (the Approvals tab badge), sharing the hook's cache and probe. */
+export function loadErpAccess(userId: string): Promise<ErpAccess> {
+  if (cached && cached.userId === userId && Date.now() - cached.at < TTL_MS) return Promise.resolve(cached.value);
+  inflight = inflight ?? probe().finally(() => { inflight = null; });
+  return inflight.then((v) => { cached = { at: Date.now(), userId, value: v }; return v; });
+}
+
 export function useErpAccess(): ErpAccess {
   const userId = useAuthStore((st) => st.user?.id) ?? '';
   const fresh = cached && cached.userId === userId && Date.now() - cached.at < TTL_MS ? cached.value : null;

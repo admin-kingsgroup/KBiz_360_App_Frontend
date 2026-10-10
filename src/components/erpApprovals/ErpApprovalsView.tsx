@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { ApiError } from '../../api/client';
@@ -9,9 +9,10 @@ import {
   ALL_BRANCHES, erpText, leaveChainSteps, leaveTurnNote, mayApproveLeaveNow, branchOptions, money,
 } from '../../logic/erpApprovals';
 import {
-  RECENT_DAYS, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
+  RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, waitingLabel,
 } from '../../logic/erpPayables';
+import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
 
@@ -97,6 +98,12 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
   const counts: Record<Tab, number | null> = { receivables: null, ...tabCounts(here) };
   // Each branch chip carries the sum of the badges that branch would show.
   const chipCounts = useMemo(() => branchCounts(lists, options), [lists, options]);
+  // The Approvals tab badge carries the all-branches total (plus App requests) — pushed after each load,
+  // but not from a list that failed to load (a refused one is a real 0).
+  const listFailed = !!(crs.error || leave.error || credit.error || close.error);
+  useEffect(() => {
+    if (!loading && !listFailed) useApprovalBadgeStore.getState().setErp(allBranchesTotal(lists));
+  }, [lists, loading, listFailed]);
 
   const act = async (key: string, run: () => Promise<unknown>, done: string) => {
     if (busy) return;
