@@ -4,15 +4,11 @@ import type * as LocationModuleT from 'expo-location';
 import type * as TaskManagerModuleT from 'expo-task-manager';
 import { loadSession, updateStoredTokens } from './storage/session';
 import { setTokens } from '../api/tokens';
-import { confirmGeofenceExit, confirmGeofenceEntry, autoMayOpenDay, type ArmedRegion } from '../logic/attendance';
+import { confirmGeofenceExit, confirmGeofenceEntry, type ArmedRegion } from '../logic/attendance';
 import { distanceMeters } from '../logic/geo';
 import { notePendingExit, peekPendingExit, clearPendingExit } from './pendingExit';
-import type { PunchMethod } from '../types';
 
-// Background auto check-in / check-out via OS geofencing — armed for EVERY tracked account since
-// the owner's "fully automatic" decision of 2026-10-05 (it had been directors-only since 07-31).
-// The manual face-photo punch on the Attendance screen remains as the fallback.
-// When the signed-in user enters/leaves an office region,
+// Background auto check-in via OS geofencing. When the signed-in user enters/leaves an office region,
 // the OS wakes the app (even if killed) and we punch in/out. Lazy-required + Expo-Go-guarded exactly
 // like the notifications service: TaskManager/background location aren't available in Expo Go, and a
 // static import there crashes the app at boot. Needs a dev/standalone build + "Always" location.
@@ -84,17 +80,6 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
     // back-dated instant; check-in proves presence at the office (the marker was drift). A 400 on
     // check-out (drift-rejected / already out / not checked in) refutes it just the same.
     if (res.ok || (kind === 'check-out' && res.status === 400)) await clearPendingExit();
-    // The work-hours location trail follows the record this punch just produced: an automatic
-    // check-in starts it (headlessly, without the foreground-service notification until the app
-    // is next opened — see locationTrail), an automatic check-out stops it.
-    if (res.ok) {
-      try {
-        const m = (await res.json()) as { inTime: string | null; outTime: string | null; via?: string | null; exempt?: boolean; hidden?: boolean };
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        void (require('./locationTrail') as typeof import('./locationTrail')).syncLocationTrail(m);
-        announceAutoPunch(kind, m);
-      } catch { /* best-effort — the next app open reconciles the trail */ }
-    }
   } catch {
     // Network failure — the punch never reached the server. For a check-out the exit was already
     // verified, so keep its instant for the retry (next Exit event / reconcile) to back-date to.
@@ -102,57 +87,15 @@ async function postPunch(kind: 'check-in' | 'check-out', coords: { lat: number; 
   }
 }
 
-// Make an automatic punch VISIBLE the moment it lands, without the person doing anything:
-//   • the shared attendance store is updated, so every open screen (the status chip, Profile,
-//     Attendance) shows "In 9:32" at once — the store lives in this JS runtime whether the punch
-//     came from a screen, the OS boundary event or the server's silent wake;
-//   • app on screen → a toast; app closed/backgrounded → a local notification ("Checked in
-//     automatically · 9:32 AM") that opens Attendance when tapped. Hidden (director) accounts stay
-//     silent, as always.
-function announceAutoPunch(kind: 'check-in' | 'check-out', m: { inTime: string | null; outTime: string | null; via?: string | null; hidden?: boolean }): void {
-  try {
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const { useAttendanceStore } = require('../store/attendanceStore') as typeof import('../store/attendanceStore');
-    useAttendanceStore.getState().setAtt({
-      inTime: m.inTime ? new Date(m.inTime) : null,
-      outTime: m.outTime ? new Date(m.outTime) : null,
-      via: (m.via ?? null) as PunchMethod | null,
-    });
-    if (m.hidden) return;
-    const at = kind === 'check-in' ? m.inTime : m.outTime;
-    const hhmm = at ? new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-    const line = `${kind === 'check-in' ? 'Checked in' : 'Checked out'} automatically · ${hhmm}`;
-    const { AppState } = require('react-native') as typeof import('react-native');
-    if (AppState.currentState === 'active') {
-      (require('../store/uiStore') as typeof import('../store/uiStore')).useUiStore.getState().showToast(line);
-    } else {
-      void (require('./notifications') as typeof import('./notifications')).scheduleLocal('KBiz 360 · Attendance', line, { type: 'attendance' }, 1);
-    }
-    /* eslint-enable @typescript-eslint/no-require-imports */
-  } catch { /* purely cosmetic — never let it break a punch */ }
-}
-
-// Pull today's record into the shared store (used when something OTHER than a punch from this
-// phone changed it — the server's trail-driven check-out, or a punch from another device).
-export async function refreshAttendanceStore(): Promise<void> {
-  const m = await fetchTodayHeadless();
-  if (!m) return;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { useAttendanceStore } = require('../store/attendanceStore') as typeof import('../store/attendanceStore');
-    useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via ?? null) as PunchMethod | null });
-  } catch { /* store unavailable — next open reconciles */ }
-}
-
 // Today's record, fetched headlessly (same cold-start-safe auth as postPunch). null = couldn't
 // read (offline / no session) — callers must treat that as "unknown", not "no punches".
-async function fetchTodayHeadless(): Promise<{ inTime: string | null; outTime: string | null; via?: string | null } | null> {
+async function fetchTodayHeadless(): Promise<{ inTime: string | null; outTime: string | null } | null> {
   try {
     const session = await loadSession();
     if (!session) return null;
     const res = await fetch(`${apiBase()}/api/attendance/me`, { headers: { Authorization: `Bearer ${session.access}` } });
     if (!res.ok) return null;
-    return (await res.json()) as { inTime: string | null; outTime: string | null; via?: string | null };
+    return (await res.json()) as { inTime: string | null; outTime: string | null };
   } catch { return null; }
 }
 
@@ -196,12 +139,13 @@ function ensureTaskRegistered(): void {
       if (eventType === Location.GeofencingEventType.Enter) {
         // Entering a fence refutes any pending-exit marker (a drift Exit that never resolved).
         await clearPendingExit();
-        // Background Enter opens a fresh day, or RE-opens one the phone itself closed (stepped out
-        // for lunch and came back; or the exit was drift). It never re-opens a day the person
-        // closed by hand or an admin corrected (autoMayOpenDay; the server enforces the same). If
+        // Background Enter may only OPEN a fresh day — never re-open a closed one. A returning
+        // GPS fix after a (possibly false) exit used to re-check-in silently, which let the next
+        // noise blip stamp a new, later check-out: rolling bogus punch times while the person sat
+        // at their desk. If today already has any check-in (open or closed), leave it alone; if
         // the record can't be read, do nothing — the foreground reconciles on next open.
         const today = await fetchTodayHeadless();
-        if (!today || !autoMayOpenDay(today)) return;
+        if (!today || today.inTime) return;
         await postPunch('check-in', coords);
       } else if (eventType === Location.GeofencingEventType.Exit) {
         // The OS fires Exit on indoor GPS drift. A fresh fix INSIDE a fence refutes the event
@@ -248,49 +192,6 @@ async function armOfficeRegions(): Promise<void> {
   await writeCachedRegions(regions.map((r) => ({ lat: r.latitude, lng: r.longitude, radius: r.radius ?? 100 })));
 }
 
-// One headless attendance check: re-arm the office regions and reconcile a missed punch. Shared by
-// the periodic background-fetch task below (~15 min, the OS's floor) and by the server's silent
-// "attendance_check" push (callBackground.ts), which wakes the phone every few minutes during the
-// morning arrival window so a missed boundary event is caught in minutes, not a quarter of an hour.
-// Returns false when it could not run at all (signed out / "Always" location not granted).
-let headlessCheckInFlight = false;
-export async function runHeadlessAttendanceCheck(): Promise<boolean> {
-  if (isRunningInExpoGo() || headlessCheckInFlight) return false;
-  headlessCheckInFlight = true;
-  try {
-    const session = await loadSession();
-    if (!session) return false;
-    const bg = await loc().getBackgroundPermissionsAsync();
-    if (bg.status !== 'granted') return false;
-    await armOfficeRegions();
-    // Punch reconcile — the OS Enter/Exit events fire exactly ONCE at the boundary, so a lost
-    // or rejected punch would otherwise stand until the app is opened. Both directions:
-    //   no check-in today + fix INSIDE a region → check in (never re-opens a closed day);
-    //   day still open + accurate fix beyond every fence → check out (confirmGeofenceExit;
-    //   the server re-verifies via its drift guard).
-    // An unreadable record means do nothing; a fix is taken only when a punch could result.
-    const today = await fetchTodayHeadless();
-    const needIn = !!today && autoMayOpenDay(today); // fresh day, or one the phone closed (never a manual check-out)
-    const dayOpen = !!today && !!today.inTime && !today.outTime;
-    if (needIn || dayOpen) {
-      let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
-      try {
-        const pos = await loc().getCurrentPositionAsync({ accuracy: loc().Accuracy.High });
-        fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
-      } catch { /* no fix → no punch */ }
-      const regions = await readCachedRegions();
-      // A fix INSIDE a fence refutes any pending-exit marker: the person is (still) at the
-      // office, so whatever Exit event set it was drift that never resolved.
-      if (fix && regions.length && regions.some((r) => distanceMeters(fix.coords, r) <= r.radius)) await clearPendingExit();
-      if (needIn && fix && confirmGeofenceEntry(fix, regions)) await postPunch('check-in', fix.coords);
-      else if (dayOpen && fix && confirmGeofenceExit(fix, regions)) await postPunch('check-out', fix.coords);
-    }
-    return true;
-  } finally {
-    headlessCheckInFlight = false;
-  }
-}
-
 // Periodic headless refresh (survives reboots on Android via startOnBoot). Only runs when the
 // user is signed in and "Always" location is ALREADY granted — a background task must never prompt.
 // Beyond re-arming regions, it RECONCILES missed punches: the OS Enter/Exit events fire exactly
@@ -306,7 +207,33 @@ function ensureRefreshTaskRegistered(): void {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const BackgroundFetch = require('expo-background-fetch') as typeof import('expo-background-fetch');
       try {
-        if (!(await runHeadlessAttendanceCheck())) return BackgroundFetch.BackgroundFetchResult.NoData;
+        const session = await loadSession();
+        if (!session) return BackgroundFetch.BackgroundFetchResult.NoData;
+        const bg = await loc().getBackgroundPermissionsAsync();
+        if (bg.status !== 'granted') return BackgroundFetch.BackgroundFetchResult.NoData;
+        await armOfficeRegions();
+        // Punch reconcile — the OS Enter/Exit events fire exactly ONCE at the boundary, so a lost
+        // or rejected punch would otherwise stand until the app is opened. Both directions:
+        //   no check-in today + fix INSIDE a region → check in (never re-opens a closed day);
+        //   day still open + accurate fix beyond every fence → check out (confirmGeofenceExit;
+        //   the server re-verifies via its drift guard).
+        // An unreadable record means do nothing; a fix is taken only when a punch could result.
+        const today = await fetchTodayHeadless();
+        const needIn = !!today && !today.inTime;
+        const dayOpen = !!today && !!today.inTime && !today.outTime;
+        if (needIn || dayOpen) {
+          let fix: { coords: { lat: number; lng: number }; accuracy: number | null } | null = null;
+          try {
+            const pos = await loc().getCurrentPositionAsync({ accuracy: loc().Accuracy.High });
+            fix = { coords: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracy: pos.coords.accuracy ?? null };
+          } catch { /* no fix → no punch */ }
+          const regions = await readCachedRegions();
+          // A fix INSIDE a fence refutes any pending-exit marker: the person is (still) at the
+          // office, so whatever Exit event set it was drift that never resolved.
+          if (fix && regions.length && regions.some((r) => distanceMeters(fix.coords, r) <= r.radius)) await clearPendingExit();
+          if (needIn && fix && confirmGeofenceEntry(fix, regions)) await postPunch('check-in', fix.coords);
+          else if (dayOpen && fix && confirmGeofenceExit(fix, regions)) await postPunch('check-out', fix.coords);
+        }
         return BackgroundFetch.BackgroundFetchResult.NewData;
       } catch {
         return BackgroundFetch.BackgroundFetchResult.Failed;
@@ -369,30 +296,21 @@ export async function disarmAttendanceGeofencing(): Promise<void> {
 // is belt-and-braces: even if a future edit re-introduces an activity round-trip here, the
 // AppState echo lands inside the guard window and the loop cannot close.
 let lastSync = 0;
-//
-// Returns true once the regions are ARMED. Callers that must not give up (the automatic-attendance
-// reconcile) keep calling until it does: the very first call after sign-in happens BEFORE the
-// person has granted "Allow all the time" on the permissions screen, and treating that attempt as
-// done left the phone un-armed until the next app restart. `force` skips the 60s guard — used
-// only from a non-AppState trigger (the moment the permission gate opens).
-let armed = false;
-export async function syncAttendanceGeofencing(force = false): Promise<boolean> {
-  if (isRunningInExpoGo()) return false;
-  if (!force && Date.now() - lastSync < 60_000) return armed;
+export async function syncAttendanceGeofencing(): Promise<void> {
+  if (isRunningInExpoGo()) return;
+  if (Date.now() - lastSync < 60_000) return;
   lastSync = Date.now();
   try {
     ensureTaskRegistered();
     ensureRefreshTaskRegistered();
     const Location = loc();
     const fg = await Location.getForegroundPermissionsAsync();
-    if (fg.status !== 'granted') { armed = false; return false; }
+    if (fg.status !== 'granted') return;
     const bg = await Location.getBackgroundPermissionsAsync();
-    if (bg.status !== 'granted') { armed = false; return false; } // "Always" not granted — background auto-punch can't run
+    if (bg.status !== 'granted') return; // "Always" not granted — background auto-punch can't run
     await armOfficeRegions();
     await scheduleRefreshTask(); // reboot/eviction healing once everything is armed
-    armed = true;
-  } catch { armed = false; /* geofencing unavailable (Expo Go / perms / no native module) */ }
-  return armed;
+  } catch { /* geofencing unavailable (Expo Go / perms / no native module) — silently skip */ }
 }
 
 export async function stopAttendanceGeofencing(): Promise<void> {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Eye, SquarePen, UserCheck, UserX } from 'lucide-react-native';
@@ -6,7 +6,6 @@ import { CreateMenu } from './CreateMenu';
 import { colors, type ChatListPalette } from '../../theme';
 import { useAccessStore } from '../../store/accessStore';
 import { useUiStore } from '../../store/uiStore';
-import { useAttendanceStore } from '../../store/attendanceStore';
 import { canCreateGroups } from '../../logic/groupCreate';
 import { getMyAttendance } from '../../api/attendance';
 import { ROLE_DEFS } from '../../constants/roles';
@@ -42,15 +41,6 @@ export function HomeHeader({ title, palette }: { title: string; palette?: ChatLi
       .catch(() => undefined); // offline → keep last known state
     return () => { alive = false; };
   }, []));
-  // …and follows the shared attendance store in between, so an AUTOMATIC check-in/out (office
-  // boundary, server wake, the once-a-minute reconcile) changes the chip the moment it happens —
-  // no leaving and re-entering the screen.
-  const liveAtt = useAttendanceStore((s) => s.att);
-  const liveLoaded = useAttendanceStore((s) => s.attLoaded);
-  useEffect(() => {
-    if (!liveLoaded) return;
-    setAttToday((cur) => (cur ? { ...cur, present: !!liveAtt.inTime, inTime: liveAtt.inTime ? liveAtt.inTime.toISOString() : null, outTime: liveAtt.outTime ? liveAtt.outTime.toISOString() : null } : cur));
-  }, [liveAtt, liveLoaded]);
   const access = useAccessStore((s) => s.access());
   const viewAsUser = useAccessStore((s) => s.viewAsUser);
   const setBiz = useUiStore((s) => s.setBiz);
