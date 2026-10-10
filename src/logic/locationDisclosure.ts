@@ -10,9 +10,9 @@ import type { BgLocationStatus } from './permissionGate';
 // This module is the pure, testable half: the copy per purpose and the flow decision. The service
 // (services/locationPermission.ts) owns the OS calls; the modal lives in components/LocationDisclosureHost.
 //
-// History: after that rejection Android declared FOREGROUND location only. Since 2026-10-05
-// background location is declared again and mandatory (see logic/permissionGate); the chat and
-// admin purposes still read location only while the app is open and must keep saying so.
+// Android declares FOREGROUND location only (background location was removed from app.json in the
+// same fix). The attendance / chat / admin purposes read location only while the app is open and
+// their copy must keep saying so.
 //
 // 'trail' is the ONE purpose that collects in the background, and it is the ENTRY GATE's
 // disclosure (owner decision 2026-10-05: background location is mandatory to open the app). The
@@ -33,10 +33,11 @@ export interface LocationDisclosureCopy {
 export const LOCATION_DISCLOSURE: Record<LocationPurpose, LocationDisclosureCopy> = {
   attendance: {
     title: 'Location access',
-    body: 'KBiz 360 - Smart Connect uses your location to confirm you are at your branch office when you check in or check out.',
+    body: 'KBiz 360 - Smart Connect collects your location while you use the app to confirm you are at your branch office when you check in or check out.',
     points: [
+      'Checking in and out uses your location only while the app is open.',
       'Your distance from the office is recorded with each check-in / check-out.',
-      'Automatic attendance and work-hours location sharing use location in the background — that is explained separately, before the app first opens.',
+      'Work-hours location sharing is explained separately, before the app first opens.',
       'Shared only with your company’s HR and admin team. Never sold, never used for advertising.',
     ],
   },
@@ -50,10 +51,9 @@ export const LOCATION_DISCLOSURE: Record<LocationPurpose, LocationDisclosureCopy
   },
   trail: {
     title: 'Location access — required',
-    body: 'KBiz 360 - Smart Connect collects your location in the background, even when the app is closed or not in use, to check you in automatically when you arrive at your branch office and check you out when you leave, and to share your location with your company while you are checked in.',
+    body: 'KBiz 360 - Smart Connect collects your location in the background while you are checked in — from your check-in until your check-out — even when the app is closed or not in use, so your company can see where its on-duty staff are.',
     points: [
-      'Away from the office and not checked in, the app only watches for arrival at your branch — your position is not recorded or shared.',
-      'Location sharing starts when you check in and stops when you check out.',
+      'Starts when you check in and stops when you check out. Nothing is collected outside your working day.',
       'A notification stays on your phone the whole time your location is being shared.',
       'Your route and current position for the day are visible only to your company’s HR and admin team. Never sold, never used for advertising.',
     ],
