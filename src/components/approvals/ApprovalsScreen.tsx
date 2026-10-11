@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { useFocusEffect } from 'expo-router';
@@ -1110,6 +1110,8 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
   const [filter, setFilter] = useState<'all' | ApprovalStatus>('pending');
   const [selected, setSelected] = useState<Approval | null>(null);
   const [loadError, setLoadError] = useState(false);
+  // The demo rows a failed load falls back to must never reach the tab badge.
+  const fromServer = useRef(false);
   // Ids ticked for a bulk decision. A reload that settles a request simply stops matching it, so a
   // decided row can never linger in the count.
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -1122,10 +1124,12 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
     setLoadError(false);
     listApprovals('all')
       .then((response) => {
+        fromServer.current = true;
         setApprovals(response.items ?? []);
         setLoadError(false);
       })
       .catch(() => {
+        fromServer.current = false;
         setApprovals(DEMO_APPROVALS);
         setLoadError(false);
       });
@@ -1156,14 +1160,13 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
   );
   // The Pending tab's badge stays right while the reviewer reads the settled tabs.
   const pendingCount = useMemo(() => queue.filter((r) => r.status === 'pending').length, [queue]);
-  // The bottom tab shows the same number. Pushing it from here — rather than letting the store
-  // refetch — means a decision moves the tab badge the instant the list reflects it, with no
-  // window where the two disagree.
-  // Without corrections in this list (ERP users), the badge keeps its own count — app requests plus
-  // pending corrections — so it does not drop the corrections now decided under ERP approvals ▸ HR.
+  // This number is the App-requests part of the bottom tab's badge (the ERP part comes from ERP
+  // approvals). Pushing it from here — rather than letting the store refetch — means a decision moves
+  // the tab badge the instant the list reflects it, with no window where the two disagree. For an ERP
+  // user this list has no corrections, matching the badge, which counts those under ERP ▸ HR.
   useEffect(() => {
-    if (approvals !== null && includeCorrections) useApprovalBadgeStore.getState().setCount(pendingCount);
-  }, [pendingCount, approvals, includeCorrections]);
+    if (approvals !== null && fromServer.current) useApprovalBadgeStore.getState().setApp(pendingCount);
+  }, [pendingCount, approvals]);
 
   // Group under the person who raised each request — a reviewer settles one colleague's asks
   // together instead of hopping between names. groupByPerson keeps the incoming ordering, so the
@@ -1494,6 +1497,8 @@ export default function ApprovalsScreen() {
   // sees the app's requests exactly as before.
   const erp = useErpAccess();
   const [mode, setMode] = useState<'erp' | 'app'>('erp');
+  // Only one of the two lists is on screen, so the badge refetches both parts whenever the tab opens.
+  useFocusEffect(useCallback(() => { void useApprovalBadgeStore.getState().refresh(); }, []));
   if (erp.state === 'checking') {
     return (
       <SafeAreaView style={styles.screen}>
