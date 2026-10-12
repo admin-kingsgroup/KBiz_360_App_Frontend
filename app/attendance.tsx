@@ -880,8 +880,11 @@ const ReassignModal = memo(function ReassignModal({ reassign, userHistory, admin
                   {e.outPhoto ? <PunchThumb uri={e.outPhoto} label="OUT" size={30} onPress={onViewPhoto} /> : null}
                   {/* Corrections: an absent day is marked present through the time editor (opens at
                       10:00–19:00 so the real times can be set); a recorded day's times are edited in
-                      place via the pencil, keeping the punch's evidence. Only Manual days revert to absent. */}
-                  {!e.inTime ? (
+                      place via the pencil, keeping the punch's evidence. Only Manual days revert to absent.
+                      An approved work-from-home day is already present without a punch — nothing to mark. */}
+                  {!e.inTime && historyDayView(e).kind === 'wfh' ? (
+                    <KindBadge kind="wfh" text="WFH" />
+                  ) : !e.inTime ? (
                     <Pressable onPress={() => onEditDay(e)} hitSlop={6} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primarySoft }}>
                       <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700' }}>MARK PRESENT</Text>
                     </Pressable>
@@ -976,6 +979,7 @@ const PunchThumb = memo(function PunchThumb({ uri, label, onPress, size = 38 }: 
 // History day colours — the same hues My Attendance uses for these states.
 const KIND_COLOR: Record<HistoryDayKind, string> = {
   present: colors.primary,
+  wfh: colors.wfh, // present with no punch — cyan, apart from present green and leave teal
   absent: colors.danger,
   holiday: '#B7791F', // darkened orange: legible as 12px text
   weekOff: colors.coolText3, // muted, as the week-off row has read since 2026-10-06

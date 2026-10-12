@@ -1,4 +1,4 @@
-import type { ErpEntryDetail, ErpMe, ErpPendingEntry, ErpPendingWork, ErpStage } from '../api/erp';
+import type { ErpEntryDetail, ErpLeaveSwap, ErpMe, ErpPendingEntry, ErpPendingWork, ErpStage } from '../api/erp';
 
 // Pure helpers for ERP approvals in the app (owner, 2026-10-07). The ERP decides every action
 // server-side; these only decide what to SHOW, mirroring the ERP's own screen (Books
@@ -170,16 +170,61 @@ export function leaveTurnNote(turn: { allowed?: boolean; why?: string } | undefi
   return /not your turn/i.test(why) ? '' : why;
 }
 
-export type LeaveTagTone = 'paid' | 'time' | 'cancel' | 'half';
+export type LeaveTagTone = 'paid' | 'time' | 'cancel' | 'half' | 'wfh' | 'swap';
 export interface LeaveTag { label: string; tone: LeaveTagTone }
 
 /** The tags at the top right of an HR card: what kind of request it is. Every plain leave draws on the
- *  paid-leave balance, so it reads "Paid leave"; a half-day one also gets "Half day". */
+ *  paid-leave balance, so it reads "Paid leave"; a half-day one also gets "Half day". Work from home and
+ *  a Saturday swap draw nothing, so they never read "Paid leave" (owner, 2026-10-12). */
 export function leaveTags(a: { kind?: string; dayType?: string }): LeaveTag[] {
   if (a.kind === 'time') return [{ label: 'Time correction', tone: 'time' }];
   if (a.kind === 'cancel') return [{ label: 'Leave cancellation', tone: 'cancel' }];
+  if (a.kind === 'wfh') return [{ label: 'Work from home', tone: 'wfh' }];
+  if (a.kind === 'swap') return [{ label: 'Saturday swap', tone: 'swap' }];
   const paid: LeaveTag = { label: 'Paid leave', tone: 'paid' };
   return a.dayType === 'half' ? [{ label: 'Half day', tone: 'half' }, paid] : [paid];
+}
+
+/** The kind word on an HR card's title line ("Work from home · 14 Oct – 15 Oct"). */
+export function leaveKindLabel(kind?: string): string {
+  switch (kind) {
+    case 'time': return 'Time correction';
+    case 'cancel': return 'Leave cancellation';
+    case 'wfh': return 'Work from home';
+    case 'swap': return 'Saturday swap';
+    default: return 'Leave';
+  }
+}
+
+// ── Saturday swap on the HR tab (owner, 2026-10-12) ──
+// The partner accepts in the Smart Connect app FIRST; until then no level of the chain signs it.
+
+/** A swap its partner has not accepted yet — Approve stays disabled. */
+export function swapAwaitingPartner(a: { kind?: string; swap?: ErpLeaveSwap | null }): boolean {
+  return a.kind === 'swap' && a.swap?.partner?.status !== 'accepted';
+}
+
+/** Why Approve is disabled on a swap awaiting its partner — the ERP's own reason when it sends one. */
+export function swapHoldNote(a: { kind?: string; swap?: ErpLeaveSwap | null; turn?: { allowed?: boolean; why?: string } }): string {
+  if (!swapAwaitingPartner(a)) return '';
+  const why = a.turn && !a.turn.allowed ? erpText(a.turn.why) : '';
+  if (why) return why;
+  const who = erpText(a.swap?.partner?.name) || 'The partner';
+  return `${who} has not accepted this swap yet — it is signed after they accept it in the Smart Connect app.`;
+}
+
+/** The two lines a swap card adds: both Saturdays from the applicant's side, and the partner's answer. */
+export function swapCardLines(a: { name?: unknown; swap?: ErpLeaveSwap | null }, fmt: (day: string) => string): { days: string; partner: string } | null {
+  const sw = a.swap;
+  if (!sw || !sw.workDay || !sw.offDay) return null;
+  const who = erpText(a.name) || 'Applicant';
+  const partner = erpText(sw.partner?.name) || 'partner';
+  const answer = sw.partner?.status === 'accepted' ? 'accepted' : sw.partner?.status === 'declined' ? 'declined' : 'has not accepted yet';
+  const note = erpText(sw.partner?.note);
+  return {
+    days: `${who} works ${fmt(sw.workDay)} (week off) · off ${fmt(sw.offDay)}; ${partner} the opposite`,
+    partner: `Partner ${partner}${sw.partner?.branch ? ` · ${erpText(sw.partner.branch)}` : ''} — ${answer}${note ? ` (“${note}”)` : ''}`,
+  };
 }
 
 export const STAGE_LABEL: Record<string, string> = { check: 'Check', verify: 'Verify', approve: 'Approve', director: 'Director', owner: 'Owner' };

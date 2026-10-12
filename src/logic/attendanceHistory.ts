@@ -9,8 +9,11 @@ import { isWeekOffEntry } from './attendance';
 // reads "Week off", as it has since 2026-10-06.
 // Owner 2026-10-06: "don't show the option on Sunday" — ASK is never offered on a weekly off, even
 // on one somebody worked (the punch still shows as PRESENT).
+// Owner 2026-10-12: an approved work-from-home day is PRESENT with no punch, shown "WFH"; a Saturday
+// swap turns a working Saturday into a week off ('off') or a week-off Saturday into a working day
+// ('work' — an unpunched one is a real absence, so ASK stays).
 
-export type HistoryDayKind = 'present' | 'absent' | 'holiday' | 'weekOff' | 'leave' | 'noData' | 'notEmployed' | 'future';
+export type HistoryDayKind = 'present' | 'wfh' | 'absent' | 'holiday' | 'weekOff' | 'leave' | 'noData' | 'notEmployed' | 'future';
 
 export interface HistoryDayView {
   kind: HistoryDayKind;
@@ -21,16 +24,29 @@ export interface HistoryDayView {
   canAsk: boolean;
 }
 
-export function historyDayView(e: Pick<AttendanceHistoryEntry, 'date' | 'inTime' | 'state' | 'holidayName' | 'halfLeave' | 'weekOff'>): HistoryDayView {
+export function historyDayView(e: Pick<AttendanceHistoryEntry, 'date' | 'inTime' | 'state' | 'holidayName' | 'halfLeave' | 'weekOff' | 'wfh' | 'swap'>): HistoryDayView {
+  const view = baseView(e);
+  // A swapped-in working Saturday with no punch says why it is a working day at all.
+  if (e.swap === 'work' && !e.inTime) {
+    if (view.kind === 'absent') return { ...view, note: 'Absent · swapped Saturday' };
+    if (view.kind === 'leave' || view.kind === 'future') return { ...view, note: `${view.note} · swapped Saturday` };
+  }
+  return view;
+}
+
+function baseView(e: Pick<AttendanceHistoryEntry, 'date' | 'inTime' | 'state' | 'holidayName' | 'halfLeave' | 'weekOff' | 'wfh' | 'swap'>): HistoryDayView {
   // A weekly off by the server's word (state or flag); with no state at all, the old Sunday reading.
   const offDay = e.state ? e.state === 'weekOff' || e.weekOff === true : isWeekOffEntry(e);
+  const weekOffNote = e.swap === 'off' ? 'Week off · Saturday swap' : 'Week off';
   if (e.inTime) return { kind: 'present', note: '', badge: 'PRESENT', canAsk: !offDay };
-  if (!e.state && offDay) return { kind: 'weekOff', note: 'Week off', badge: 'WEEK OFF', canAsk: false };
+  // Approved work from home: present without a punch — nothing to correct.
+  if (e.wfh && (!e.state || e.state === 'present')) return { kind: 'wfh', note: 'Work from home · approved', badge: 'WFH', canAsk: false };
+  if (!e.state && offDay) return { kind: 'weekOff', note: weekOffNote, badge: 'WEEK OFF', canAsk: false };
   switch (e.state) {
     case 'holiday':
       return { kind: 'holiday', note: e.holidayName ? `Holiday · ${e.holidayName}` : 'Holiday', badge: 'HOLIDAY', canAsk: false };
     case 'weekOff':
-      return { kind: 'weekOff', note: 'Week off', badge: 'WEEK OFF', canAsk: false };
+      return { kind: 'weekOff', note: weekOffNote, badge: 'WEEK OFF', canAsk: false };
     case 'leave':
       return { kind: 'leave', note: e.halfLeave ? 'Paid leave · half day' : 'Paid leave', badge: 'LEAVE', canAsk: false };
     case 'noData':

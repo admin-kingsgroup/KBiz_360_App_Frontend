@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -155,5 +155,49 @@ describe('HR card tags', () => {
   it('a time correction and a leave cancellation get their own tag', () => {
     expect(leaveTags({ kind: 'time', dayType: 'full' })).toEqual([{ label: 'Time correction', tone: 'time' }]);
     expect(leaveTags({ kind: 'cancel' })).toEqual([{ label: 'Leave cancellation', tone: 'cancel' }]);
+  });
+});
+
+describe('HR tab: work from home and Saturday swap (owner, 2026-10-12)', () => {
+  it('WFH and swap get their own tag — never "Paid leave"', () => {
+    expect(leaveTags({ kind: 'wfh', dayType: 'full' })).toEqual([{ label: 'Work from home', tone: 'wfh' }]);
+    expect(leaveTags({ kind: 'swap', dayType: 'full' })).toEqual([{ label: 'Saturday swap', tone: 'swap' }]);
+    expect(leaveKindLabel('wfh')).toBe('Work from home');
+    expect(leaveKindLabel('swap')).toBe('Saturday swap');
+    expect(leaveKindLabel('time')).toBe('Time correction');
+    expect(leaveKindLabel(undefined)).toBe('Leave');
+  });
+
+  const why = 'Bilal Khan has not accepted this swap yet — it is signed after they accept it in the Smart Connect app.';
+  const pendingSwap = {
+    kind: 'swap', name: 'Asha', turn: { allowed: false, why },
+    swap: { workDay: '2026-10-17', offDay: '2026-10-24', partner: { userId: 'u2', name: 'Bilal Khan', branch: 'BOM', status: 'pending' as const, at: null, note: '' } },
+  };
+
+  it('a swap its partner has not accepted cannot be approved, with the ERP reason shown', () => {
+    expect(swapAwaitingPartner(pendingSwap)).toBe(true);
+    expect(mayApproveLeaveNow(pendingSwap.turn)).toBe(false);
+    expect(swapHoldNote(pendingSwap)).toBe(why);
+    expect(leaveTurnNote(pendingSwap.turn)).toBe(why); // not the plain "not your turn", so it is kept
+  });
+
+  it('falls back to its own reason when the ERP sends none', () => {
+    expect(swapHoldNote({ ...pendingSwap, turn: undefined })).toMatch(/^Bilal Khan has not accepted this swap yet/);
+  });
+
+  it('once accepted the swap is an ordinary chain item', () => {
+    const accepted = { ...pendingSwap, turn: { allowed: true }, swap: { ...pendingSwap.swap, partner: { ...pendingSwap.swap.partner, status: 'accepted' as const } } };
+    expect(swapAwaitingPartner(accepted)).toBe(false);
+    expect(swapHoldNote(accepted)).toBe('');
+    expect(mayApproveLeaveNow(accepted.turn)).toBe(true);
+    expect(swapAwaitingPartner({ kind: 'wfh' })).toBe(false);
+  });
+
+  it('shows both Saturdays and the partner', () => {
+    expect(swapCardLines(pendingSwap, (d) => d)).toEqual({
+      days: 'Asha works 2026-10-17 (week off) · off 2026-10-24; Bilal Khan the opposite',
+      partner: 'Partner Bilal Khan · BOM — has not accepted yet',
+    });
+    expect(swapCardLines({ name: 'Asha', swap: null }, (d) => d)).toBeNull();
   });
 });

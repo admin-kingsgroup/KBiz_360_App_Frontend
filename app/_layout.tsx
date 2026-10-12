@@ -169,6 +169,8 @@ function GateController() {
       <Stack.Screen name="attendance" />
       <Stack.Screen name="hr/index" />
       <Stack.Screen name="hr/leave" />
+      <Stack.Screen name="hr/wfh" />
+      <Stack.Screen name="hr/swap" />
       <Stack.Screen name="hr/month" />
       <Stack.Screen name="hr/payslip" />
       <Stack.Screen name="storage" />

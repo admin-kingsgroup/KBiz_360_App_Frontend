@@ -6,7 +6,8 @@ import {
   erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpLeaveApplication, type ErpMe, type ErpPaymentRequestRow,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, erpText, leaveChainSteps, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, money, type LeaveTagTone,
+  ALL_BRANCHES, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, money, swapAwaitingPartner, swapCardLines, swapHoldNote,
+  type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
   RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
@@ -284,11 +285,15 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
             {leave.refused ? refusedNote('HR approvals') : errorNote(leave.error)}
             {leaveRows.length === 0 && hrRequests.length === 0 && !leave.refused && !leave.error ? <Text style={st.empty}>No leave or HR requests are waiting.</Text> : null}
             {leaveRows.map((a) => {
-              const kind = a.kind === 'time' ? 'Time correction' : a.kind === 'cancel' ? 'Leave cancellation' : 'Leave';
+              const kind = leaveKindLabel(a.kind);
+              // A Saturday swap waits on its partner's Accept in the app before any level signs it
+              // (owner, 2026-10-12): Approve shows disabled, with the ERP's reason.
+              const swapHold = swapAwaitingPartner(a);
+              const swapLines = a.kind === 'swap' ? swapCardLines(a, day) : null;
               // One level at a time (owner, 2026-10-08): Approve only on the viewer's own turn.
-              const myTurn = mayApproveLeaveNow(a.turn);
+              const myTurn = mayApproveLeaveNow(a.turn) && !swapHold;
               const steps = leaveChainSteps(a.chain, a.approvals);
-              const note = leaveTurnNote(a.turn);
+              const note = swapHoldNote(a) || leaveTurnNote(a.turn);
               return (
                 <View key={a.id} style={st.card}>
                   <View style={st.cardHead}>
@@ -301,15 +306,24 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
                       ))}
                     </View>
                   </View>
-                  <Text style={st.rowTitle}>{kind} · {day(a.from)}{a.to && a.to !== a.from ? ` – ${day(a.to)}` : ''}{a.days ? ` · ${a.days} day${a.days === 1 ? '' : 's'}` : ''}</Text>
+                  {swapLines ? (
+                    <>
+                      <Text style={st.rowTitle}>{kind} · two Saturdays</Text>
+                      <Text style={[st.rowSub, { color: colors.ink }]}>{swapLines.days}</Text>
+                      <Text style={[st.rowSub, { color: a.swap?.partner?.status === 'accepted' ? colors.primary : colors.orange, fontWeight: '700' }]}>{swapLines.partner}</Text>
+                    </>
+                  ) : (
+                    <Text style={st.rowTitle}>{kind} · {day(a.from)}{a.to && a.to !== a.from ? ` – ${day(a.to)}` : ''}{a.days ? ` · ${a.days} day${a.days === 1 ? '' : 's'}` : ''}</Text>
+                  )}
                   {a.kind === 'time' && (a.checkIn || a.checkOut) ? <Text style={st.rowSub}>In {a.checkIn || '—'} · Out {a.checkOut || '—'}</Text> : null}
                   {erpText(a.reason) ? <Text style={st.rowSub}>“{erpText(a.reason)}”</Text> : null}
                   {steps.length ? <ChainLine steps={steps} /> : null}
                   {erpText(a.waitingOn) ? <Text style={[st.rowSub, { color: colors.danger, fontWeight: '700' }]}>Waiting on {erpText(a.waitingOn)}</Text> : null}
                   {note ? <Text style={[st.rowSub, { color: colors.orange }]}>{note}</Text> : null}
                   <View style={st.actions}>
-                    {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${kind.toLowerCase()}`, cta: 'Reject', run: (n) => erpApi.decideLeave(a.id, 'reject', n) })} /> : null}
+                    {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${a.kind === 'swap' ? 'Saturday swap' : kind.toLowerCase()}`, cta: 'Reject', run: (n) => erpApi.decideLeave(a.id, 'reject', n) })} /> : null}
                     {myTurn ? <ActionButton label="Approve" disabled={!!busy} busy={busy === a.id} onPress={() => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`)} /> : null}
+                    {swapHold ? <ActionButton label="Approve" disabled onPress={() => undefined} /> : null}
                   </View>
                 </View>
               );
@@ -470,12 +484,15 @@ function ReasonSheet({ title, cta, tone = 'danger', placeholder = 'Reason (requi
   );
 }
 
-// HR card tags: green Paid leave, blue Time correction, orange Leave cancellation, grey Half day.
+// HR card tags: green Paid leave, blue Time correction, orange Leave cancellation, grey Half day,
+// cyan Work from home (the WFH hue of the attendance screens), purple Saturday swap.
 const TAG_TONE: Record<LeaveTagTone, { bg: string; fg: string; edge: string }> = {
   paid: { bg: colors.primarySoft, fg: colors.primary, edge: '#BFE3DA' },
   time: { bg: '#EAF1FF', fg: '#2457C5', edge: '#C9DAFB' },
   cancel: { bg: '#FDF1DE', fg: '#9A5B0B', edge: '#F2D5A6' },
   half: { bg: colors.coolMuted, fg: colors.coolText, edge: '#E2E5EA' },
+  wfh: { bg: '#E3F4F8', fg: colors.wfh, edge: '#B9DFE9' },
+  swap: { bg: '#F1EBFD', fg: colors.swap, edge: '#DCCDF8' },
 };
 
 const st = {
