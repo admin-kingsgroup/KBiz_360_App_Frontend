@@ -12,6 +12,8 @@ import { ErrorBoundary, OfflineBanner } from '../src/components/common';
 import { GlobalToast } from '../src/components/ui';
 import { LocationDisclosureHost } from '../src/components/LocationDisclosureHost';
 import { AnimatedSplash } from '../src/components/splash/AnimatedSplash';
+import { ForceUpdateScreen } from '../src/components/update/ForceUpdateScreen';
+import { currentAppVersion, useForceUpdate } from '../src/hooks/useForceUpdate';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
 import { useAttendanceStore } from '../src/store/attendanceStore';
@@ -196,6 +198,8 @@ export default function RootLayout() {
   // login screen (signed out). Cold start only — this layout mounts once per launch.
   const [splashDone, setSplashDone] = useState(false);
   const endSplash = useCallback(() => setSplashDone(true), []);
+  // Force update: non-null once the backend's minimum version is above this install.
+  const forceUpdate = useForceUpdate();
   useEffect(() => {
     // Crash reporting: catch fatal JS errors (stashed and flushed next launch) + send any
     // report left behind by a previous crash.
@@ -231,13 +235,21 @@ export default function RootLayout() {
                 drag empty space twice; verified fixed by removing this wrapper). If tap-to-dismiss
                 is wanted back, implement it per-screen with a RNGH Tap gesture (outside the RN
                 responder system) — NEVER with a Touchable wrapping the navigator. */}
-            <View style={{ flex: 1 }}>
-              {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
-            </View>
-            {/* Location "prominent disclosure" modal (Google Play User Data policy) — one host for
-                every screen; requestLocationWithDisclosure() awaits its "I agree" before any OS
-                location dialog. */}
-            <LocationDisclosureHost />
+            {/* Out-of-date install: the update page REPLACES the whole app (not drawn over it), so
+                nothing behind it keeps running — no navigator, socket, prompts or disclosure modal. */}
+            {forceUpdate ? (
+              <ForceUpdateScreen policy={forceUpdate} currentVersion={currentAppVersion} />
+            ) : (
+              <>
+                <View style={{ flex: 1 }}>
+                  {hydrated ? <GateController /> : <View style={{ flex: 1, backgroundColor: colors.coolBg }} />}
+                </View>
+                {/* Location "prominent disclosure" modal (Google Play User Data policy) — one host for
+                    every screen; requestLocationWithDisclosure() awaits its "I agree" before any OS
+                    location dialog. */}
+                <LocationDisclosureHost />
+              </>
+            )}
             {/* App-wide toast host — must be last so it layers above every screen. Mounted here
                 (not per-screen) so showToast() from any screen is actually visible. */}
             <GlobalToast />
