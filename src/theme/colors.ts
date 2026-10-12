@@ -22,6 +22,9 @@ export const colors = {
   dangerText: '#B42318', dangerEdge: '#F0C3BD', dangerDot: '#D92D20',
   // Delivery ticks stay blue — green is the brand accent here, so read receipts need their own hue.
   tick: '#1570EF',
+  // HR day marks (2026-10-12): work from home reads cyan — apart from present green and leave teal —
+  // and a Saturday swap reads purple. Both dark enough for 11–12px text on white.
+  wfh: '#0E7490', swap: '#6D3FD0',
 } as const;
 
 export type ColorToken = keyof typeof colors;

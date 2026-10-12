@@ -7,7 +7,8 @@ import { colors } from '../../src/theme';
 import { HrMenuButton } from '../../src/components/hr/HrMenu';
 import { AbsentLeaveSheet } from '../../src/components/hr/AbsentLeaveSheet';
 import { shiftDay } from '../../src/logic/leave';
-import { getMyAttendanceMonth, getHolidays, getMyLeave, type MyAttendanceMonth, type MonthDay, type HolidayRow, type DayState, type MyLeave } from '../../src/api/hr';
+import { isPaidLeaveRow, pendingWfhDays } from '../../src/logic/wfh';
+import { getMyAttendanceMonth, getHolidays, getMyLeave, getMyWfh, type MyAttendanceMonth, type MonthDay, type HolidayRow, type DayState, type MyLeave, type WfhApplication } from '../../src/api/hr';
 
 // My Attendance — the person's own month, read exactly the way the ERP's monthly report reads
 // it (same classifier, served by the backend): present / absent / paid leave / holiday /
@@ -33,6 +34,15 @@ const STATE_LABELS: Record<DayState, string> = {
   notEmployed: 'Not employed',
   noData: 'No data',
 };
+
+// Work from home (owner, 2026-10-12) is a PRESENT day without a punch: it keeps the present state
+// but reads "WFH" in its own cyan. A Saturday swap keeps the day's state (week off / working day)
+// and adds a purple ⇄ mark.
+const WFH_LABEL = 'WFH';
+const SWAP_MARK = '⇄';
+const isWfhDay = (d: MonthDay): boolean => d.state === 'present' && d.wfh === true;
+const swapLine = (d: MonthDay): string =>
+  d.swap === 'off' ? 'Saturday swap — week off' : d.swap === 'work' ? 'Saturday swap — working day' : '';
 
 // Holiday cards sit on a wash of the Holiday orange — the colour this page ALREADY uses for the
 // legend dot and the calendar's holiday markers, so the list reads as part of the calendar above it
@@ -75,13 +85,16 @@ export default function MyAttendanceMonthScreen() {
     setCellW((prev) => (prev === w ? prev : w));
   }, []);
   const loadLeave = useCallback((): void => { getMyLeave().then(setLeave).catch(() => undefined); }, []);
+  // Pending work-from-home asks: an absent day under one reads "WFH requested", not "apply leave".
+  const [wfhApps, setWfhApps] = useState<WfhApplication[] | null>(null);
+  const loadWfh = useCallback((): void => { getMyWfh().then((r) => setWfhApps(r.applications ?? [])).catch(() => undefined); }, []);
 
   const load = useCallback((m: string): void => {
     setData(null); setSelected(null); setFailed(false);
     getMyAttendanceMonth(m).then(setData).catch(() => setFailed(true));
   }, []);
   useEffect(() => { load(month); }, [month, load]);
-  useFocusEffect(useCallback(() => { load(month); loadLeave(); }, [load, loadLeave, month]));
+  useFocusEffect(useCallback(() => { load(month); loadLeave(); loadWfh(); }, [load, loadLeave, loadWfh, month]));
   useEffect(() => {
     getHolidays(Number(month.slice(0, 4))).then((h) => setHolidays(h.published ? h.holidays : [])).catch(() => setHolidays([]));
   }, [month]);
@@ -97,14 +110,15 @@ export default function MyAttendanceMonthScreen() {
   const requestedDays = useMemo(() => {
     const set = new Set<string>();
     for (const a of leave?.applications ?? []) {
-      if (a.status !== 'pending') continue;
+      if (a.status !== 'pending' || !isPaidLeaveRow(a)) continue;
       for (let d = a.from; d <= a.to; d = shiftDay(d, 1)) set.add(d);
     }
     return set;
   }, [leave]);
+  const wfhRequestedDays = useMemo(() => pendingWfhDays(wfhApps), [wfhApps]);
   const openAbsent = useMemo(
-    () => (data ? data.days.filter((d) => d.state === 'absent' && !requestedDays.has(d.day)).map((d) => d.day) : []),
-    [data, requestedDays],
+    () => (data ? data.days.filter((d) => d.state === 'absent' && !requestedDays.has(d.day) && !wfhRequestedDays.has(d.day)).map((d) => d.day) : []),
+    [data, requestedDays, wfhRequestedDays],
   );
   const askLeaveFor = useCallback((day: string): void => setLeaveDay(day), []);
 
@@ -126,6 +140,10 @@ export default function MyAttendanceMonthScreen() {
 
   const canGoNext = month < thisMonth();
   const selRequested = !!selected && selected.state === 'absent' && requestedDays.has(selected.day);
+  const selWfhRequested = !!selected && selected.state === 'absent' && !selRequested && wfhRequestedDays.has(selected.day);
+  const selWfh = !!selected && isWfhDay(selected);
+  const selSwap = selected ? swapLine(selected) : '';
+  const monthHasWfhAsk = !!data && data.days.some((d) => d.state === 'absent' && wfhRequestedDays.has(d.day));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -170,6 +188,7 @@ export default function MyAttendanceMonthScreen() {
             <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginBottom: 10 }}>
               {data.summary.hoursTotal}h worked · avg {data.summary.avgHours}h/day
               {data.leaveBalance ? ` · leave balance ${data.leaveBalance.balance}d at month end` : ''}
+              {data.summary.wfh ? ` · ${data.summary.wfh} present day${data.summary.wfh === 1 ? '' : 's'} from home` : ''}
             </Text>
             {notice ? (
               <View style={{ padding: 12, borderRadius: 14, backgroundColor: colors.orange + '12', borderWidth: 1, borderColor: colors.orange + '40', marginBottom: 12 }}>
@@ -194,18 +213,25 @@ export default function MyAttendanceMonthScreen() {
                   const faint = d.state === 'future' || d.state === 'notEmployed' || d.state === 'noData';
                   const isSel = selected?.day === d.day;
                   const isToday = d.day === data.today;
-                  // An absent day with a pending request reads as "Leave requested" (dashed teal).
+                  // An absent day with a pending request reads as "Leave requested" (dashed teal) or
+                  // "WFH requested" (dashed cyan).
                   const requested = d.state === 'absent' && requestedDays.has(d.day);
-                  const askable = d.state === 'absent' && !requested;
-                  const tone = requested ? colors.teal : c;
+                  const wfhRequested = d.state === 'absent' && !requested && wfhRequestedDays.has(d.day);
+                  const askable = d.state === 'absent' && !requested && !wfhRequested;
+                  const wfh = isWfhDay(d);
+                  const tone = requested ? colors.teal : wfhRequested || wfh ? colors.wfh : c;
+                  const dashed = requested || wfhRequested;
+                  const label = requested ? 'leave requested' : wfhRequested ? 'work from home requested' : wfh ? 'work from home' : STATE_LABELS[d.state];
                   return (
                     <Pressable key={d.day} onPress={() => { setSelected(d); if (askable) askLeaveFor(d.day); }}
                       accessibilityRole="button"
-                      accessibilityLabel={`${d.day}, ${requested ? 'leave requested' : STATE_LABELS[d.state]}${askable ? ', tap to apply paid leave' : ''}`}
+                      accessibilityLabel={`${d.day}, ${label}${d.swap ? ', Saturday swap' : ''}${askable ? ', tap to apply paid leave' : ''}`}
                       style={{ ...cellBox, height: 42, alignItems: 'center', justifyContent: 'center' }}>
-                      <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: faint ? 'transparent' : tone + '22', borderWidth: isSel ? 2 : requested || isToday ? 1.5 : 0, borderStyle: requested && !isSel ? 'dashed' : 'solid', borderColor: isSel ? colors.ink : requested ? colors.teal : colors.primary }}>
+                      <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: faint ? 'transparent' : tone + '22', borderWidth: isSel ? 2 : dashed || isToday ? 1.5 : 0, borderStyle: dashed && !isSel ? 'dashed' : 'solid', borderColor: isSel ? colors.ink : dashed ? tone : colors.primary }}>
                         <Text style={{ color: faint ? colors.coolText3 : tone, fontSize: 13, fontWeight: '700' }}>{Number(d.day.slice(8, 10))}</Text>
                         {d.late ? <View style={{ position: 'absolute', top: 3, right: 3, width: 5, height: 5, borderRadius: 3, backgroundColor: colors.orange }} /> : null}
+                        {wfh ? <Text style={{ position: 'absolute', bottom: 1, color: colors.wfh, fontSize: 7, fontWeight: '800' }}>{WFH_LABEL}</Text> : null}
+                        {d.swap ? <Text style={{ position: 'absolute', top: 0, left: 3, color: colors.swap, fontSize: 9, fontWeight: '800' }}>{SWAP_MARK}</Text> : null}
                       </View>
                     </Pressable>
                   );
@@ -215,9 +241,12 @@ export default function MyAttendanceMonthScreen() {
               {selected ? (
                 <View style={{ marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.coolDivider }}>
                   <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>
-                    {new Date(selected.day + 'T00:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} · <Text style={{ color: selRequested ? colors.teal : STATE_COLORS[selected.state] }}>{selRequested ? 'Leave requested' : STATE_LABELS[selected.state]}{selected.halfLeave ? ' · half-day leave' : ''}{selected.granted && selected.state === 'weekOff' ? ' (granted)' : ''}</Text>
+                    {new Date(selected.day + 'T00:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} · <Text style={{ color: selRequested ? colors.teal : selWfhRequested || selWfh ? colors.wfh : STATE_COLORS[selected.state] }}>{selRequested ? 'Leave requested' : selWfhRequested ? 'WFH requested' : selWfh ? WFH_LABEL : STATE_LABELS[selected.state]}{selected.halfLeave ? ' · half-day leave' : ''}{selected.granted && selected.state === 'weekOff' ? ' (granted)' : ''}</Text>
                   </Text>
-                  {selected.state === 'present' ? (
+                  {selSwap ? <Text style={{ color: colors.swap, fontSize: 12.5, fontWeight: '600', marginTop: 2 }}>{SWAP_MARK} {selSwap}</Text> : null}
+                  {selWfh && !selected.checkInAt ? (
+                    <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>Work from home · approved — counts as present, no check-in needed.</Text>
+                  ) : selected.state === 'present' ? (
                     <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>
                       In {fmtT(selected.checkInAt)} · Out {selected.open ? 'still in' : fmtT(selected.checkOutAt)}{selected.hours != null ? ` · ${selected.hours}h` : ''}{selected.method ? ` · ${selected.method}` : ''}{selected.adjusted ? ' · edited' : ''}{selected.late ? ` · late ${selected.lateMinutes}m` : ''}
                     </Text>
@@ -225,6 +254,8 @@ export default function MyAttendanceMonthScreen() {
                     <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{selected.holiday.name || 'Optional holiday availed'}</Text>
                   ) : selRequested ? (
                     <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>Waiting for HR. The day turns into paid leave once it is approved.</Text>
+                  ) : selWfhRequested ? (
+                    <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>Waiting for approval. The day counts as present once work from home is approved.</Text>
                   ) : selected.state === 'absent' ? (
                     <Pressable onPress={() => askLeaveFor(selected.day)} accessibilityRole="button" className="flex-row items-center justify-center gap-2"
                       style={{ marginTop: 10, height: 44, borderRadius: 999, backgroundColor: colors.primary }}>
@@ -247,8 +278,22 @@ export default function MyAttendanceMonthScreen() {
                 </View>
               ))}
               <View className="flex-row items-center gap-1">
+                <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: colors.wfh }} />
+                <Text style={{ color: colors.coolText, fontSize: 11 }}>WFH</Text>
+              </View>
+              <View className="flex-row items-center gap-1">
                 <View style={{ width: 10, height: 10, borderRadius: 3, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.teal }} />
                 <Text style={{ color: colors.coolText, fontSize: 11 }}>Leave requested</Text>
+              </View>
+              {monthHasWfhAsk ? (
+                <View className="flex-row items-center gap-1">
+                  <View style={{ width: 10, height: 10, borderRadius: 3, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.wfh }} />
+                  <Text style={{ color: colors.coolText, fontSize: 11 }}>WFH requested</Text>
+                </View>
+              ) : null}
+              <View className="flex-row items-center gap-1">
+                <Text style={{ color: colors.swap, fontSize: 11, fontWeight: '800' }}>{SWAP_MARK}</Text>
+                <Text style={{ color: colors.coolText, fontSize: 11 }}>Saturday swap</Text>
               </View>
             </View>
             {openAbsent.length ? (
