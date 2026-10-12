@@ -173,6 +173,7 @@ function GateController() {
       <Stack.Screen name="hr/swap" />
       <Stack.Screen name="hr/month" />
       <Stack.Screen name="hr/payslip" />
+      <Stack.Screen name="hr/payslip-view" options={{ presentation: 'card' }} />
       <Stack.Screen name="storage" />
       <Stack.Screen name="admin" />
       <Stack.Screen name="view-as" options={{ presentation: 'modal' }} />

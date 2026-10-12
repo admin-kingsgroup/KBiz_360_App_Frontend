@@ -142,33 +142,31 @@ export interface MyAttendanceMonth {
 export const getMyAttendanceMonth = (month?: string): Promise<MyAttendanceMonth> =>
   apiFetch(`/api/hr/my-attendance${month ? `?month=${month}` : ''}`);
 
-// ── My Payslip (the salary register's own arithmetic, shown to its owner; indicative) ──
-export interface Payslip {
-  month: string;
-  hasRecord: boolean;
-  structured: boolean; // false = no salary structure keyed on the HR record
-  indicative: true;
-  employee: { name: string; empCode: string; designation: string; branch: string };
-  days: {
-    calendarDays: number; absentDays: number; leaveDays: number; notEmployedDays: number;
-    lateMarks: number; noDataDays: number; payableDays: number; presentDays: number; lopDays: number;
-  };
-  salary: { basic: number; hra: number; otherAllowance: number; gross: number };
-  earned: { basic: number; hra: number; otherAllowance: number; total: number };
-  deductions: {
-    pt: number; ptNote: string; tds: number;
-    loanRecovered: number; loanShortfall: number;
-    loanLines: { id: string; kind: string; reference: string; instalment: number; due: number; closing: number; instalmentNo: number; willClose: boolean }[];
-    total: number;
-  };
-  netPay: number;
-  lopAmount: number;
-  leaveBalance: LeaveBalance | null;
-  payMode: string;
+// ── My Payslip (owner, 2026-10-12): the ERP's OWN payslip, released months only ──
+// A month is listed only once that salary is paid in full on the ERP; the payslip itself is Books'
+// own page (the Salary Register's print), opened in a WebView from a 15-minute signed link.
+export interface PayslipMonth {
+  month: string; // 'YYYY-MM'
+  label: string; // 'September 2026'
+  branch: string;
+  net: number;
+  currency: string; // '' when the ERP has none on the slip
+  vno: string; // the salary voucher ('' for a month recorded as paid by hand)
+  paidOn: string; // 'YYYY-MM-DD' | ''
+  source: 'paid' | 'history' | 'run';
 }
 
-export const getMyPayslip = (month?: string): Promise<Payslip> =>
-  apiFetch(`/api/hr/my-payslip${month ? `?month=${month}` : ''}`);
+export interface PayslipLink {
+  url: string;
+  expiresAt: string; // ISO — the link lasts 15 minutes
+  month: string;
+  label: string;
+}
+
+export const getPayslips = (): Promise<{ months: PayslipMonth[] }> => apiFetch('/api/hr/payslips');
+/** 403 PAYSLIP-NOT-RELEASED (with the ERP's sentence) until that month's salary is paid. */
+export const getPayslipLink = (month: string): Promise<PayslipLink> =>
+  apiFetch(`/api/hr/payslips/${encodeURIComponent(month)}/link`);
 
 // ── Holiday list for the caller's branch country ──
 export interface HolidayRow { date: string; name: string; kind: 'closed' | 'optional'; movable: boolean; weekday: string }
