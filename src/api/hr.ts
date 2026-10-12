@@ -37,6 +37,9 @@ export interface LeaveApplication {
   decisionNote: string;
   markedDays: string[]; // days the ERP approval actually wrote as paid leave
   skippedDays: { day: string; reason: string }[];
+  /** The ERP row's kind. The paid-leave trail is 'leave' (absent on an older server); work from home
+   *  and Saturday swaps share the ERP's collection but have their own screens. */
+  kind?: 'leave' | 'time' | 'cancel' | 'wfh' | 'swap';
 }
 
 export interface MyLeave {
@@ -99,6 +102,11 @@ export interface MonthDay {
   markedAbsent: boolean;
   late: boolean;
   lateMinutes: number | null;
+  /** An approved work-from-home day: state 'present', no punch needed (absent on an older server). */
+  wfh?: boolean;
+  /** A Saturday swap moved this day: 'work' = their week off became a working day, 'off' = a
+   *  working Saturday became their week off. '' / absent = no swap. */
+  swap?: '' | 'work' | 'off';
 }
 
 export interface MonthSummary {
@@ -106,6 +114,10 @@ export interface MonthSummary {
   holidays: number; weekOffs: number; future: number; notEmployed: number; noData: number; halfLeaves: number;
   hoursTotal: number; avgHours: number; autoClosed: number; adjusted: number; stillOpen: number;
   lateMarks: number; workedOnHoliday: number; workedOnWeekOff: number; granted: number;
+  /** Present days worked from home — already INSIDE `present`. */
+  wfh?: number;
+  /** Days a Saturday swap moved this month. */
+  swapped?: number;
 }
 
 export interface MyAttendanceMonth {
@@ -186,3 +198,81 @@ export const getRegularizationsForAdmin = (status: 'pending' | 'approved' | 'rej
   apiFetch(`/api/hr/regularizations/pending?status=${status}`);
 export const decideRegularization = (id: string, action: 'approve' | 'reject', note?: string): Promise<Regularization> =>
   apiFetch(`/api/hr/regularizations/${id}/decision`, { method: 'PUT', body: { action, ...(note ? { note } : {}) } });
+
+// ── Work from home (owner, 2026-10-12) ──
+// An approved WFH day counts as a full PRESENT day with no check-in needed, shown "WFH". It is not
+// drawn from the leave balance. Signed like leave on the ERP: FM → Director → Owner.
+export interface WfhApplication {
+  id: string;
+  from: string; // 'YYYY-MM-DD'
+  to: string;
+  days: number; // calendar days in the span
+  reason: string;
+  status: LeaveStatus;
+  appliedAt: string;
+  decidedAt: string | null;
+  decisionNote: string;
+  decidedRole: string;
+  markedDays: string[]; // working days the approval wrote as WFH
+  skippedDays: { day: string; reason: string }[];
+  waitingOn: string; // '' unless pending, e.g. 'Review (FM)'
+  signedBy: string[]; // levels already signed, e.g. ['FM', 'Director']
+}
+
+export const getMyWfh = (): Promise<{ applications: WfhApplication[] }> => apiFetch('/api/hr/wfh');
+export const applyWfh = (body: { from: string; to: string; reason: string }): Promise<WfhApplication> =>
+  apiFetch('/api/hr/wfh', { method: 'POST', body });
+export const cancelWfh = (id: string): Promise<WfhApplication> =>
+  apiFetch(`/api/hr/wfh/${id}/cancel`, { method: 'PUT' });
+
+// ── Saturday swap (owner, 2026-10-12) ──
+// Staff on alternate Saturdays exchange two Saturdays: the applicant WORKS `workDay` (their own week
+// off) and takes `offDay` (one of their working Saturdays) off; the partner does the opposite. The
+// partner accepts in the app first, then the leave chain FM → Director → Owner signs it on the ERP.
+export type SwapPartnerStatus = 'pending' | 'accepted' | 'declined';
+export interface SwapPerson { userId: string; name: string }
+export interface SwapRequest {
+  id: string;
+  role: 'applicant' | 'partner'; // the viewer's side
+  workDay: string; // applicant works it, partner is off
+  offDay: string; // applicant is off, partner works it
+  applicant: SwapPerson;
+  partner: SwapPerson;
+  partnerStatus: SwapPartnerStatus;
+  partnerAt: string | null;
+  partnerNote: string;
+  reason: string;
+  status: LeaveStatus;
+  appliedAt: string;
+  decidedAt: string | null;
+  decisionNote: string;
+  decidedRole: string; // 'Partner' when the partner declined
+  waitingOn: string; // e.g. 'Bilal Khan (swap partner)' / 'Review (FM)' / ''
+  signedBy: string[];
+  /** The viewer's own days: applicant → { work: workDay, off: offDay }; partner → { work: offDay, off: workDay }. */
+  you: { work: string; off: string };
+}
+/** One upcoming Saturday for the viewer: `off` = their week off as it stands; `busy` = why it can't be swapped ('' = free). */
+export interface SwapSaturday { day: string; off: boolean; busy: string }
+export interface SwapOptions {
+  today: string;
+  hasRecord: boolean;
+  saturdays: 'none' | 'all' | 'odd' | 'even';
+  canSwap: boolean;
+  why: string; // set when canSwap is false
+  upcoming: SwapSaturday[]; // the next 12 Saturdays from today (today included)
+}
+export interface SwapPartner { userId: string; name: string; position: string }
+
+export const getSwaps = (): Promise<{ mine: SwapRequest[]; incoming: SwapRequest[] }> => apiFetch('/api/hr/swaps');
+export const getSwapOptions = (): Promise<SwapOptions> => apiFetch('/api/hr/swaps/options');
+export const getSwapPartners = (workDay: string, offDay: string): Promise<{ partners: SwapPartner[] }> =>
+  apiFetch(`/api/hr/swaps/partners?workDay=${encodeURIComponent(workDay)}&offDay=${encodeURIComponent(offDay)}`);
+export const requestSwap = (body: { workDay: string; offDay: string; partnerUserId: string; reason: string }): Promise<SwapRequest> =>
+  apiFetch('/api/hr/swaps', { method: 'POST', body });
+/** Partner only, while pending. A decline needs no note but may carry one. */
+export const respondSwap = (id: string, accept: boolean, note?: string): Promise<SwapRequest> =>
+  apiFetch(`/api/hr/swaps/${id}/respond`, { method: 'PUT', body: { accept, ...(note ? { note } : {}) } });
+/** Applicant only, while pending. */
+export const cancelSwap = (id: string): Promise<SwapRequest> =>
+  apiFetch(`/api/hr/swaps/${id}/cancel`, { method: 'PUT' });

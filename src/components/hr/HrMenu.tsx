@@ -2,10 +2,10 @@ import { memo, useState } from 'react';
 import { View, Text, Pressable, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
-import { Menu, LayoutGrid, Clock, Palmtree, CalendarDays, ReceiptIndianRupee, Check, type LucideIcon } from 'lucide-react-native';
+import { Menu, LayoutGrid, Clock, Palmtree, CalendarDays, ReceiptIndianRupee, Check, HouseWifi, ArrowLeftRight, type LucideIcon } from 'lucide-react-native';
 import { colors } from '../../theme';
 
-export type HrPage = 'home' | 'attendance' | 'leave' | 'month' | 'payslip';
+export type HrPage = 'home' | 'attendance' | 'leave' | 'wfh' | 'swap' | 'month' | 'payslip';
 
 interface HrMenuItem { key: HrPage; label: string; sub: string; Icon: LucideIcon; tint: string; href: Href }
 
@@ -13,6 +13,8 @@ interface HrMenuItem { key: HrPage; label: string; sub: string; Icon: LucideIcon
 export const HR_PAGES: HrMenuItem[] = [
   { key: 'attendance', label: 'Attendance', sub: 'Check in/out & team status', Icon: Clock, tint: colors.primary, href: '/attendance' },
   { key: 'leave', label: 'Paid leave', sub: 'Balance & leave applications', Icon: Palmtree, tint: colors.teal, href: '/hr/leave' },
+  { key: 'wfh', label: 'Work from home', sub: 'Apply · counts as present', Icon: HouseWifi, tint: colors.wfh, href: '/hr/wfh' },
+  { key: 'swap', label: 'Swap Saturday', sub: 'Trade a Saturday off', Icon: ArrowLeftRight, tint: colors.swap, href: '/hr/swap' },
   { key: 'month', label: 'My Attendance', sub: 'Month calendar & holiday list', Icon: CalendarDays, tint: colors.blue, href: '/hr/month' },
   { key: 'payslip', label: 'My Payslip', sub: 'Monthly earnings & deductions', Icon: ReceiptIndianRupee, tint: colors.purple, href: '/hr/payslip' },
 ];

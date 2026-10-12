@@ -58,6 +58,13 @@ export interface ErpLeaveApplication {
   // The approval chain (FM → Director → Owner) and who has signed it — drives the ticks.
   chain?: Array<{ order?: number; role: string; label?: string }>;
   approvals?: Array<{ role: string; by?: string; at?: string | null; skipped?: boolean }>;
+  /** kind 'swap' only: the two Saturdays and the partner, who must accept in the app before anyone signs. */
+  swap?: ErpLeaveSwap | null;
+}
+/** A Saturday swap on the ERP's HR list: the applicant works `workDay` and is off `offDay`; the partner the opposite. */
+export interface ErpLeaveSwap {
+  workDay: string; offDay: string;
+  partner?: { userId?: string; name?: string; branch?: string; status?: 'pending' | 'accepted' | 'declined'; at?: string | null; note?: string };
 }
 export interface ErpCreditRequest {
   id: string; status: string; op?: string; kind?: string; branch?: string; name?: string; counterparty?: string;

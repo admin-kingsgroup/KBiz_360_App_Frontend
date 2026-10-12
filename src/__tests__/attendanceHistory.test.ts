@@ -39,4 +39,40 @@ describe('historyDayView', () => {
   it('the server state wins over the Sunday guess: a working Sunday is a real absence', () => {
     expect(historyDayView({ date: '2026-10-04', inTime: null, state: 'absent', weekOff: false })).toMatchObject({ kind: 'absent', canAsk: true });
   });
+
+  // Owner 2026-10-12: work from home counts as present with no punch.
+  it('an approved WFH day reads WFH, counts as present and offers no Ask', () => {
+    expect(historyDayView({ date: '2026-10-13', inTime: null, state: 'present', wfh: true }))
+      .toEqual({ kind: 'wfh', note: 'Work from home · approved', badge: 'WFH', canAsk: false });
+  });
+
+  it('a WFH day somebody punched anyway is an ordinary present day', () => {
+    expect(historyDayView({ date: '2026-10-13', inTime: '2026-10-13T05:00:00.000Z', state: 'present', wfh: false })).toMatchObject({ kind: 'present', badge: 'PRESENT', canAsk: true });
+  });
+
+  it('wfh never overrides a non-present state (the server would not send it, but stay safe)', () => {
+    expect(historyDayView({ date: '2026-10-13', inTime: null, state: 'holiday', wfh: true, holidayName: 'Diwali' })).toMatchObject({ kind: 'holiday' });
+  });
+
+  // Owner 2026-10-12: Saturday swap.
+  it("a swapped-off Saturday is a week off that says it's a swap", () => {
+    expect(historyDayView({ date: '2026-10-17', inTime: null, state: 'weekOff', weekOff: true, swap: 'off' }))
+      .toEqual({ kind: 'weekOff', note: 'Week off · Saturday swap', badge: 'WEEK OFF', canAsk: false });
+    // no state (older server / failed HR read) but the flag says off
+    expect(historyDayView({ date: '2026-10-17', inTime: null, weekOff: true, swap: 'off' })).toMatchObject({ kind: 'weekOff', note: 'Week off · Saturday swap' });
+  });
+
+  it('a swapped-in working Saturday with no punch is a real absence (Ask stays)', () => {
+    expect(historyDayView({ date: '2026-10-24', inTime: null, state: 'absent', weekOff: false, swap: 'work' }))
+      .toEqual({ kind: 'absent', note: 'Absent · swapped Saturday', badge: 'ABSENT', canAsk: true });
+  });
+
+  it('a swapped-in working Saturday that was punched is present and may be corrected', () => {
+    expect(historyDayView({ date: '2026-10-24', inTime: '2026-10-24T05:00:00.000Z', state: 'present', weekOff: false, swap: 'work' })).toMatchObject({ kind: 'present', note: '', canAsk: true });
+  });
+
+  it('leave or an upcoming day on a swapped-in Saturday says so', () => {
+    expect(historyDayView({ date: '2026-10-24', inTime: null, state: 'leave', swap: 'work' })).toMatchObject({ kind: 'leave', note: 'Paid leave · swapped Saturday' });
+    expect(historyDayView({ date: '2026-10-24', inTime: null, state: 'future', swap: 'work' })).toMatchObject({ kind: 'future', note: 'Upcoming · swapped Saturday' });
+  });
 });

@@ -59,6 +59,8 @@ export interface AttendanceHistoryEntry {
   state?: 'present' | 'absent' | 'holiday' | 'weekOff' | 'leave' | 'future' | 'notEmployed' | 'noData';
   holidayName?: string | null;
   halfLeave?: boolean;
+  wfh?: boolean;            // an approved work-from-home day (state 'present', no punch needed)
+  swap?: '' | 'work' | 'off'; // a Saturday swap moved this day ('off' → week off, 'work' → a working day)
 }
 
 // Admin: one office geofence within a branch.
