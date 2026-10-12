@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -199,5 +199,35 @@ describe('HR tab: work from home and Saturday swap (owner, 2026-10-12)', () => {
       partner: 'Partner Bilal Khan · BOM — has not accepted yet',
     });
     expect(swapCardLines({ name: 'Asha', swap: null }, (d) => d)).toBeNull();
+  });
+});
+
+describe('the Owner approves at every level (owner, 2026-10-12)', () => {
+  const pastBoth = { allowed: true, past: ['Review (FM)', 'Confirm (Director)'], final: true };
+  it('the Owner may approve while the FM and the Director have not signed; anyone else only in their turn', () => {
+    expect(mayApproveLeave(pastBoth, 'Owner')).toBe(true);
+    expect(mayApproveLeave(pastBoth, 'Super Admin')).toBe(true);
+    expect(mayApproveLeave(pastBoth, 'Director')).toBe(false);
+    expect(mayApproveLeave({ allowed: true, past: [] }, 'Finance Manager')).toBe(true);
+  });
+  it('never where the ERP refuses — a swap its partner has not accepted', () => {
+    expect(mayApproveLeave({ allowed: false, why: 'Bilal has not accepted this swap yet' }, 'Owner')).toBe(false);
+    expect(mayApproveLeave(undefined, 'Owner')).toBe(false);
+  });
+  it('the levels the Owner signs past, and the confirm that says so', () => {
+    expect(ownerSignsPast(pastBoth.past, 'Owner')).toEqual(['Review (FM)', 'Confirm (Director)']);
+    expect(ownerSignsPast(pastBoth.past, 'Director')).toEqual([]);
+    expect(ownerSignsPast([], 'Owner')).toEqual([]);
+    expect(ownerApproveText(['Review (FM)', 'Confirm (Director)'], 'leave')).toEqual({
+      title: 'Approve for every level?',
+      body: 'Review (FM) and Confirm (Director) have not signed. Your approval signs for them — the leave is approved at every level.',
+    });
+    expect(ownerApproveText(['Review (FM)'], 'payment request').body).toBe('Review (FM) has not signed. Your approval signs for it — the payment request is approved at every level.');
+  });
+  it('the reason the ERP records for the levels signed past', () => {
+    expect(OWNER_ALL_LEVELS_REASON).toBe('Approved by the Owner for every level (Smart Connect app)');
+    expect(isOwnerRole('owner')).toBe(true);
+    expect(isOwnerRole('super_admin')).toBe(true);
+    expect(isOwnerRole('Director')).toBe(false);
   });
 });

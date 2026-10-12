@@ -163,6 +163,39 @@ export function mayApproveLeaveNow(turn: { allowed?: boolean; past?: string[]; w
   return !!turn?.allowed && !(turn.past && turn.past.length);
 }
 
+// ── The Owner approves at every level (owner, 2026-10-12) ──
+// "Give the Owner the option, always: if the FM and the Director have not approved, the Owner can still approve — and
+// the Owner's approval counts for all three." The ERP already lets the Owner sign past the levels that have not signed
+// (LEAVE-GATE-02 / CRED-GATE-03 — recorded on the request as signed past BY THE OWNER, with the reason); the app sends
+// that reason itself, so the Owner's one tap approves the request outright. Everyone else still signs in their own turn.
+
+/** The reason the ERP records on the levels the Owner signs past from the app. */
+export const OWNER_ALL_LEVELS_REASON = 'Approved by the Owner for every level (Smart Connect app)';
+
+/** Is this ERP role the chain's last level — the Owner (a Super Admin signs as the Owner)? */
+export const isOwnerRole = (role: string | undefined): boolean => /^(owner|super\s*_?admin)$/i.test(String(role || '').trim());
+
+/** Approve on an HR request: in the viewer's own turn — or, for the Owner, whenever the ERP lets them sign at all
+ *  (it then signs past the FM / Director who have not). A swap its partner has not accepted is never allowed. */
+export function mayApproveLeave(turn: { allowed?: boolean; past?: string[]; why?: string; final?: boolean } | undefined, role: string | undefined): boolean {
+  return mayApproveLeaveNow(turn) || (isOwnerRole(role) && !!turn?.allowed);
+}
+
+/** The levels an Owner's approval signs past ([] in the Owner's own turn, or for anyone else). */
+export function ownerSignsPast(past: string[] | undefined, role: string | undefined): string[] {
+  return isOwnerRole(role) ? (past ?? []).map((p) => erpText(p)).filter(Boolean) : [];
+}
+
+/** The confirm before the Owner approves past the levels that have not signed — "Review (FM) and Confirm (Director)
+ *  have not signed …". */
+export function ownerApproveText(past: string[], what: string): { title: string; body: string } {
+  const who = past.length > 1 ? `${past.slice(0, -1).join(', ')} and ${past[past.length - 1]}` : past[0] || '';
+  return {
+    title: 'Approve for every level?',
+    body: `${who} ${past.length > 1 ? 'have' : 'has'} not signed. Your approval signs for ${past.length > 1 ? 'them' : 'it'} — the ${what} is approved at every level.`,
+  };
+}
+
 /** The ERP's "why not" text, minus the plain "not your turn" — the red "Waiting on …" says that. */
 export function leaveTurnNote(turn: { allowed?: boolean; why?: string } | undefined): string {
   if (!turn || turn.allowed) return '';
