@@ -6,7 +6,7 @@ import {
   erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpLeaveApplication, type ErpMe, type ErpPaymentRequestRow,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, money, swapAwaitingPartner, swapCardLines, swapHoldNote,
+  ALL_BRANCHES, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, money, swapAwaitingPartner, swapCardLines, swapHoldNote,
   type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
@@ -119,6 +119,12 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
   const actOnPayment = (cr: ErpChangeRequest, action: 'approve' | 'reject' | 'send_back') => {
     if (action === 'approve') {
       const past = signPastLevels(cr, me.role);
+      // The Owner approves for every level at once — no reason to type (owner, 2026-10-12).
+      if (past.length && isOwnerRole(me.role)) {
+        const c = ownerApproveText(past, 'payment request');
+        Alert.alert(c.title, c.body, [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => void act(cr._id, () => erpApi.actChangeRequest(cr._id, 'approve', OWNER_ALL_LEVELS_REASON, ''), 'Payment request approved at every level') }]);
+        return;
+      }
       if (past.length) {
         setAsking({
           title: `${past.join(' and ')} ${past.length > 1 ? 'have' : 'has'} not signed`,
@@ -137,6 +143,18 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
     setAsking(action === 'reject'
       ? { title: 'Reject payment request', placeholder: 'Reason for rejection', cta: 'Reject', run: (reason) => erpApi.actChangeRequest(cr._id, 'reject', reason, '') }
       : { title: 'Send back', placeholder: 'What should the maker correct?', cta: 'Send back', run: (reason) => erpApi.actChangeRequest(cr._id, 'send_back', reason, '') });
+  };
+  /* A request on the Requests / HR tabs. The Owner signing past the levels that have not signed confirms once and the
+     app gives the ERP its reason (owner, 2026-10-12); everyone else approves in their own turn, as before. */
+  const approveRequest = (r: ErpChangeRequest, confirm: boolean) => {
+    const past = isOwnerRole(me.role) ? signPastLevels(r, me.role) : [];
+    if (past.length) {
+      const c = ownerApproveText(past, 'request');
+      Alert.alert(c.title, c.body, [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => void act(r._id, () => erpApi.actChangeRequest(r._id, 'approve', OWNER_ALL_LEVELS_REASON, r.branch), 'Request approved at every level') }]);
+      return;
+    }
+    if (!confirm) { void act(r._id, () => erpApi.actChangeRequest(r._id, 'approve', '', r.branch), 'Request approved'); return; }
+    Alert.alert('Approve this request?', prettyType(r.type), [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => void act(r._id, () => erpApi.actChangeRequest(r._id, 'approve', '', r.branch), 'Request approved') }]);
   };
   const rerun = (cr: ErpChangeRequest) => Alert.alert('Re-run this change?', 'It was approved already — this applies it, and decides nothing.', [
     { text: 'Cancel', style: 'cancel' },
@@ -272,7 +290,7 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
             {requests.length === 0 && !crs.refused && !crs.error ? <Text style={st.empty}>No requests are waiting.</Text> : null}
             {requests.map((r) => <RequestRow key={r._id} r={r} busy={busy === r._id} onAct={(action) => {
               if (action === 'approve') {
-                Alert.alert('Approve this request?', prettyType(r.type), [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => void act(r._id, () => erpApi.actChangeRequest(r._id, 'approve', '', r.branch), 'Request approved') }]);
+                approveRequest(r, true);
               } else {
                 setAsking({ title: action === 'reject' ? 'Reject request' : 'Send back', cta: action === 'reject' ? 'Reject' : 'Send back', run: (reason) => erpApi.actChangeRequest(r._id, action, reason, r.branch) });
               }
@@ -290,8 +308,10 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
               // (owner, 2026-10-12): Approve shows disabled, with the ERP's reason.
               const swapHold = swapAwaitingPartner(a);
               const swapLines = a.kind === 'swap' ? swapCardLines(a, day) : null;
-              // One level at a time (owner, 2026-10-08): Approve only on the viewer's own turn.
-              const myTurn = mayApproveLeaveNow(a.turn) && !swapHold;
+              // One level at a time (owner, 2026-10-08): Approve only on the viewer's own turn — except the Owner,
+              // who may approve at once, signing past the FM / Director who have not (owner, 2026-10-12).
+              const myTurn = mayApproveLeave(a.turn, me.role) && !swapHold;
+              const ownerPast = ownerSignsPast(a.turn?.past, me.role);
               const steps = leaveChainSteps(a.chain, a.approvals);
               const note = swapHoldNote(a) || leaveTurnNote(a.turn);
               return (
@@ -322,14 +342,18 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
                   {note ? <Text style={[st.rowSub, { color: colors.orange }]}>{note}</Text> : null}
                   <View style={st.actions}>
                     {a.canReject !== false ? <ActionButton label="Reject" tone="danger" disabled={!!busy} onPress={() => setAsking({ title: `Reject ${a.kind === 'swap' ? 'Saturday swap' : kind.toLowerCase()}`, cta: 'Reject', run: (n) => erpApi.decideLeave(a.id, 'reject', n) })} /> : null}
-                    {myTurn ? <ActionButton label="Approve" disabled={!!busy} busy={busy === a.id} onPress={() => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`)} /> : null}
+                    {myTurn ? <ActionButton label="Approve" disabled={!!busy} busy={busy === a.id} onPress={() => {
+                      if (!ownerPast.length) { void act(a.id, () => erpApi.decideLeave(a.id, 'approve', ''), `${kind} approved`); return; }
+                      const c = ownerApproveText(ownerPast, a.kind === 'swap' ? 'Saturday swap' : kind.toLowerCase());
+                      Alert.alert(c.title, c.body, [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => void act(a.id, () => erpApi.decideLeave(a.id, 'approve', OWNER_ALL_LEVELS_REASON), `${kind} approved at every level`) }]);
+                    }} /> : null}
                     {swapHold ? <ActionButton label="Approve" disabled onPress={() => undefined} /> : null}
                   </View>
                 </View>
               );
             })}
             {hrRequests.map((r) => <RequestRow key={r._id} r={r} busy={busy === r._id} onAct={(action) => {
-              if (action === 'approve') void act(r._id, () => erpApi.actChangeRequest(r._id, 'approve', '', r.branch), 'Request approved');
+              if (action === 'approve') approveRequest(r, false);
               else setAsking({ title: action === 'reject' ? 'Reject request' : 'Send back', cta: action === 'reject' ? 'Reject' : 'Send back', run: (reason) => erpApi.actChangeRequest(r._id, action, reason, r.branch) });
             }} />)}
           </>
