@@ -38,8 +38,12 @@ const dateLabel = (key: string): string => {
   const yest = new Date(today); yest.setDate(today.getDate() - 1);
   if (d.getTime() === today.getTime()) return 'Today';
   if (d.getTime() === yest.getTime()) return 'Yesterday';
-  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+  // Older pages of My History cross year ends — say the year once it is not this one.
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) });
 };
+// My History reaches back this many days, and "Show older days" adds as many again — a correction
+// may be asked for any past day (owner 2026-10-12: no 30-day limit).
+const HISTORY_PAGE_DAYS = 30;
 
 // Attendance — owner rules 07-31: the Check in / Check out button is enabled ONLY while a live
 // GPS fix places the device inside the office geofence (default 100 m). Tapping it opens the
@@ -63,6 +67,8 @@ export default function Attendance() {
   const [teamDate, setTeamDate] = useState(todayKey()); // day shown on the admin team tab
   const [branchFilter, setBranchFilter] = useState<string>('all'); // branchId shown on the team tab ('all' = every branch, grouped)
   const [history, setHistory] = useState<AttendanceHistoryEntry[]>([]);
+  const [historyDays, setHistoryDays] = useState(HISTORY_PAGE_DAYS); // how far back My History reaches (reloads keep it)
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [userHistory, setUserHistory] = useState<AttendanceHistoryEntry[] | null>(null); // selected teammate's recent days (admin modal)
   const [adminOffices, setAdminOffices] = useState<AdminBranchOffices[]>([]); // for the super-admin reassign picker
   const [reassign, setReassign] = useState<TeamAttendanceEntry | null>(null);
@@ -152,7 +158,7 @@ export default function Attendance() {
         void syncLocationTrail(m);
         useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
       }),
-      getAttendanceHistory().then(setHistory),
+      getAttendanceHistory(historyDays).then(setHistory),
       getOffices().then(setOffices), // office geofences — drive the 100 m button gate
       ...(isSuper ? [getAdminOffices().then(setAdminOffices)] : []), // offices for the reassign picker
     ];
@@ -280,6 +286,17 @@ export default function Attendance() {
       .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not send the request'))
       .finally(() => setSendingReg(false));
   });
+  // One more page of My History. The server stops at the first-ever punch, so a reply shorter than
+  // the reach asked for means there is nothing older (hasOlderHistory below).
+  const showOlderHistory = useEventCallback((): void => {
+    const days = historyDays + HISTORY_PAGE_DAYS;
+    setLoadingOlder(true);
+    getAttendanceHistory(days)
+      .then((h) => { setHistory(h); setHistoryDays(days); })
+      .catch((e) => showToast(e instanceof ApiError ? e.message : 'Could not load older days'))
+      .finally(() => setLoadingOlder(false));
+  });
+  const hasOlderHistory = history.length >= historyDays;
   const openRegularize = useCallback((e: AttendanceHistoryEntry): void =>
     setRegTarget({ date: e.date, inTime: e.inTime, outTime: e.outTime, via: e.via }), []);
   // Day keys with a PENDING request — those history rows show the state instead of the fix button.
@@ -304,7 +321,7 @@ export default function Attendance() {
       // the OS lets it start); check-out stops it and sends what is still queued.
       void syncLocationTrail(m);
       useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
-      getAttendanceHistory().then(setHistory).catch(() => undefined);
+      getAttendanceHistory(historyDays).then(setHistory).catch(() => undefined);
       showToast(kind === 'in' ? `Checked in · ${fmt(m.inTime ? new Date(m.inTime) : null)}` : `Checked out · ${fmt(m.outTime ? new Date(m.outTime) : null)}`);
     } catch (e) {
       try {
@@ -413,7 +430,7 @@ export default function Attendance() {
               Attendance is automatic for your account — you are checked in when you arrive at the office and checked out when you leave.
             </Text>
             <LeaveCard balance={leaveBalanceText} sub={leaveSubText} onPress={openLeave} />
-            <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} />
+            <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} hasOlder={hasOlderHistory} loadingOlder={loadingOlder} onShowOlder={showOlderHistory} />
           </>
         ) : (
           <>
@@ -421,7 +438,7 @@ export default function Attendance() {
             <StatusCard statusText={statusText} statusColor={statusColor} punchedVia={punchedVia} inText={inText} outText={outText} />
             <PunchCard hasIn={!!inTime} hasOut={!!outTime} canPunch={canPunch} inRange={!!nearest?.within || offices.length === 0} punching={punching} locationSub={locationSub} needsLocation={geoState === 'denied'} onPunch={punchNow} onEnableLocation={enableLocation} />
             <LeaveCard balance={leaveBalanceText} sub={leaveSubText} onPress={openLeave} />
-            <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} />
+            <HistorySection history={history} pendingDays={pendingRegDays} onRegularize={openRegularize} onMonthView={openMonthView} hasOlder={hasOlderHistory} loadingOlder={loadingOlder} onShowOlder={showOlderHistory} />
           </>
         )}
       </ScrollView>
@@ -636,7 +653,7 @@ const ApprovalsRow = memo(function ApprovalsRow({ n, onPress }: { n: number; onP
 
 // Storage note + my recent days. Repaints only when the history list / pending-request set
 // changes (pendingDays is a useMemo'd Set — stable between unrelated renders).
-const HistorySection = memo(function HistorySection({ history, pendingDays, onRegularize, onMonthView }: { history: AttendanceHistoryEntry[]; pendingDays: Set<string>; onRegularize: (e: AttendanceHistoryEntry) => void; onMonthView: () => void }) {
+const HistorySection = memo(function HistorySection({ history, pendingDays, onRegularize, onMonthView, hasOlder, loadingOlder, onShowOlder }: { history: AttendanceHistoryEntry[]; pendingDays: Set<string>; onRegularize: (e: AttendanceHistoryEntry) => void; onMonthView: () => void; hasOlder: boolean; loadingOlder: boolean; onShowOlder: () => void }) {
   return (
     <>
       <Text style={{ color: colors.coolText, fontSize: 12, textAlign: 'center', marginBottom: 16, paddingHorizontal: 12 }}>Only time, date & method are stored. Payroll & rules run in your Accounts software.</Text>
@@ -681,6 +698,12 @@ const HistorySection = memo(function HistorySection({ history, pendingDays, onRe
             </View>
           );
         })}
+        {/* No look-back limit on a correction — page back to the day that needs one. */}
+        {hasOlder ? (
+          <Pressable onPress={onShowOlder} disabled={loadingOlder} accessibilityRole="button" accessibilityLabel="Show older days" style={{ alignItems: 'center', justifyContent: 'center', minHeight: 44 }}>
+            {loadingOlder ? <ActivityIndicator size="small" color={colors.primary} /> : <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>Show older days</Text>}
+          </Pressable>
+        ) : null}
       </View>
     </>
   );
