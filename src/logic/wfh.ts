@@ -28,6 +28,9 @@ export function waitingLine(r: { status: string; waitingOn?: string; signedBy?: 
 }
 
 /** The decision line under a WFH application ('' while pending). */
+/** The chain level that rejected it, as people say it. */
+const ROLE_SHORT: Record<string, string> = { FinanceManager: 'FM', Director: 'Director', Owner: 'Owner' };
+
 export function wfhDecisionLine(a: Pick<WfhApplication, 'status' | 'decisionNote' | 'decidedRole' | 'markedDays' | 'skippedDays'>): string {
   if (a.status === 'approved') {
     const skipped = a.skippedDays ?? [];
@@ -35,7 +38,7 @@ export function wfhDecisionLine(a: Pick<WfhApplication, 'status' | 'decisionNote
     return `Approved · ${plural(marked.length, 'day')} marked WFH${skipped.length ? ` · ${skipped.length} skipped (${[...new Set(skipped.map((s) => s.reason))].join(', ')})` : ''}`;
   }
   if (a.status === 'rejected') {
-    const by = a.decidedRole ? ` by ${a.decidedRole}` : '';
+    const by = a.decidedRole ? ` by ${ROLE_SHORT[a.decidedRole] ?? a.decidedRole}` : '';
     return a.decisionNote ? `Rejected${by} — ${a.decisionNote}` : `Rejected${by}`;
   }
   if (a.status === 'cancelled') return 'Withdrawn';

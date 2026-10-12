@@ -98,7 +98,7 @@ describe('status chip and progress line', () => {
     expect(swapProgressLine(asPartner({ ...declined, partnerNote: '', decisionNote: 'Declined by Bilal Khan' }))).toBe('You declined');
   });
   it('rejected by a level of the chain', () => {
-    const r = swap({ status: 'rejected', partnerStatus: 'accepted', decidedRole: 'FM', decisionNote: 'Audit that Saturday' });
+    const r = swap({ status: 'rejected', partnerStatus: 'accepted', decidedRole: 'FinanceManager', decisionNote: 'Audit that Saturday' });
     expect(swapStatus(r)).toEqual({ label: 'Rejected', tone: 'rejected' });
     expect(swapProgressLine(r)).toBe('Rejected by FM — Audit that Saturday');
   });

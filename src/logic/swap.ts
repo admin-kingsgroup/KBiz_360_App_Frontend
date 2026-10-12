@@ -8,6 +8,8 @@ import { dayLabel } from './leave';
 // decides every rule; these only decide what to show and which Saturdays to offer.
 
 type Fmt = (day: string) => string;
+/** The chain level that rejected it, as people say it. */
+const ROLE_SHORT: Record<string, string> = { FinanceManager: 'FM', Director: 'Director', Owner: 'Owner' };
 
 /** One Saturday in a picker: whether it can be chosen, and why not ('' when it can). */
 export interface SaturdayChoice { day: string; enabled: boolean; note: string }
@@ -90,7 +92,7 @@ export function swapProgressLine(r: Pick<SwapRequest, 'role' | 'applicant' | 'pa
     const who = r.role === 'partner' ? 'You declined' : `${other} declined`;
     return note ? `${who} — ${note}` : who;
   }
-  const by = r.decidedRole ? ` by ${r.decidedRole}` : '';
+  const by = r.decidedRole ? ` by ${ROLE_SHORT[r.decidedRole] ?? r.decidedRole}` : '';
   return r.decisionNote ? `Rejected${by} — ${r.decisionNote}` : `Rejected${by}`;
 }
 
