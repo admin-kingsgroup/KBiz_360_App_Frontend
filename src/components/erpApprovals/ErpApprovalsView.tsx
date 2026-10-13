@@ -6,13 +6,14 @@ import {
   erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpLeaveApplication, type ErpMe, type ErpPaymentRequestRow,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, money, swapAwaitingPartner, swapCardLines, swapHoldNote,
+  ALL_BRANCHES, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, swapAwaitingPartner, swapCardLines, swapHoldNote,
   type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
   RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, waitingLabel,
 } from '../../logic/erpPayables';
+import { creditApproveAsk, creditAsked, creditButtons, creditDoneText, creditOpLabel, creditState, creditSteps } from '../../logic/erpCredit';
 import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
@@ -21,8 +22,9 @@ import { colors } from '../../theme';
 // Approvals ▸ All approvals — Receivables, Payables, Requests, Credit, HR, Month Close. Entries is NOT here
 // (owner, 2026-10-09: "remove entries section from app"); Receivables and Payables joined the same day,
 // "with the same functionality as the ERP". Every read and action goes through the app's backend to the ERP
-// as this person; the ERP applies all of its rules and its refusal reason is shown as is. Credit and
-// Month Close are view-only here (the ERP signs those on their own screens).
+// as this person; the ERP applies all of its rules and its refusal reason is shown as is. Credit is signed
+// here as on the ERP's Approvals ▸ Credit (owner, 2026-10-13); Month Close stays view-only (the ERP signs it
+// on its own screen).
 
 type Tab = 'receivables' | 'payables' | 'requests' | 'credit' | 'hr' | 'close';
 const TABS: Array<{ key: Tab; label: string }> = [
@@ -163,6 +165,36 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
   const closeStuck = (cr: ErpChangeRequest) => setAsking({
     title: 'Close without applying', placeholder: 'Why? (e.g. duplicate, already paid)', cta: 'Close', done: 'Closed — nothing was changed',
     run: (reason) => erpApi.closeChangeRequest(cr._id, reason),
+  });
+
+  /* A credit request is signed as the ERP's Approvals ▸ Credit signs it (Books creditRequestsPanel): the ERP says per row
+     whose turn it is; Send back / Reject always ask why; Approve asks what creditApproveAsk says. A central act — no
+     acting branch, as for Payables. */
+  const actOnCredit = (c: ErpCreditRequest, action: 'approve' | 'reject' | 'send_back') => {
+    const name = erpText(c.name) || 'this request';
+    if (action !== 'approve') {
+      setAsking(action === 'reject'
+        ? { title: `Reject “${name}”`, placeholder: `Why is “${name}” rejected?`, cta: 'Reject', done: `${name} rejected`, run: (reason) => erpApi.actChangeRequest(c.id, 'reject', reason, '') }
+        : { title: 'Send back', placeholder: `What should the maker correct on “${name}”?`, cta: 'Send back', done: `${name} sent back`, run: (reason) => erpApi.actChangeRequest(c.id, 'send_back', reason, '') });
+      return;
+    }
+    const ask = creditApproveAsk(c);
+    const done = creditDoneText(c);
+    if (ask.kind === 'reason') {
+      setAsking({ title: ask.title, placeholder: ask.placeholder, cta: 'Approve', tone: 'primary', done, run: (reason) => erpApi.actChangeRequest(c.id, 'approve', reason, '') });
+      return;
+    }
+    // The Owner's sign-past carries the app's reason, so the ERP records where it was signed.
+    const reason = ask.ownerPast ? OWNER_ALL_LEVELS_REASON : '';
+    Alert.alert(ask.title, ask.body, [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => void act(c.id, () => erpApi.actChangeRequest(c.id, 'approve', reason, ''), done) }]);
+  };
+  const rerunCredit = (c: ErpCreditRequest) => Alert.alert(`Re-run “${erpText(c.name)}”?`, 'It is approved already — this makes the change, it decides nothing.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Re-run', onPress: () => void act(c.id, () => erpApi.retryChangeRequest(c.id), `${erpText(c.name) || 'Credit request'} applied`) },
+  ]);
+  const closeCredit = (c: ErpCreditRequest) => setAsking({
+    title: `Close “${erpText(c.name)}” without applying`, placeholder: 'Why? (e.g. already created)', cta: 'Close', done: `${erpText(c.name) || 'Credit request'} closed — nothing was changed`,
+    run: (reason) => erpApi.closeChangeRequest(c.id, reason),
   });
 
   const refusedNote = (what: string) => <Text style={st.empty}>{what} are not open to your ERP role.</Text>;
@@ -361,17 +393,10 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
 
         {!loading && tab === 'credit' ? (
           <>
-            <Text style={st.note}>Credit requests are signed in the ERP’s Credit Facility Management. They are listed here so you can see what waits on you.</Text>
+            <Text style={st.note}>FM reviews → Director confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
             {credit.refused ? refusedNote('Credit requests') : errorNote(credit.error)}
             {creditRows.length === 0 && !credit.refused && !credit.error ? <Text style={st.empty}>No credit requests are waiting.</Text> : null}
-            {creditRows.map((c) => (
-              <View key={c.id} style={st.card}>
-                <Text style={st.rowRef}>{erpText(c.name) || erpText(c.counterparty) || 'Credit line'}{c.branch ? ` · ${erpText(c.branch)}` : ''}</Text>
-                <Text style={st.rowTitle}>{prettyType(c.op || c.kind || 'Request')}{c.limit != null ? ` · ${money(c.limit, c.currency)}` : ''}{c.creditDays ? ` · ${c.creditDays} days` : ''}</Text>
-                {erpText(c.waitingFor) ? <Text style={st.rowSub}>Waiting for {erpText(c.waitingFor)}</Text> : null}
-                {c.yourTurn ? <Text style={[st.rowSub, { color: colors.primary, fontWeight: '700' }]}>Your turn to sign</Text> : null}
-              </View>
-            ))}
+            {creditRows.map((c) => <CreditCard key={c.id} c={c} busy={busy === c.id} anyBusy={!!busy} onAct={(a) => actOnCredit(c, a)} onRerun={() => rerunCredit(c)} onClose={() => closeCredit(c)} />)}
           </>
         ) : null}
 
@@ -451,6 +476,81 @@ function PaymentCard({ cr, me, busy, anyBusy, onAct }: { cr: ErpChangeRequest; m
           {!declineWhy ? <ActionButton label="Send back" tone="plain" disabled={anyBusy} onPress={() => onAct('send_back')} /> : null}
           {!declineWhy ? <ActionButton label="Reject" tone="danger" disabled={anyBusy} onPress={() => onAct('reject')} /> : null}
           {!approveWhy ? <ActionButton label="Approve" busy={busy} disabled={anyBusy} onPress={() => onAct('approve')} /> : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/* One credit request, as the ERP's Approvals ▸ Credit row shows it: the party, what is asked against what stands, who
+   raised it, the three steps — and the buttons the ERP would accept from this person, with its reason when Approve is off.
+   An approved one whose change did not go through offers Re-run / Close to the Owner / Super Admin (the ERP's canRetry). */
+function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCreditRequest; busy: boolean; anyBusy: boolean; onAct: (a: 'approve' | 'reject' | 'send_back') => void; onRerun: () => void; onClose: () => void }) {
+  const [open, setOpen] = useState(false);
+  const asked = creditAsked(c);
+  const steps = creditSteps(c);
+  const state = creditState(c);
+  const b = creditButtons(c);
+  const maker = typeof c.maker === 'string' ? c.maker : erpText(c.maker?.name) || erpText(c.maker?.userId);
+  const fields = c.details?.fields ?? [];
+  return (
+    <View style={st.card}>
+      <View style={st.cardHead}>
+        <Text style={[st.rowRef, { flexShrink: 1 }]}>{erpText(c.name) || erpText(c.counterparty) || 'Credit line'}{c.branch ? ` · ${erpText(c.branch)}` : ''}</Text>
+        <View style={st.tags}>
+          <View style={[st.tag, { backgroundColor: colors.coolMuted, borderColor: colors.coolDivider }]}><Text style={[st.tagText, { color: colors.coolText }]}>{erpText(c.kind) || creditOpLabel(c)}</Text></View>
+          {c.source === 'crm' ? <View style={[st.tag, { backgroundColor: '#EAF1FF', borderColor: '#C9DAFB' }]}><Text style={[st.tagText, { color: '#2457C5' }]}>From CRM</Text></View> : null}
+        </View>
+      </View>
+      <Text style={st.rowTitle}>
+        <Text>{creditOpLabel(c)}{c.counterparty && c.counterparty !== c.name ? ` · ${erpText(c.counterparty)}` : ''} · </Text>
+        {asked.from ? <Text style={{ color: colors.coolText3 }}>{asked.from}  →  </Text> : null}
+        <Text style={{ fontWeight: '700' }}>{asked.to}</Text>
+      </Text>
+      {asked.warn ? <Text style={[st.rowSub, { color: colors.orange }]}>{asked.warn}</Text> : null}
+      <Text style={st.rowSub}>
+        by {maker || '—'}{c.source === 'crm' ? ' (salesperson, CRM)' : ''}{c.createdAt ? ` · ${ageOf(c.createdAt)}` : ''}
+        {fields.length ? <Text onPress={() => setOpen(!open)} style={{ color: colors.orange, fontWeight: '700' }}>{`  ·  ${open ? 'Hide details' : 'Details'}`}</Text> : null}
+      </Text>
+      {open && fields.length ? (
+        <View style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.coolMuted, gap: 3 }}>
+          {fields.map((f) => (
+            <Text key={f.key} style={[st.rowSub, { marginTop: 0 }]}>{erpText(f.label)}: <Text style={{ color: colors.ink, fontWeight: '600' }}>{erpText(f.value)}</Text></Text>
+          ))}
+        </View>
+      ) : null}
+      {steps.length ? (
+        <Text style={[st.rowSub, { marginTop: 6 }]}>
+          {steps.map((s, i) => (
+            <Text key={s.label}>
+              {i ? <Text style={{ color: colors.coolText3 }}>{'  →  '}</Text> : null}
+              <Text style={{ color: s.done ? colors.primary : s.now ? colors.orange : colors.coolText, fontWeight: s.done || s.now ? '800' : '600' }}>
+                {s.label}{s.done ? ' ✓' : ''}{s.skipped ? ' — skipped' : ''}
+              </Text>
+            </Text>
+          ))}
+        </Text>
+      ) : null}
+      {state === 'applying' ? <Text style={[st.rowSub, { color: colors.primary, fontWeight: '700' }]}>Approved — being applied</Text> : null}
+      {state === 'failed' || state === 'stuck' ? (
+        <>
+          <Text style={[st.rowSub, { color: colors.orange, fontWeight: '700' }]}>Approved — the change did not go through{state === 'stuck' ? ' yet' : ''}</Text>
+          {erpText(c.applyError) ? <Text style={[st.rowSub, { color: colors.danger }]}>Why: {erpText(c.applyError)}</Text> : null}
+        </>
+      ) : null}
+      {b.why ? <Text style={[st.rowSub, { color: colors.coolText }]}>{b.why}</Text> : null}
+      {state === 'stuck' && c.canRetry ? (
+        <View style={st.actions}>
+          <ActionButton label="Close" tone="plain" disabled={anyBusy} onPress={onClose} />
+          <ActionButton label="Re-run" busy={busy} disabled={anyBusy} onPress={onRerun} />
+        </View>
+      ) : null}
+      {state === 'stuck' && !c.canRetry ? <Text style={st.rowSub}>Only the Owner / Super Admin can re-run or close an approved change.</Text> : null}
+      {b.approve || b.decline ? (
+        <View style={[st.actions, { flexWrap: 'wrap' }]}>
+          {b.decline ? <ActionButton label="Send back" tone="plain" disabled={anyBusy} onPress={() => onAct('send_back')} /> : null}
+          {b.decline ? <ActionButton label="Reject" tone="danger" disabled={anyBusy} onPress={() => onAct('reject')} /> : null}
+          {b.approve ? <ActionButton label={b.label} busy={busy} disabled={anyBusy} onPress={() => onAct('approve')} /> : null}
         </View>
       ) : null}
     </View>
