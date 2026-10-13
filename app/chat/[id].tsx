@@ -22,7 +22,7 @@ import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
-import { getConversation, getMessages, getPinned, getReceipts, searchMessages, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
+import { attachmentKindOf, getConversation, getMessages, getPinned, getReceipts, searchMessages, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
 import { search as searchChatDb, firstOnOrAfter as dbFirstOnOrAfter } from '../../src/services/chatDb';
 import { mergeSearchHits } from '../../src/logic/searchHits';
 import { objectIdForTime, earlierCandidate } from '../../src/logic/dateJump';
@@ -1631,12 +1631,17 @@ function Attachments({ m, mine, onOpenImage, onOpenFile, onLongPress }: { m: Sto
   return (
     <>
       {m.attachments.map((att: ChatAttachment, i: number) => {
-        if (m.type === 'voice') {
+        // A file's own kind wins: a support ticket arrives as ONE message carrying a voice note, a
+        // screenshot and a recording (2026-10-12). Every other message has none — its type decides.
+        const kind = attachmentKindOf(att, m.type);
+        if (kind === 'voice') {
           // Both sides are light cards now — always use the dark-on-light voice styling.
-          return <VoiceMessage key={i} uri={mediaUrl(att.url)} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
+          const voice = <VoiceMessage key={i} uri={mediaUrl(att.url)} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
+          // Stacked above other files it needs the gap the tiles keep below themselves.
+          return m.attachments.length > 1 ? <View key={i} style={{ marginBottom: 4 }}>{voice}</View> : voice;
         }
         // image / video / document — WhatsApp-style download-gated tile (see AttachmentTile).
-        return <AttachmentTile key={i} att={att} type={m.type} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} />;
+        return <AttachmentTile key={i} att={att} type={kind} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} />;
       })}
     </>
   );

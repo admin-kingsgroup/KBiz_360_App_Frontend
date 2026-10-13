@@ -30,7 +30,13 @@ export interface ChatReplyTo { messageId: string; senderId: string; preview: str
 export interface ChatAttachment {
   url: string; key?: string; name: string; size: number; mime: string;
   width?: number; height?: number; durationMs?: number; thumbnailUrl?: string; waveform?: number[];
+  // How to show THIS file when one message mixes kinds — a support ticket's voice note, screenshot
+  // and recording in one bubble (2026-10-12). Absent on ordinary messages: the message type decides.
+  kind?: 'image' | 'voice' | 'video' | 'document';
 }
+
+/** How one attachment is drawn: its own kind when it has one, else its message's type. */
+export const attachmentKindOf = (att: Pick<ChatAttachment, 'kind'>, type: ChatMessage['type']): ChatMessage['type'] => att.kind ?? type;
 export interface ChatMessage {
   id: string;
   conversationId: string;
