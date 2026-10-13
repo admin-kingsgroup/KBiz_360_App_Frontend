@@ -186,7 +186,7 @@ const SHARED_DECLINED_KEY = 'kb360_chatDocsDirDeclined';
 
 const askToPickFolder = (): Promise<boolean> => new Promise((resolve) => Alert.alert(
   'Save downloads to your phone?',
-  "Pick a folder once (Documents is suggested). Photos and files you download from chat will be saved there and show up in your Gallery and Files apps.",
+  "Pick a folder once (Documents is suggested). Photos and files you download — from chat, and your payslips — will be saved there and show up in your Gallery and Files apps.",
   [
     { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
     { text: 'Choose folder', onPress: () => resolve(true) },

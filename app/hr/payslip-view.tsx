@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { WebView } from 'react-native-webview';
-import { ChevronLeft, RotateCw } from 'lucide-react-native';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { ChevronLeft, RotateCw, Download } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { getPayslipLink } from '../../src/api/hr';
 import { isWebUrl, linkIsFresh, payslipErrorText, payslipTitle, payslipWebViewAllows } from '../../src/logic/payslip';
+import { parsePayslipMessage, PAYSLIP_PDF_JS } from '../../src/logic/payslipPdf';
+import { savePayslipPdf } from '../../src/services/payslipPdf';
+import { openWithViewer } from '../../src/services/attachments';
 
 // One month's payslip — Books' OWN page (the Salary Register's print, owner 2026-10-12), opened from
 // a 15-minute signed link the HR backend hands out for a RELEASED month only. My Payslip passes the
 // link it just fetched; Retry (or a link that has gone stale) asks for a fresh one. The WebView stays
 // on the payslip's own site and keeps nothing on disk once closed.
+// Download (owner, 2026-10-13): the page hands over its A4 pages as pictures (Books payslipPdfBridge,
+// once it says 'ready'); they become a PDF saved to the phone (services/payslipPdf).
 
 type Params = { month?: string; label?: string; url?: string; expiresAt?: string };
 const one = (v: string | string[] | undefined): string => (Array.isArray(v) ? v[0] ?? '' : v ?? '');
@@ -29,6 +34,53 @@ export default function PayslipViewScreen() {
   const [reloadKey, setReloadKey] = useState(0);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
+  const web = useRef<WebView>(null);
+  // The page said its payslip is ready to download (Books that predates the bridge never says so —
+  // the button then stays hidden). Reset whenever the page reloads.
+  const [pdfReady, setPdfReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { setPdfReady(false); }, [url, reloadKey]);
+  useEffect(() => () => { if (savingTimer.current) clearTimeout(savingTimer.current); }, []);
+  const stopSaving = (): void => {
+    if (savingTimer.current) clearTimeout(savingTimer.current);
+    savingTimer.current = null;
+    if (alive.current) setSaving(false);
+  };
+
+  const download = (): void => {
+    if (!pdfReady || saving || !web.current) return;
+    setSaving(true);
+    web.current.injectJavaScript(PAYSLIP_PDF_JS);
+    // The page answers in a second or two; never leave the button spinning.
+    savingTimer.current = setTimeout(() => {
+      stopSaving();
+      Alert.alert('Download', 'The payslip PDF took too long. Please try again.');
+    }, 30_000);
+  };
+
+  const onMessage = (e: WebViewMessageEvent): void => {
+    if (!url || !payslipWebViewAllows(e.nativeEvent.url, url)) return;   // only the payslip's own page
+    const msg = parsePayslipMessage(e.nativeEvent.data);
+    if (!msg) return;
+    if (msg.type === 'ready') { setPdfReady(true); return; }
+    if (!savingTimer.current) return;                                       // not asked for (or timed out)
+    clearTimeout(savingTimer.current);                                      // answered — the save may take its time (folder picker)
+    if (msg.type === 'pdf-error') { stopSaving(); Alert.alert('Download', msg.message); return; }
+    savePayslipPdf(msg.pages, msg.fileName)
+      .then((r) => {
+        if (r.status === 'saved') {
+          Alert.alert('Payslip saved', `${msg.fileName} is in your downloads folder.`, [
+            { text: 'Open', onPress: () => { void openWithViewer(r.uri, 'application/pdf'); } },
+            { text: 'OK', style: 'cancel' },
+          ]);
+        } else if (r.status === 'failed') {
+          Alert.alert('Download', 'Couldn’t save the payslip on this phone.');
+        }
+      })
+      .catch(() => Alert.alert('Download', 'Couldn’t make the payslip PDF. Please try again.'))
+      .finally(stopSaving);
+  };
 
   const fetchLink = useCallback((): void => {
     if (!month) { setError('Open the payslip again from My Payslip.'); return; }
@@ -66,6 +118,12 @@ export default function PayslipViewScreen() {
           <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: '700' }}>{title}</Text>
           <Text style={{ color: colors.coolText, fontSize: 12 }}>Payslip</Text>
         </View>
+        {url && !error && pdfReady ? (
+          <Pressable onPress={download} disabled={saving} accessibilityRole="button" accessibilityLabel="Download payslip PDF" hitSlop={8}
+            style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            {saving ? <ActivityIndicator size="small" color={colors.ink} /> : <Download size={21} color={colors.ink} />}
+          </Pressable>
+        ) : null}
         <Pressable onPress={fetchLink} disabled={fetching} accessibilityRole="button" accessibilityLabel="Reload payslip" hitSlop={8}
           style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', opacity: fetching ? 0.4 : 1 }}>
           <RotateCw size={20} color={colors.ink} />
@@ -84,6 +142,8 @@ export default function PayslipViewScreen() {
         ) : url ? (
           <WebView
             key={`${reloadKey}`}
+            ref={web}
+            onMessage={onMessage}
             source={{ uri: url }}
             style={{ flex: 1, backgroundColor: '#fff' }}
             // '*' so RNW's own whitelist never hands a URL to the system browser; the handler below
