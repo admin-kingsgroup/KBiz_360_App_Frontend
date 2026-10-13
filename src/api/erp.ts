@@ -66,11 +66,26 @@ export interface ErpLeaveSwap {
   workDay: string; offDay: string;
   partner?: { userId?: string; name?: string; branch?: string; status?: 'pending' | 'accepted' | 'declined'; at?: string | null; note?: string };
 }
+/** One level of a credit request's chain; `raisedIt` = the maker's own level, which they may never sign (CRED-GATE-01). */
+export interface ErpCreditLevel { role: string; label: string; raisedIt?: boolean }
 export interface ErpCreditRequest {
   id: string; status: string; op?: string; kind?: string; branch?: string; name?: string; counterparty?: string;
-  currency?: string; limit?: number; creditDays?: number; maker?: { name?: string } | string;
+  currency?: string; limit?: number | null; creditDays?: number | null; paymentTerms?: string; createdAt?: string;
+  maker?: { name?: string; userId?: string } | string; source?: string;
+  /** What stands now (a terms change / line change); null for a new one. */
+  before?: { limit?: number | null; creditLimit?: number | null; creditDays?: number | null; currency?: string } | null;
+  reopen?: boolean; renew?: boolean; active?: boolean; limitCheckOff?: boolean;
+  grace?: { days?: number; limit?: number; until?: string; reason?: string } | null;
+  /** A new party's whole form as submitted — what the FM reviews before it is created. */
+  details?: { fields?: Array<{ key: string; label: string; value: string }> } | null;
+  chain?: Array<{ role: string; label?: string }>;
+  approvals?: Array<{ role: string; by?: string; at?: string; skipped?: boolean; signedPastBy?: string; reason?: string }>;
   // The ERP sends the next signer as { role, label } (or null) — never render it raw (2026-10-08 crash).
-  waitingFor?: { role?: string; label?: string } | string | null; yourTurn?: boolean;
+  waitingFor?: { role?: string; label?: string } | string | null;
+  // Worked out by the ERP for THIS viewer: their turn; the levels they may sign past; may they send back / reject
+  // their own; the line saying why not; and, for one approved whose change failed, may they re-run / close it.
+  yourTurn?: boolean; signPast?: ErpCreditLevel[]; mayDecline?: boolean; whyNot?: string;
+  stuck?: boolean; canRetry?: boolean; applyError?: string;
 }
 /** One payment request as Approvals ▸ Payables' "recently approved" list reads it — flat, with the payment that used it. */
 export interface ErpPaymentRequestRow {
@@ -127,8 +142,10 @@ export const erpApi = {
   decideLeave: (id: string, decision: 'approve' | 'reject', note: string): Promise<unknown> =>
     unwrap(apiFetch(`/api/erp/hr/employees/leave-applications/${id}/${decision}`, { method: 'PUT', body: decision === 'approve' ? { note, reason: note } : { note } })),
 
+  /** Every open credit request, as the ERP's Credit tab reads it: waiting ones, and approved ones whose change has not
+   *  gone through yet (being applied, or stuck — Re-run / Close). */
   creditRequests: (branch?: string): Promise<ErpCreditRequest[]> =>
-    unwrap(apiFetch<Envelope<ErpCreditRequest[] | { requests?: ErpCreditRequest[]; items?: ErpCreditRequest[] }>>(`/api/erp/credit-facilities/requests${qs({ status: 'pending', branch })}`))
+    unwrap(apiFetch<Envelope<ErpCreditRequest[] | { requests?: ErpCreditRequest[]; items?: ErpCreditRequest[] }>>(`/api/erp/credit-facilities/requests${qs({ branch })}`))
       .then((d) => (Array.isArray(d) ? d : d?.requests ?? d?.items ?? [])),
   closeBoard: (): Promise<ErpCloseRow[]> =>
     unwrap(apiFetch<Envelope<ErpCloseRow[] | { rows?: ErpCloseRow[] }>>('/api/erp/reconciliation/close/board'))
