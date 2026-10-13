@@ -64,14 +64,6 @@ function GateController() {
   // active; dropped when signed out or backgrounded. Dropping on background marks the user offline
   // promptly so incoming calls/messages reliably fall back to push (instead of a stale "online").
   const signedIn = useAuthStore((s) => s.status === 'signedIn');
-  // The instant the permission gate opens (location just granted on the permissions screen, or a
-  // returning user's gate re-verified): arm the office boundary watch and run the automatic
-  // attendance check NOW. Nothing else fires at this moment — no AppState change, and the
-  // sign-in-time attempt ran before the permission existed.
-  const inApp = signedIn && gate === 'app';
-  useEffect(() => {
-    if (inApp) void reconcileHiddenAttendance({ force: true });
-  }, [inApp]);
   useEffect(() => {
     if (!signedIn) { disconnectChatSocket(); clearWidgetSnapshot(); return; }
     void enforceBgLocation();
@@ -104,10 +96,7 @@ function GateController() {
     const unsubWidget = initWidgetSync();
     // Light heartbeat for hidden (director) attendance while the app stays open — catches leaving
     // the office with the app foregrounded. No-op (a single cheap /me) for everyone else.
-    // Automatic attendance heartbeat while the app stays open: once a minute (was five), so
-    // someone who walks in with the app on screen, or sits down and opens it, is checked in within
-    // a minute and the status on every screen follows. One small request + one GPS fix per tick.
-    const hiddenTick = setInterval(() => void reconcileHiddenAttendance(), 60_000);
+    const hiddenTick = setInterval(() => void reconcileHiddenAttendance(), 5 * 60_000);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void enforceBgLocation(); // location revoked in Settings while backgrounded → back to the gate
