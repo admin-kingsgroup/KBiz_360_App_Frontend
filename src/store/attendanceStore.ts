@@ -7,10 +7,6 @@ import type { Coords, OfficeGeo, OfficePresence } from '../types';
 // is wired at the app edge (AsyncStorage); the store stays pure.
 export interface AttendanceState {
   att: AttendanceRecord;
-  // true once `att` holds the SERVER's record for today (any setAtt). Lets screens that keep their
-  // own copy of today's attendance (home chip, Profile) follow automatic punches live without
-  // mistaking the empty initial value for "not checked in".
-  attLoaded: boolean;
   perms: Permissions;
   consent: boolean;
   presence: OfficePresence | null;
@@ -28,13 +24,12 @@ const emptyAtt: AttendanceRecord = { inTime: null, outTime: null, via: null };
 
 export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   att: { ...emptyAtt },
-  attLoaded: false,
   perms: { location: false, notifications: false, network: false },
   consent: false,
   presence: null,
   setConsent: (consent) => set({ consent }),
   setPerm: (k, v) => set((s) => ({ perms: { ...s.perms, [k]: v } })),
-  setAtt: (att) => set({ att, attLoaded: true }),
+  setAtt: (att) => set({ att }),
   hydrate: ({ perms, consent }) =>
     set((s) => ({ perms: perms ?? s.perms, consent: consent ?? s.consent })),
   refreshPresence: (input) => {
@@ -67,5 +62,5 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     set({ att: facePunch(att, now) });
     return true;
   },
-  reset: () => set({ attLoaded: false, att: { ...emptyAtt }, presence: null }),
+  reset: () => set({ att: { ...emptyAtt }, presence: null }),
 }));

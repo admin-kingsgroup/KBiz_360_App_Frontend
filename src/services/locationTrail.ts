@@ -1,4 +1,3 @@
-import { AppState } from 'react-native';
 import Constants from 'expo-constants';
 import { isRunningInExpoGo } from 'expo';
 import type * as LocationModuleT from 'expo-location';
@@ -21,12 +20,9 @@ import {
 // option): Android throttles plain background location to a few fixes an hour, while a foreground
 // service keeps GPS-grade fixes flowing behind a permanent notification. iOS shows the blue
 // status-bar indicator. Consequences, by design:
-//   • the foreground service can only START with the app on screen (manual check-in, or opening
-//     the app while the day is open). An AUTOMATIC check-in happens headlessly, so the trail then
-//     starts in a reduced background mode and is upgraded the next time the app is opened
-//     (startLocationTrail);
+//   • it can only START from the foreground (check-in, or opening the app while the day is open);
 //   • if the OS kills it (force-stop, reboot, aggressive battery saver) it resumes the next time
-//     the app is opened during the open day.
+//     the app is opened during the open day — never silently from the background.
 //
 // CONSENT. The entry gate shows the background-location disclosure and records this account's
 // "I agree" (services/trailConsent) before the app opens. The trail double-checks that record and
@@ -40,7 +36,6 @@ export const LOCATION_TRAIL_TASK = 'kb360-location-trail';
 const BUFFER_KEY = 'kb360-trail-buffer'; // TrailPing[] waiting for upload
 const LAST_KEPT_KEY = 'kb360-trail-last-kept'; // last fix that survived thinning (may already be uploaded)
 const LAST_UPLOAD_KEY = 'kb360-trail-last-upload'; // epoch ms of the last successful upload
-const MODE_KEY = 'kb360-trail-mode'; // 'fgs' = running as a foreground service; 'bg' = started headlessly without one
 
 type LocationModule = typeof LocationModuleT;
 type TaskManagerModule = typeof TaskManagerModuleT;
@@ -145,12 +140,6 @@ export async function flushTrailBuffer(force = false): Promise<void> {
           // duty, so keep draining it (the server keeps only fixes up to the check-out).
           await stopUpdates();
           force = true;
-          // The server may have just checked the person out from the trail — make the open
-          // screens show it now instead of on the next app open.
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            void (require('./backgroundAttendance') as typeof import('./backgroundAttendance')).refreshAttendanceStore();
-          } catch { /* cosmetic */ }
         }
         if (!force) return; // routine upload: one batch per wake-up
         continue;
@@ -201,29 +190,17 @@ async function stopUpdates(): Promise<void> {
 
 export type TrailStart = 'started' | 'already' | 'no-permission' | 'unavailable' | 'failed';
 
-// Start streaming. NEVER requests a permission — the entry gate already holds it; if location was
-// revoked we simply do not start (and the gate closes the app).
-//
-// Two modes, because Android only lets a foreground service start while the app is on screen:
-//   'fgs' — app in the foreground (manual check-in, or the app is opened during an open day):
-//           foreground service + permanent notification, GPS-grade fixes every few seconds.
-//   'bg'  — started HEADLESSLY by an automatic check-in (the OS woke the app for the office
-//           boundary; no screen). Plain background updates under "Allow all the time": the OS
-//           delivers them only a few times an hour, which is enough for a coarse trail but not
-//           for the server's trail-driven check-out — the OS exit event covers that. The next
-//           time the app is opened it is UPGRADED to 'fgs' (stop + restart) below.
+// Start streaming. Must be called with the app in the FOREGROUND (Android refuses to start a
+// foreground service from the background). NEVER requests a permission — the entry gate already
+// holds it; if location was revoked we simply do not start (and the gate closes the app).
 export async function startLocationTrail(): Promise<TrailStart> {
   if (isRunningInExpoGo()) return 'unavailable';
   try {
     ensureTaskRegistered();
     const Location = loc();
     if ((await Location.getForegroundPermissionsAsync()).status !== 'granted') return 'no-permission';
-    const onScreen = AppState.currentState === 'active';
-    const running = await isRunning();
-    const mode = await store().getItem(MODE_KEY).catch(() => null);
-    if (running && (mode !== 'bg' || !onScreen)) return 'already';
-    if (running) await stopUpdates(); // headless start earlier, app now on screen → upgrade
-    const base = {
+    if (await isRunning()) return 'already';
+    await Location.startLocationUpdatesAsync(LOCATION_TRAIL_TASK, {
       // "I want accurate location" — GPS-grade fixes (a few metres outdoors). The battery cost is
       // bounded by the working day; thinPings keeps the stored trail small.
       accuracy: Location.Accuracy.Highest,
@@ -234,27 +211,15 @@ export async function startLocationTrail(): Promise<TrailStart> {
       pausesUpdatesAutomatically: false, // iOS must not silently pause a person sitting at a desk
       activityType: Location.ActivityType.Other,
       showsBackgroundLocationIndicator: true, // iOS: the blue status-bar pill — tracking is never hidden
-    };
-    if (onScreen) {
-      try {
-        await Location.startLocationUpdatesAsync(LOCATION_TRAIL_TASK, {
-          ...base,
-          foregroundService: {
-            // Android: the permanent notification that IS the foreground service. It stays for
-            // exactly as long as location is being collected and disappears at check-out.
-            notificationTitle: 'KBiz 360 · On duty',
-            notificationBody: 'Sharing your work location with your company until you check out.',
-            notificationColor: '#128C7E',
-            killServiceOnDestroy: false, // keep streaming when the app is swiped away
-          },
-        });
-        await store().setItem(MODE_KEY, 'fgs').catch(() => undefined);
-        return 'started';
-      } catch { /* fall through to the headless mode */ }
-    }
-    if ((await Location.getBackgroundPermissionsAsync()).status !== 'granted') return 'no-permission';
-    await Location.startLocationUpdatesAsync(LOCATION_TRAIL_TASK, base);
-    await store().setItem(MODE_KEY, 'bg').catch(() => undefined);
+      foregroundService: {
+        // Android: the permanent notification that IS the foreground service. It stays for exactly
+        // as long as location is being collected and disappears at check-out.
+        notificationTitle: 'KBiz 360 · On duty',
+        notificationBody: 'Sharing your work location with your company until you check out.',
+        notificationColor: '#128C7E',
+        killServiceOnDestroy: false, // keep streaming when the app is swiped away
+      },
+    });
     return 'started';
   } catch {
     return 'failed';

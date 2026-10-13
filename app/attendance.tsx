@@ -21,7 +21,7 @@ import { saveConsent } from '../src/services/storage';
 import { checkIn, checkOut, getMyAttendance, getTeamAttendance, getAttendanceHistory, getUserAttendanceHistory, adminSetAttendanceDay, adminSetAttendanceTimes, getOffices, getAdminOffices, assignUserOffice, assignUserWorkBranch, type AttendanceOffice, type AttendanceHistoryEntry, type AdminBranchOffices } from '../src/api/attendance';
 import { getMyLeave, getMyRegularizations, getPendingRegularizations, requestRegularization, type MyLeave, type Regularization } from '../src/api/hr';
 import { uploadFile } from '../src/api/media';
-import { disarmAttendanceGeofencing, syncAttendanceGeofencing } from '../src/services/backgroundAttendance';
+import { disarmAttendanceGeofencing } from '../src/services/backgroundAttendance';
 import { syncLocationTrail } from '../src/services/locationTrail';
 import { requestLocationWithDisclosure, openLocationSettings } from '../src/services/locationPermission';
 import { clearPendingExit } from '../src/services/pendingExit';
@@ -144,10 +144,9 @@ export default function Attendance() {
       getMyAttendance().then((m) => {
         setExempt(!!m.exempt);
         setHidden(!!m.hidden);
-        // Automatic attendance (owner decision, 10-05): every tracked account keeps the office
-        // boundary watch armed. Exempt accounts never punch, so theirs is cleared.
-        if (m.exempt && !m.hidden) { void disarmAttendanceGeofencing(); void clearPendingExit(); }
-        else void syncAttendanceGeofencing();
+        // Manual punchers get no background geofencing — clear anything an older build left armed.
+        // Hidden (director) accounts keep theirs (armed by hiddenAttendance's reconcile).
+        if (!m.hidden) { void disarmAttendanceGeofencing(); void clearPendingExit(); }
         // Work-hours location trail follows the record: day open → streaming, otherwise stopped.
         void syncLocationTrail(m);
         useAttendanceStore.getState().setAtt({ inTime: m.inTime ? new Date(m.inTime) : null, outTime: m.outTime ? new Date(m.outTime) : null, via: (m.via as PunchMethod | null) ?? null });
@@ -503,10 +502,9 @@ const ConsentView = memo(function ConsentView({ onAgree, onBack }: { onAgree: ()
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32 }}>
         <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}><Clock size={28} color={colors.primary} /></View>
         <Text style={{ color: colors.ink, fontSize: 20, fontWeight: '700', marginBottom: 8 }}>How attendance works</Text>
-        <Text style={{ color: colors.coolText, fontSize: 14, lineHeight: 20, marginBottom: 16 }}>Your attendance is recorded automatically: you are checked in when your phone reaches the office and checked out when it leaves. If that is ever missed, tap Check in or Check out yourself — that works only inside the office area and captures a photo of your face.</Text>
+        <Text style={{ color: colors.coolText, fontSize: 14, lineHeight: 20, marginBottom: 16 }}>Tap Check in when you arrive at the office and Check out when you leave. Both work only inside the office area and capture a photo of your face.</Text>
         {([
-          ['Automatic', 'Arrival and departure are detected from your phone’s location, even when the app is closed. No photo is taken for an automatic punch.'],
-          ['Manual button', 'The button unlocks when your phone is within the office area (about 100 m of your branch). If you check out by hand, the app will not check you back in that day.'],
+          ['At the office only', 'The button unlocks when your phone is within the office area (about 100 m of your branch).'],
           ['Face photo', 'Each punch opens the camera and captures your face — it is stored with that day’s record.'],
           ['What we record', 'Check-in / check-out time, date, your distance from the office and the face photo.'],
           ['Work-hours location', 'While you are checked in, your phone shares its location with your HR and admin team until you check out. This is why the app needs location set to “Allow all the time”. A notification shows the whole time it is sharing.'],
@@ -588,7 +586,7 @@ const PunchCard = memo(function PunchCard({ hasIn, hasOut, canPunch, inRange, pu
               </Text>
             </Pressable>
             <Text style={{ color: colors.coolText, fontSize: 11, textAlign: 'center', marginTop: 8 }}>
-              {canPunch ? 'Attendance is automatic at the office. If it was missed, tap here — it captures your face.' : 'Attendance is automatic when you reach the office. The button unlocks inside the office area.'}
+              {canPunch ? 'Tapping opens the camera to capture your face.' : 'The button unlocks when you are inside the office area.'}
             </Text>
           </>
         )}
