@@ -70,9 +70,8 @@ export const deleteBranch = (id: string): Promise<{ ok: boolean }> =>
 export const deleteUser = (id: string): Promise<{ ok: boolean }> =>
   apiFetch(`/api/users/${id}`, { method: 'DELETE' });
 
-// Super-admin: provision users (writes to the CRM users collection so they can log in).
+// Super-admin: edit users (writes to the CRM users collection). New users are created only in the ERP.
 export interface UserInput { email: string; password?: string; firstName?: string; lastName?: string; phone?: string | null; roleId?: string; branchIds?: string[]; businessIds?: string[]; status?: string }
-export const createUser = (body: UserInput): Promise<DirectoryUser> => apiFetch('/api/users', { method: 'POST', body });
 export const updateUser = (id: string, body: Partial<UserInput>): Promise<DirectoryUser> => apiFetch(`/api/users/${id}`, { method: 'PUT', body });
 // Any user editing their own profile (name / phone).
 export const updateMyProfile = (body: { firstName?: string; lastName?: string; phone?: string | null }): Promise<DirectoryUser> =>
