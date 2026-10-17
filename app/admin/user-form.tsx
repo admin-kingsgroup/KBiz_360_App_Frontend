@@ -9,13 +9,14 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import {
-  getUser, toUser, listRoles, listBranches, listCompanies, createUser, updateUser, humanizeRole,
+  getUser, toUser, listRoles, listBranches, listCompanies, updateUser, humanizeRole,
   type DirectoryRole, type DirectoryBranch, type DirectoryCompany,
 } from '../../src/api/directory';
 import { ApiError } from '../../src/api/client';
 import type { User } from '../../src/types';
 
-// Create / edit a user. Writes to the CRM users collection so the account can log in normally.
+// Edit a user. Writes to the CRM users collection so the account can log in normally.
+// New users are created only in KBiz360 Books (ERP → Settings → Users & Roles), not in this app.
 // Fields map 1:1 to the CRM user: name, email, password, phone, role, branches, status.
 export default function UserForm() {
   const router = useRouter();
@@ -94,21 +95,16 @@ export default function UserForm() {
   const refreshUsers = () => refreshDirectoryUsers({ force: true });
 
   const save = async (): Promise<void> => {
-    if (!valid || !roleId) return;
+    if (!id || !valid || !roleId) return;
     const parts = name.trim().split(/\s+/);
     const firstName = parts[0] ?? '';
     const lastName = parts.slice(1).join(' ');
     setSaving(true);
     try {
-      if (id) { // edit mode (isEdit === !!id)
-        const patch: Parameters<typeof updateUser>[1] = { firstName, lastName, phone: phone.trim() || null, roleId, branchIds, businessIds, status: active ? 'active' : 'inactive' };
-        if (password.length >= 6) patch.password = password;
-        await updateUser(id, patch);
-        showToast(`${name.trim()} updated`);
-      } else {
-        await createUser({ email: email.trim(), password, firstName, lastName, phone: phone.trim() || null, roleId, branchIds, businessIds });
-        showToast(`${name.trim()} invited`);
-      }
+      const patch: Parameters<typeof updateUser>[1] = { firstName, lastName, phone: phone.trim() || null, roleId, branchIds, businessIds, status: active ? 'active' : 'inactive' };
+      if (password.length >= 6) patch.password = password;
+      await updateUser(id, patch);
+      showToast(`${name.trim()} updated`);
       await refreshUsers();
       router.back();
     } catch (e) {
@@ -116,6 +112,19 @@ export default function UserForm() {
       setSaving(false);
     }
   };
+
+  // Opened without a user id (an old link): there is no create mode any more.
+  if (!isEdit) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
+        <View className="flex-row items-center justify-between px-5 pt-3 pb-3">
+          <Text style={{ flex: 1, color: colors.ink, fontSize: 19, fontWeight: '700', letterSpacing: -0.3 }}>New user</Text>
+          <Pressable onPress={() => router.back()} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={17} color={colors.coolText} /></Pressable>
+        </View>
+        <Text style={{ color: colors.coolText, fontSize: 14, paddingHorizontal: 20 }}>{'New users are created in KBiz360 Books (Settings → Users & Roles). Once created there, you can edit them here.'}</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
