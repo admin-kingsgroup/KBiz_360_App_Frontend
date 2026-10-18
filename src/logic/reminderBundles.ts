@@ -90,6 +90,16 @@ export const completableMembers = (b: ReminderBundle, meId: string): ReminderRec
 export const canEditBundle = (b: ReminderBundle, meId: string): boolean =>
   !!meId && b.byId === meId && b.members.some((m) => m.state === 'pending');
 
+/** How many REMINDERS a list of copies holds: each reminder once, however many people it is for.
+ *  Owner 2026-10-18: User Wise and Branch Wise count like All — "Abc → Xyz, Efg" is 1, not 2.
+ *  `bundles` is the dashboard-wide fold, so a reminder listed under two people or two branches
+ *  still counts once. A copy that is in no bundle counts on its own. */
+export function countReminders(copies: ReminderRecord[], bundles: ReminderBundle[]): number {
+  const bundleOf = new Map<string, string>();
+  for (const b of bundles) for (const m of b.members) bundleOf.set(m.id, b.key);
+  return new Set(copies.map((r) => bundleOf.get(r.id) ?? r.id)).size;
+}
+
 /** Status word for a bundle in the PDF: Overdue, Pending, or Done (awaiting approval) once every
  *  copy is finished. */
 export function bundleStatus(b: ReminderBundle): string {

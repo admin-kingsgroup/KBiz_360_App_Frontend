@@ -1,5 +1,5 @@
 import type { ReminderRecord } from '../data/reminders';
-import { bundleReminders, bundlePeopleLine, canEditBundle, completableMembers, myTaskSection, objectIdSeconds, bundleStatus } from '../logic/reminderBundles';
+import { bundleReminders, bundlePeopleLine, canEditBundle, completableMembers, countReminders, myTaskSection, objectIdSeconds, bundleStatus } from '../logic/reminderBundles';
 import { buildReminderPdf, pdfFileName, pdfSafe, reminderPdfSpec, sectionOf, wrapText } from '../logic/reminderPdf';
 
 // ObjectId whose first 4 bytes are `secs` (the creation time) followed by a unique tail.
@@ -49,6 +49,31 @@ describe('bundleReminders', () => {
     const [b] = bundleReminders([rec({ id: oid(T0, 1), state: 'review' }), rec({ id: oid(T0, 2), forId: 'u-x', forName: 'Xyz' })]);
     expect(bundlePeopleLine(b)).toBe('Anubhav → Abc ✓, Xyz');
     expect(bundleStatus(b)).toBe('Pending');
+  });
+});
+
+describe('countReminders', () => {
+  // "Shez TK official contract": Shehzad → Afshin, Shehzad = 2 copies, 1 reminder.
+  const contract = [
+    rec({ id: oid(T0, 1), byId: 'u-sh', byName: 'Shehzad', forId: 'u-af', forName: 'Afshin', text: 'Official contract' }),
+    rec({ id: oid(T0, 2), byId: 'u-sh', byName: 'Shehzad', forId: 'u-sh', forName: 'Shehzad', text: 'Official contract' }),
+  ];
+  const solo = rec({ id: oid(T0 + 60, 3), forId: 'me', forName: 'Anubhav', text: 'Legal documents' });
+  const all = [...contract, solo];
+  const bundles = bundleReminders(all);
+
+  it('counts a reminder for two people once, the same as the All tile', () => {
+    expect(bundles).toHaveLength(2);
+    expect(countReminders(all, bundles)).toBe(2);
+  });
+
+  it('counts once when the same copies are listed under several groups', () => {
+    // User Wise lists the contract under Afshin AND Shehzad; a person in two branches is listed twice.
+    expect(countReminders([contract[0], solo, contract[1], solo], bundles)).toBe(2);
+  });
+
+  it('counts a copy outside every bundle on its own', () => {
+    expect(countReminders([...all, rec({ id: 'not-an-oid' })], bundles)).toBe(3);
   });
 });
 
