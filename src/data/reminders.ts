@@ -23,6 +23,7 @@ export interface ReminderRecord extends Reminder {
   createdAt?: string | number;
   image?: string; // screenshot attached from KBiz Books (storage url — resolve with mediaUrl)
   source?: string; // 'erp' when the reminder was set in KBiz Books
+  groupId?: string; // shared by every per-assignee copy of one reminder (server, since 2026-10-18)
 }
 
 // Person → business (for the per-reminder accent color). Copied from source PEOPLE_BIZ.

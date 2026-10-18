@@ -52,6 +52,35 @@ describe('bundleReminders', () => {
   });
 });
 
+describe('bundleReminders with groupId', () => {
+  it('folds copies of one group however far apart they were written (a person added by an edit)', () => {
+    const items = [
+      rec({ id: oid(T0, 1), forId: 'me', forName: 'Anubhav', groupId: 'g1' }),
+      rec({ id: oid(T0 + 86_400, 2), forId: 'u-sughra', forName: 'Sughra', groupId: 'g1' }),
+    ];
+    const out = bundleReminders(items);
+    expect(out).toHaveLength(1);
+    expect(bundlePeopleLine(out[0])).toBe('Anubhav → Anubhav, Sughra');
+  });
+
+  it('an older copy (no groupId) folds with copies naming its id as their group, in any order', () => {
+    const old = rec({ id: oid(T0, 1), forId: 'me', forName: 'Anubhav' });
+    const added = rec({ id: oid(T0 + 86_400, 2), forId: 'u-sughra', forName: 'Sughra', groupId: old.id });
+    expect(bundleReminders([old, added])).toHaveLength(1);
+    expect(bundleReminders([added, old])).toHaveLength(1);
+  });
+
+  it('two groups stay apart even with the same words in the same second', () => {
+    const items = [rec({ id: oid(T0, 1), groupId: 'g1' }), rec({ id: oid(T0, 2), forId: 'u-xyz', groupId: 'g2' })];
+    expect(bundleReminders(items)).toHaveLength(2);
+  });
+
+  it('never folds another creator into my group', () => {
+    const items = [rec({ id: oid(T0, 1), groupId: 'g1' }), rec({ id: oid(T0, 2), forId: 'u-xyz', byId: 'faiz', groupId: 'g1' })];
+    expect(bundleReminders(items)).toHaveLength(2);
+  });
+});
+
 describe('countReminders', () => {
   // "Shez TK official contract": Shehzad → Afshin, Shehzad = 2 copies, 1 reminder.
   const contract = [
