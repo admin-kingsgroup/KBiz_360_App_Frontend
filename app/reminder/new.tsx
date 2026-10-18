@@ -4,11 +4,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { X, CalendarDays, ChevronDown, Search as SearchIcon, Check, Camera, Image as ImageIcon } from 'lucide-react-native';
+import { X, CalendarDays, Clock, ChevronDown, Search as SearchIcon, Check, Camera, Image as ImageIcon } from 'lucide-react-native';
 import { Avatar } from '../../src/components/ui';
-import { DaySheet, FormField, SheetSave } from '../../src/components/forms';
+import { DaySheet, FormField, SheetSave, TimeSheet } from '../../src/components/forms';
 import { colors } from '../../src/theme';
 import { createReminder, deleteReminder, updateReminder } from '../../src/api/reminders';
+import { ApiError } from '../../src/api/client';
 import { listUsers, type DirectoryUser } from '../../src/api/directory';
 import { mediaUrl, uploadFile } from '../../src/api/media';
 import { useMessagingStore } from '../../src/store/messagingStore';
@@ -20,15 +21,15 @@ import { secondsUntil } from '../../src/logic/reminderWhen';
 import { activeMention, applyMention, rankMentionMatches } from '../../src/logic/mentions';
 import { decodeEditMembers, planReminderEdit, type EditMember } from '../../src/logic/reminderEdit';
 import type { ReminderRecord } from '../../src/data/reminders';
+import { dueAtFor, formatTimeOfDay, isPastTime, timeOfDue, type TimeOfDay } from '../../src/logic/reminderTime';
 
-// Reminder composer (modal). Dates are optional and selected as calendar days only. When present,
-// the API receives a stable end-of-day dueAt for compatibility with existing reminder flows.
+// Reminder composer (modal). The due date is optional and picked as a calendar day; a time of day is
+// optional on top (owner 2026-10-18). Without a time, dueAt is the end of that day (23:59 local).
 const PALETTE = [colors.purple, colors.blue, colors.teal, colors.orange, colors.coral, colors.primary];
 const colorFor = (id: string): string => PALETTE[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % PALETTE.length];
 const initialsOf = (name: string): string => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
 const dayKey = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-const dateFromDayKey = (day: string): Date => { const [year, month, date] = day.split('-').map(Number); return new Date(year, month - 1, date, 23, 59, 0, 0); };
-const dateLabel = (day: string): string => dateFromDayKey(day).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const dateLabel = (day: string): string => dueAtFor(day, null).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
 interface Person { id: string; name: string; initials: string; color: string; avatar?: string | null; role?: string }
 
@@ -73,6 +74,9 @@ export default function NewReminder() {
   // A NEW reminder is due today unless the writer picks another day (owner 2026-10-07); past days
   // are greyed out in the picker (minDay = today). Editing keeps the stored date, or none.
   const [selectedDay, setSelectedDay] = useState<string | null>(editing ? (editInitialDue ? dayKey(editInitialDue) : null) : dayKey(new Date()));
+  // Optional time of day (owner 2026-10-18). None = due by the end of the day (23:59), as before.
+  const [selectedTime, setSelectedTime] = useState<TimeOfDay | null>(editing && editInitialDue ? timeOfDue(editInitialDue) : null);
+  const [timeOpen, setTimeOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState('');
@@ -110,8 +114,11 @@ export default function NewReminder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meId]);
 
-  // Date-only UI; dueAt remains a compatible end-of-day timestamp internally.
-  const dueAt = useMemo(() => selectedDay ? dateFromDayKey(selectedDay) : null, [selectedDay]);
+  // The chosen day at the chosen time, or at 23:59 when no time is set.
+  const dueAt = useMemo(() => selectedDay ? dueAtFor(selectedDay, selectedTime) : null, [selectedDay, selectedTime]);
+  const whenLabel = selectedDay ? `${dateLabel(selectedDay)}${selectedTime ? ` · ${formatTimeOfDay(selectedTime)}` : ''}` : '';
+  // A time already gone by today can't be saved — unless an edit leaves the stored moment as it was.
+  const timePassed = !!(selectedDay && selectedTime && isPastTime(selectedDay, selectedTime)) && dueAt?.getTime() !== editInitialDue?.getTime();
   // A person on the reminder who is not in the directory any more still shows, by the name it carries.
   const memberPerson = (id: string): Person | undefined => {
     const m = members.find((x) => x.forId === id);
@@ -178,6 +185,7 @@ export default function NewReminder() {
   const save = async () => {
     if (!text.trim()) { showToast('Add reminder text'); return; }
     if ((!editing || canEditPeople) && !forIds.length) { showToast('Choose at least one person'); return; }
+    if (timePassed) { showToast('That time has already gone by — pick a later time'); return; }
     const due = dueAt;
     if (savingRef.current) return;
     savingRef.current = true;
@@ -197,15 +205,27 @@ export default function NewReminder() {
     }
     if (editing) {
       try {
-        const label = selectedDay ? dateLabel(selectedDay) : '';
+        const label = whenLabel;
+        // Clear date (owner 2026-10-18): a reminder that had a date and now has none sends dueAt null.
         const dated = due && label ? { when: label, dueAt: due.toISOString() } : {};
+        const clearing = !due && !!editInitialDue;
         const plan = canEditPeople ? planReminderEdit(members, forIds) : null;
         // Picture: a new one replaces it, removing the shown one clears it, otherwise untouched.
         const finalImage = imageUrl ?? keptImage;
         const imagePatch = imageUrl ? { imageUrl } : originalImage && !keptImage ? { imageUrl: null } : {};
-        const patch = { text: text.trim(), ...dated, ...imagePatch, ...(plan?.peopleChanged ? { groupId: plan.groupId } : {}) };
+        const kept = { text: text.trim(), ...dated, ...imagePatch, ...(plan?.peopleChanged ? { groupId: plan.groupId } : {}) };
+        const patch = clearing ? { ...kept, dueAt: null } : kept;
         const keepIds = plan ? plan.keep.map((m) => m.id) : idsToEdit;
-        const updated = await Promise.all(keepIds.map((id) => updateReminder(id, patch)));
+        // A server from before 2026-10-18 rejects dueAt null: save everything else and keep the date.
+        let dateKept = false;
+        const patchCopy = async (id: string) => {
+          try { return await updateReminder(id, patch); } catch (e) {
+            if (!clearing || !(e instanceof ApiError) || e.status !== 400) throw e;
+            dateKept = true;
+            return updateReminder(id, kept);
+          }
+        };
+        const updated = await Promise.all(keepIds.map(patchCopy));
         // New people get their own copy IN the same reminder; removed people's copies go last, after
         // the server has checked the group against them.
         const created: ReminderRecord[] = plan?.add.length
@@ -223,9 +243,9 @@ export default function NewReminder() {
         const mineRemoved = plan?.remove.find((m) => m.forId === meId);
         if (mineRemoved) await cancelReminderLocal(mineRemoved.id);
         // A server without the 2026-10-18 update drops the picture change and the group silently.
-        const serverBehind = ('imageUrl' in imagePatch && updated.some((u) => (u.reminder?.image ?? null) !== (finalImage ?? null)))
+        const serverBehind = dateKept || ('imageUrl' in imagePatch && updated.some((u) => (u.reminder?.image ?? null) !== (finalImage ?? null)))
           || created.some((r) => !r.groupId);
-        showToast(serverBehind ? 'Saved — the picture or new people need the latest server update to show'
+        showToast(serverBehind ? 'Saved — clearing the date, the picture or new people need the latest server update'
           : `Reminder updated${plan?.peopleChanged ? ` for ${forLabel}` : ''}${label ? ` · ${label}` : ''}`);
         router.back();
       } catch {
@@ -236,7 +256,7 @@ export default function NewReminder() {
       return;
     }
     try {
-      const label = selectedDay ? dateLabel(selectedDay) : '';
+      const label = whenLabel;
       const recs = await createReminder({ text: text.trim(), forIds, ...(due && label ? { when: label, dueAt: due.toISOString() } : {}), ...(imageUrl ? { imageUrl } : {}), section: 'today' });
       // My own copy also fires locally at the due time (works offline; the server push is the
       // backup). Remember the notification id so completing the reminder can cancel it.
@@ -311,9 +331,23 @@ export default function NewReminder() {
             <Text style={{ flex: 1, color: selectedDay ? colors.ink : colors.coolText, fontSize: 14, fontWeight: '600' }}>{selectedDay ? dateLabel(selectedDay) : 'Choose date'}</Text>
             <ChevronDown size={18} color={colors.coolText} />
           </Pressable>
-          {selectedDay ? <Pressable onPress={() => setSelectedDay(null)} hitSlop={8} style={{ alignSelf: 'flex-start', paddingTop: 8 }}><Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Clear date</Text></Pressable> : null}
-          {selectedDay ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Due {dateLabel(selectedDay)}</Text> : null}
+          {selectedDay ? <Pressable onPress={() => { if (!settled()) return; setSelectedDay(null); setSelectedTime(null); }} hitSlop={8} style={{ alignSelf: 'flex-start', paddingTop: 8 }}><Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Clear date</Text></Pressable> : null}
+          {selectedDay ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 6 }}>Due {whenLabel}</Text> : null}
         </FormField>
+
+        {/* Optional time on the due day — the "⏰ Reminder" push and my local alarm fire at it. */}
+        {selectedDay ? (
+        <FormField label="Time" hint="Optional — without a time it is due by the end of the day.">
+          <Pressable onPress={() => { if (settled()) setTimeOpen(true); }} className="flex-row items-center gap-2"
+            style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }}>
+            <Clock size={17} color={colors.primary} />
+            <Text style={{ flex: 1, color: selectedTime ? colors.ink : colors.coolText, fontSize: 14, fontWeight: '600' }}>{selectedTime ? formatTimeOfDay(selectedTime) : 'Add a time'}</Text>
+            <ChevronDown size={18} color={colors.coolText} />
+          </Pressable>
+          {selectedTime ? <Pressable onPress={() => { if (settled()) setSelectedTime(null); }} hitSlop={8} style={{ alignSelf: 'flex-start', paddingTop: 8 }}><Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Remove time</Text></Pressable> : null}
+          {timePassed ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '600', marginTop: 6 }}>That time has already gone by — pick a later time.</Text> : null}
+        </FormField>
+        ) : null}
 
         {/* Optional picture — while editing it shows the one already on the reminder, which can be
             removed and replaced (owner 2026-10-18). */}
@@ -351,6 +385,14 @@ export default function NewReminder() {
         maxDay={dayKey(new Date(new Date().getFullYear() + 2, 11, 31))}
         onClose={() => setPickerOpen(false)}
         onConfirm={(day) => { setSelectedDay(day); setPickerOpen(false); }}
+      />
+
+      <TimeSheet
+        visible={timeOpen}
+        day={selectedDay}
+        initial={selectedTime}
+        onClose={() => setTimeOpen(false)}
+        onConfirm={(t) => { setSelectedTime(t); setTimeOpen(false); }}
       />
 
       {/* Assignee picker — searchable directory list, Myself pinned first */}
