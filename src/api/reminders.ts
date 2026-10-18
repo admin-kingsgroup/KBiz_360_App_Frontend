@@ -28,7 +28,8 @@ export function listReminders(tab: ReminderTab = 'forme', viewAs?: RoleKey): Pro
 // Multi-assignee create: the server fans out one reminder per person. Sends BOTH forIds and a
 // legacy forId (first assignee) so a backend without multi-assignee support still creates one
 // reminder instead of rejecting; the response is normalized to an array either way.
-export const createReminder = async (body: { text: string; forIds: string[]; when?: string; section?: string; dueAt?: string; imageUrl?: string }): Promise<ReminderRecord[]> => {
+// `groupId` joins an existing reminder: an edit that adds people creates their copies into it.
+export const createReminder = async (body: { text: string; forIds: string[]; when?: string; section?: string; dueAt?: string; imageUrl?: string; groupId?: string }): Promise<ReminderRecord[]> => {
   const res = await apiFetch<ReminderRecord | ReminderRecord[]>('/api/reminders', {
     method: 'POST',
     body: { ...body, forId: body.forIds[0] },
@@ -45,8 +46,9 @@ export const approveReminder = (id: string): Promise<PatchResult> =>
 export const reassignReminder = (id: string, forId: string): Promise<PatchResult> =>
   apiFetch(`/api/reminders/${id}`, { method: 'PATCH', body: { forId } });
 
-// Field edit — creator only (the server enforces it). Changing dueAt re-arms the due-time push.
-export const updateReminder = (id: string, body: { text?: string; when?: string; dueAt?: string }): Promise<PatchResult> =>
+// Field edit — creator only (the server enforces it). Changing dueAt re-arms the due-time push;
+// dueAt null clears the date, imageUrl null removes the picture, groupId stamps the copy's group.
+export const updateReminder = (id: string, body: { text?: string; when?: string; dueAt?: string | null; imageUrl?: string | null; groupId?: string }): Promise<PatchResult> =>
   apiFetch(`/api/reminders/${id}`, { method: 'PATCH', body });
 
 export const deleteReminder = (id: string): Promise<void> => apiFetch(`/api/reminders/${id}`, { method: 'DELETE' });

@@ -17,6 +17,7 @@ import { reminderMentionNames } from '../../logic/reminderMentions';
 import { buildBranchRefMap, canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
 import { bundlePeopleLine, bundleReminders, canEditBundle, completableMembers, countReminders, myTaskSection, type ReminderBundle } from '../../logic/reminderBundles';
 import { reminderPdfSpec, sectionOf, type PdfSection } from '../../logic/reminderPdf';
+import { encodeEditMembers } from '../../logic/reminderEdit';
 import { shareReminderPdf } from '../../services/reminderPdf';
 
 type Tab = 'myself' | 'users' | 'branches' | 'all';
@@ -48,10 +49,10 @@ function BundleLine({ b, meId, branchLabel, mentionNames, actions }: { b: Remind
   return (
     <View style={styles.line}>
       {canComplete ? (
-        <Pressable accessibilityLabel={`Complete ${title}`} onPress={() => actions.onComplete(b)} hitSlop={8}>
+        <Pressable accessibilityLabel={`Complete ${title}`} onPress={() => actions.onComplete(b)} style={styles.action}>
           <Circle size={20} color={b.overdue ? colors.danger : colors.primary} />
         </Pressable>
-      ) : <View style={{ width: 20 }} />}
+      ) : <View style={styles.action} />}
       <View style={{ flex: 1 }}>
         <ReminderText text={title} names={names} style={styles.task} />
         <Text style={[styles.due, b.overdue && { color: colors.danger }]}>{b.overdue ? 'Overdue' : b.dueAt ? new Date(b.dueAt).toLocaleDateString() : 'No due date'}</Text>
@@ -59,12 +60,14 @@ function BundleLine({ b, meId, branchLabel, mentionNames, actions }: { b: Remind
         {b.image ? <ReminderScreenshot url={b.image} /> : null}
         {branchLabel ? <View style={styles.branchTag}><Building2 size={11} color={colors.primary} /><Text style={styles.branchText}>{branchLabel}</Text></View> : null}
       </View>
+      {/* Each action owns its own 36×44 pt box: the old hitSlop areas of pencil and bin overlapped, so a
+          tap between them could open the wrong one (owner 2026-10-18: taps not smooth). */}
       {canEdit ? (
-        <Pressable accessibilityLabel={`Edit ${title}`} onPress={() => actions.onEdit(b)} hitSlop={8} style={{ marginRight: 4 }}>
+        <Pressable accessibilityLabel={`Edit ${title}`} onPress={() => actions.onEdit(b)} style={styles.action}>
           <Pencil size={17} color={colors.coolText} />
         </Pressable>
       ) : null}
-      <Pressable accessibilityLabel={`Delete ${title}`} onPress={() => actions.onDelete(b)} hitSlop={8}>
+      <Pressable accessibilityLabel={`Delete ${title}`} onPress={() => actions.onDelete(b)} style={styles.action}>
         <Trash2 size={18} color={colors.coolText3} />
       </Pressable>
     </View>
@@ -165,10 +168,11 @@ export default function ReminderDashboard() {
       })(); } },
     ]);
   };
-  // Edit opens the composer prefilled; saving updates every copy (one per assignee).
+  // Edit opens the composer prefilled — text, date, picture and the people it is for — and saving
+  // updates every copy (one per assignee), adding or removing copies when people change.
   const edit = (b: ReminderBundle) => {
     const selfCopy = b.members.find((m) => m.forId === meId);
-    router.push({ pathname: '/reminder/new', params: { editIds: b.members.map((m) => m.id).join(','), editText: b.text, editDueAt: b.dueAt ?? '', editSelfId: selfCopy?.id ?? '' } });
+    router.push({ pathname: '/reminder/new', params: { editIds: b.members.map((m) => m.id).join(','), editMembers: encodeEditMembers(b.members), editText: b.text, editDueAt: b.dueAt ?? '', editImage: b.image ?? '', editSelfId: selfCopy?.id ?? '' } });
   };
   const actions: Actions = { onComplete: (b) => void complete(b), onDelete: remove, onEdit: edit };
 
@@ -256,4 +260,4 @@ export default function ReminderDashboard() {
   );
 }
 
-const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: colors.coolBg }, content: { paddingHorizontal: 14, paddingBottom: 36 }, header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }, headerIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }, headerCopy: { flex: 1 }, title: { color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3 }, subtitle: { color: colors.coolText, marginTop: 2, fontSize: 11.5 }, add: { minWidth: 66, height: 36, borderRadius: 10, paddingHorizontal: 10, backgroundColor: colors.primary, flexDirection: 'row', gap: 4, alignItems: 'center', justifyContent: 'center' }, addText: { color: '#fff', fontSize: 12, fontWeight: '700' }, grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, card: { width: '48%', minHeight: 96, flexGrow: 1, backgroundColor: colors.card, borderRadius: 14, padding: 11, borderWidth: 1, borderColor: colors.coolDivider, justifyContent: 'space-between' }, cardIcon: { width: 29, height: 29, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }, count: { color: colors.ink, fontSize: 21, fontWeight: '700', marginTop: 2 }, cardText: { color: colors.coolText, fontWeight: '600', fontSize: 11.5, lineHeight: 15 }, sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 7 }, section: { color: colors.ink, fontSize: 16, fontWeight: '700' }, sectionCount: { color: colors.coolText, fontSize: 13, fontWeight: '600' }, export: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 28, paddingHorizontal: 9, borderRadius: 8, backgroundColor: colors.primarySoft }, exportText: { color: colors.primaryDark, fontSize: 11.5, fontWeight: '700' }, list: { backgroundColor: colors.card, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.coolDivider }, line: { minHeight: 70, flexDirection: 'row', gap: 10, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.coolDivider }, task: { color: colors.ink, fontSize: 13.5, lineHeight: 18, fontWeight: '600' }, meta: { color: colors.coolText, fontSize: 11, marginTop: 2 }, due: { color: colors.coolText, fontSize: 11, marginTop: 2 }, people: { color: colors.coolText, fontSize: 11, marginTop: 2 }, branchTag: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2, marginTop: 5 }, branchText: { color: colors.primaryDark, fontSize: 10, fontWeight: '700' }, group: { backgroundColor: colors.card, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.coolDivider, marginTop: 10 }, groupHead: { minHeight: 52, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.coolMuted }, groupTitle: { color: colors.ink, fontSize: 13.5, fontWeight: '700' }, empty: { color: colors.coolText, textAlign: 'center', padding: 24, fontSize: 12.5 }, loading: { alignItems: 'center', gap: 8, padding: 34 }, error: { marginTop: 12, backgroundColor: '#FEF2F2', borderRadius: radius.md, padding: 11 } });
+const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: colors.coolBg }, content: { paddingHorizontal: 14, paddingBottom: 36 }, header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }, headerIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }, headerCopy: { flex: 1 }, title: { color: colors.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.3 }, subtitle: { color: colors.coolText, marginTop: 2, fontSize: 11.5 }, add: { minWidth: 66, height: 36, borderRadius: 10, paddingHorizontal: 10, backgroundColor: colors.primary, flexDirection: 'row', gap: 4, alignItems: 'center', justifyContent: 'center' }, addText: { color: '#fff', fontSize: 12, fontWeight: '700' }, grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, card: { width: '48%', minHeight: 96, flexGrow: 1, backgroundColor: colors.card, borderRadius: 14, padding: 11, borderWidth: 1, borderColor: colors.coolDivider, justifyContent: 'space-between' }, cardIcon: { width: 29, height: 29, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }, count: { color: colors.ink, fontSize: 21, fontWeight: '700', marginTop: 2 }, cardText: { color: colors.coolText, fontWeight: '600', fontSize: 11.5, lineHeight: 15 }, sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 7 }, section: { color: colors.ink, fontSize: 16, fontWeight: '700' }, sectionCount: { color: colors.coolText, fontSize: 13, fontWeight: '600' }, export: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 28, paddingHorizontal: 9, borderRadius: 8, backgroundColor: colors.primarySoft }, exportText: { color: colors.primaryDark, fontSize: 11.5, fontWeight: '700' }, list: { backgroundColor: colors.card, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.coolDivider }, line: { minHeight: 70, flexDirection: 'row', gap: 4, alignItems: 'center', paddingHorizontal: 6, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.coolDivider }, task: { color: colors.ink, fontSize: 13.5, lineHeight: 18, fontWeight: '600' }, meta: { color: colors.coolText, fontSize: 11, marginTop: 2 }, due: { color: colors.coolText, fontSize: 11, marginTop: 2 }, people: { color: colors.coolText, fontSize: 11, marginTop: 2 }, branchTag: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2, marginTop: 5 }, branchText: { color: colors.primaryDark, fontSize: 10, fontWeight: '700' }, action: { width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }, group: { backgroundColor: colors.card, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.coolDivider, marginTop: 10 }, groupHead: { minHeight: 52, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.coolMuted }, groupTitle: { color: colors.ink, fontSize: 13.5, fontWeight: '700' }, empty: { color: colors.coolText, textAlign: 'center', padding: 24, fontSize: 12.5 }, loading: { alignItems: 'center', gap: 8, padding: 34 }, error: { marginTop: 12, backgroundColor: '#FEF2F2', borderRadius: radius.md, padding: 11 } });
