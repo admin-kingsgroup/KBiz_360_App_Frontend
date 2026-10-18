@@ -14,8 +14,8 @@ import { colors, radius } from '../../theme';
 import { ReminderScreenshot } from './ReminderScreenshot';
 import { ReminderText } from './ReminderText';
 import { reminderMentionNames } from '../../logic/reminderMentions';
-import { buildBranchRefMap, canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isOverdueReminder, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
-import { bundlePeopleLine, bundleReminders, canEditBundle, completableMembers, myTaskSection, type ReminderBundle } from '../../logic/reminderBundles';
+import { buildBranchRefMap, canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
+import { bundlePeopleLine, bundleReminders, canEditBundle, completableMembers, countReminders, myTaskSection, type ReminderBundle } from '../../logic/reminderBundles';
 import { reminderPdfSpec, sectionOf, type PdfSection } from '../../logic/reminderPdf';
 import { shareReminderPdf } from '../../services/reminderPdf';
 
@@ -129,8 +129,9 @@ export default function ReminderDashboard() {
   const todayBundles = useMemo(() => bundleReminders(active.filter((r) => isTodayReminder(r))), [active]);
   const userGroups = useMemo(() => groupByUser(active).map((g) => ({ ...g, bundles: bundleReminders(g.tasks) })), [active]);
   const branchGroups = useMemo(() => groupByBranch(active, users, branches).map((g) => ({ ...g, bundles: bundleReminders(g.tasks) })), [active, users, branches]);
-  const branchTaskCount = useMemo(() => new Set(branchGroups.flatMap((group) => group.tasks.map((task) => task.id))).size, [branchGroups]);
-  const counts = { myself: mySections.self.length + mySections.forme.length + mySections.team.length, users: userGroups.reduce((n, g) => n + g.tasks.length, 0), branches: branchTaskCount, all: bundles.length };
+  // Every tile counts REMINDERS, not per-person copies (owner 2026-10-18): a reminder for two people
+  // is 1 in User Wise and Branch Wise too, the same as in All.
+  const counts = { myself: mySections.self.length + mySections.forme.length + mySections.team.length, users: countReminders(userGroups.flatMap((g) => g.tasks), bundles), branches: countReminders(branchGroups.flatMap((g) => g.tasks), bundles), all: bundles.length };
   // Directory names let a mention of someone who is neither assignee nor creator light up too.
   const directoryNames = useMemo(() => users.map((u) => u.name), [users]);
 
@@ -187,13 +188,13 @@ export default function ReminderDashboard() {
   const branchSections = (): PdfSection[] => branchGroups.map((g) => sectionOf(branchTitle(g), g.bundles));
 
   const userGroupList = (prefix: string) => userGroups.length ? userGroups.map((g) => (
-    <Group key={`${prefix}${g.userId}`} title={g.userName} count={g.tasks.length} overdueCount={g.tasks.filter(isOverdueReminder).length}
+    <Group key={`${prefix}${g.userId}`} title={g.userName} count={g.bundles.length} overdueCount={g.bundles.filter((b) => b.overdue).length}
       busy={busy(`${g.userName} — Reminders`)} onExport={() => void exportPdf(`${g.userName} — Reminders`, [sectionOf(g.userName, g.bundles)])}>
       {lines(g.bundles, prefix)}
     </Group>
   )) : empty('No active user tasks available.');
   const branchGroupList = (prefix: string) => branchGroups.length ? branchGroups.map((g) => (
-    <Group key={`${prefix}${g.branchId}`} title={branchTitle(g)} count={g.tasks.length} overdueCount={g.overdueCount}
+    <Group key={`${prefix}${g.branchId}`} title={branchTitle(g)} count={g.bundles.length} overdueCount={g.bundles.filter((b) => b.overdue).length}
       busy={busy(`${branchTitle(g)} — Reminders`)} onExport={() => void exportPdf(`${branchTitle(g)} — Reminders`, [sectionOf(branchTitle(g), g.bundles)])}>
       {lines(g.bundles, prefix)}
     </Group>
