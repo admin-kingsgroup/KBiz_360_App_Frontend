@@ -18,6 +18,7 @@ import { buildBranchRefMap, canUseAllEndpoint, deduplicateReminders, groupByBran
 import { bundlePeopleLine, bundleReminders, canEditBundle, completableMembers, countReminders, myTaskSection, type ReminderBundle } from '../../logic/reminderBundles';
 import { reminderPdfSpec, sectionOf, type PdfSection } from '../../logic/reminderPdf';
 import { encodeEditMembers } from '../../logic/reminderEdit';
+import { dueText } from '../../logic/reminderTime';
 import { shareReminderPdf } from '../../services/reminderPdf';
 
 type Tab = 'myself' | 'users' | 'branches' | 'all';
@@ -55,7 +56,7 @@ function BundleLine({ b, meId, branchLabel, mentionNames, actions }: { b: Remind
       ) : <View style={styles.action} />}
       <View style={{ flex: 1 }}>
         <ReminderText text={title} names={names} style={styles.task} />
-        <Text style={[styles.due, b.overdue && { color: colors.danger }]}>{b.overdue ? 'Overdue' : b.dueAt ? new Date(b.dueAt).toLocaleDateString() : 'No due date'}</Text>
+        <Text style={[styles.due, b.overdue && { color: colors.danger }]}>{b.overdue ? 'Overdue' : dueText(b.dueAt, (d) => d.toLocaleDateString())}</Text>
         <Text style={styles.people}>{bundlePeopleLine(b)}</Text>
         {b.image ? <ReminderScreenshot url={b.image} /> : null}
         {branchLabel ? <View style={styles.branchTag}><Building2 size={11} color={colors.primary} /><Text style={styles.branchText}>{branchLabel}</Text></View> : null}

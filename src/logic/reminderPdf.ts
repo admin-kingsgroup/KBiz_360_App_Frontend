@@ -1,5 +1,6 @@
 import type { PDFFont } from 'pdf-lib';
 import { bundlePeopleLine, bundleStatus, type ReminderBundle } from './reminderBundles';
+import { dueText } from './reminderTime';
 
 // Reminder PDF export (owner 2026-10-07: every reminder section exports its own PDF — Self Task,
 // Assigned to Me, Assign By Me, each user, each branch). Pure JS via pdf-lib, so it ships over the air:
@@ -9,11 +10,8 @@ export interface PdfRow { text: string; people: string; due: string; status: str
 export interface PdfSection { title: string; rows: PdfRow[] }
 export interface PdfSpec { title: string; subtitle: string; sections: PdfSection[] }
 
-const dueLabel = (iso?: string): string => {
-  if (!iso) return 'No due date';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? 'No due date' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-};
+// "19 Oct 2026", or "19 Oct 2026 · 12:00 PM" when the reminder has a time.
+const dueLabel = (iso?: string): string => dueText(iso, (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }));
 
 export const bundleToRow = (b: ReminderBundle): PdfRow => ({
   text: b.text || 'Untitled reminder',
