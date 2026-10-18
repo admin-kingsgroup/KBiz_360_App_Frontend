@@ -30,25 +30,38 @@ export const BUNDLE_WINDOW_SECONDS = 5;
 const signature = (r: ReminderRecord): string =>
   [r.byId, (r.text || r.title || '').trim(), r.dueAt ?? '', r.image ?? ''].join('\u0001');
 
-/** Fold the per-assignee copies of each reminder back into one bundle. Copies match when they have
- *  the same creator, text, due time and picture AND were created within BUNDLE_WINDOW_SECONDS of
- *  the first copy. Records without an ObjectId never merge. Order of the result follows the order
- *  of each bundle's first member in `items`, so a caller's sort is kept. */
+/** Fold the per-assignee copies of each reminder back into one bundle. Copies carrying a groupId
+ *  (the server stamps one per reminder since 2026-10-18) fold by it, so a person added later by an
+ *  edit joins the same line. Older copies match when they have the same creator, text, due time and
+ *  picture AND were created within BUNDLE_WINDOW_SECONDS of the first copy; records without an
+ *  ObjectId never merge. An edit that adds people to an older reminder names one of its copies' ids
+ *  as the group, so that id folds too. Order of the result follows the order of each bundle's first
+ *  member in `items`, so a caller's sort is kept. */
 export function bundleReminders(items: ReminderRecord[]): ReminderBundle[] {
   const bySig = new Map<string, Array<{ start: number; bundle: ReminderBundle }>>();
+  const byGroup = new Map<string, ReminderBundle>(); // groupId, and every older copy's id → its bundle
   const out: ReminderBundle[] = [];
   const seen = new Set<string>();
+  const fits = (b: ReminderBundle | undefined, r: ReminderRecord): b is ReminderBundle =>
+    !!b && b.byId === r.byId && !b.members.some((m) => m.forId === r.forId);
   for (const r of items) {
     if (!r.id || seen.has(r.id)) continue;
     seen.add(r.id);
     const secs = objectIdSeconds(r.id);
     const sig = signature(r);
-    const open = secs === null ? undefined
-      : bySig.get(sig)?.find((c) => Math.abs(secs - c.start) <= BUNDLE_WINDOW_SECONDS
-        && !c.bundle.members.some((m) => m.forId === r.forId));
+    let open: ReminderBundle | undefined;
+    if (r.groupId) {
+      const g = byGroup.get(r.groupId);
+      if (fits(g, r)) open = g;
+    } else {
+      const named = byGroup.get(r.id);
+      open = fits(named, r) ? named : secs === null ? undefined
+        : bySig.get(sig)?.find((c) => Math.abs(secs - c.start) <= BUNDLE_WINDOW_SECONDS && fits(c.bundle, r))?.bundle;
+    }
     if (open) {
-      open.bundle.members.push(r);
-      open.bundle.overdue = open.bundle.overdue || isOverdueReminder(r);
+      open.members.push(r);
+      open.overdue = open.overdue || isOverdueReminder(r);
+      if (!r.groupId) byGroup.set(r.id, open);
       continue;
     }
     const bundle: ReminderBundle = {
@@ -56,6 +69,8 @@ export function bundleReminders(items: ReminderRecord[]): ReminderBundle[] {
       dueAt: r.dueAt, image: r.image, members: [r], overdue: isOverdueReminder(r),
     };
     out.push(bundle);
+    if (r.groupId) { byGroup.set(r.groupId, bundle); continue; }
+    byGroup.set(r.id, bundle);
     if (secs !== null) bySig.set(sig, [...(bySig.get(sig) ?? []), { start: secs, bundle }]);
   }
   for (const b of out) b.members.sort((a, c) => (a.forName || '').localeCompare(c.forName || ''));
