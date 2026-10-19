@@ -101,6 +101,17 @@ describe('countReminders', () => {
     expect(countReminders([contract[0], solo, contract[1], solo], bundles)).toBe(2);
   });
 
+  it('counts an overdue reminder for two people once (the tiles\' red "overdue" count)', () => {
+    const late = [
+      rec({ id: oid(T0, 1), forId: 'u-af', text: 'Late', overdue: true }),
+      rec({ id: oid(T0, 2), forId: 'u-sh', text: 'Late', overdue: true }),
+      rec({ id: oid(T0 + 60, 3), forId: 'u-af', text: 'On time' }),
+    ];
+    const b = bundleReminders(late);
+    expect(countReminders(late.filter((r) => r.overdue), b)).toBe(1);
+    expect(b.filter((x) => x.overdue)).toHaveLength(1);
+  });
+
   it('counts a copy outside every bundle on its own', () => {
     expect(countReminders([...all, rec({ id: 'not-an-oid' })], bundles)).toBe(3);
   });
