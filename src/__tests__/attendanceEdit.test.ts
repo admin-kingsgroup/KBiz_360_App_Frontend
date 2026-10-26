@@ -1,4 +1,4 @@
-import { buildDayTimes, dayInstant, localDayKey, seedDayTimes, DEFAULT_IN, DEFAULT_OUT, type DayTimesDraft } from '../logic/attendanceEdit';
+import { buildDayTimes, dayInstant, localDayKey, seedDayTimes, seedRequestTimes, DEFAULT_IN, DEFAULT_OUT, type DayTimesDraft } from '../logic/attendanceEdit';
 
 // Every instant here is built on the device clock (new Date(y, m, d, h, min)) so the suite reads
 // the same in whatever TZ the runner happens to be in.
@@ -30,6 +30,21 @@ describe('seedDayTimes (what the sheet opens with)', () => {
   });
   it('today already closed keeps its check-out', () => {
     expect(seedDayTimes({ date: TODAY, inTime: iso(27, 9, 42), outTime: iso(27, 14, 0) }, NOW).hasOut).toBe(true);
+  });
+});
+
+describe('seedRequestTimes (a time-correction request — both times compulsory, owner 2026-10-09)', () => {
+  it('today with no check-out still opens WITH one, so the request can never be sent open', () => {
+    expect(seedRequestTimes({ date: TODAY, inTime: iso(27, 9, 42), outTime: null }, NOW).hasOut).toBe(true);
+    expect(seedRequestTimes({ date: TODAY, inTime: null, outTime: null }, NOW).hasOut).toBe(true);
+  });
+  it('keeps the recorded times, like the admin seed', () => {
+    expect(seedRequestTimes({ date: YESTERDAY, inTime: iso(26, 9, 42), outTime: iso(26, 18, 5) }, NOW))
+      .toEqual(seedDayTimes({ date: YESTERDAY, inTime: iso(26, 9, 42), outTime: iso(26, 18, 5) }, NOW));
+  });
+  it('its draft always builds a body with a check-out (or says why not)', () => {
+    const r = buildDayTimes(TODAY, { ...seedRequestTimes({ date: TODAY, inTime: iso(27, 9, 42), outTime: null }, NOW), outHour: 11, outMinute: 0 }, NOW);
+    expect(r.ok && r.checkOutAt).toBeTruthy();
   });
 });
 
