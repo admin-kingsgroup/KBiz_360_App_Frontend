@@ -1,14 +1,54 @@
-// The Chats tab's Groups view, as picked on the redesign canvas (option 6B, 2026-10-07): a business
-// switcher title, a strip of branch tiles that opens on "All", and the group list under it.
+// The Chats tab's Groups view. Company-first since 2026-10-10 (owner): a row of company logo tiles
+// on top, then the picked company's groups under branch sections that fold open and shut. (Before
+// that: option 6B of the redesign canvas — a business switcher title and a strip of branch tiles.)
 // These are the parts of it that decide WHAT shows; the components only draw it.
 
-/** The strip's "every branch" pick. Never a real branch code (those are short upper-case words). */
-export const ALL_BRANCHES = '*';
+/** The bundled logos a company tile can wear (assets/brands). */
+export type BrandLogo = 'travkings' | 'quinaliza' | 'kbiz';
 
-/** The tile to show as picked: the remembered branch while it still has a tile, else All. The old
- *  chip row opened on its first chip, which hid every other branch's unread groups behind chips. */
-export function resolveStripPick(codes: readonly string[], remembered?: string): string {
-  return remembered && codes.includes(remembered) ? remembered : ALL_BRANCHES;
+/**
+ * Which logo a company wears. The CRM has no logo field, so it goes by the company's name, else its
+ * short code. KBiz360 is also known by its desk, KGD — the owner's rule: "for KGD use the KBiz logo".
+ * No match → null, and the tile shows the code on its tint as before.
+ */
+export function brandLogoFor(biz: { name: string; code?: string }, branchCodes: readonly string[] = []): BrandLogo | null {
+  const name = String(biz.name ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const code = String(biz.code ?? '').toUpperCase();
+  if (name.includes('travkings') || code === 'TK') return 'travkings';
+  if (/quin ?aliza/.test(name) || code === 'QA') return 'quinaliza';
+  if (name.includes('kbiz') || branchCodes.some((c) => branchLogoFor(c) === 'kbiz')) return 'kbiz';
+  return null;
+}
+
+/** A branch section that wears a logo instead of its code: KGD is KBiz360's desk (KBIZ is the code the
+ *  app gives that desk when it has to create it — see the backend's directory service). */
+export const branchLogoFor = (code: string): BrandLogo | null => (code === 'KGD' || code === 'KBIZ' ? 'kbiz' : null);
+
+/** The company tile on screen: the remembered pick while it is still a tile, else All when there is
+ *  an All tile, else the first company. No tiles → the remembered pick unchanged. */
+export function resolveCompanyPick(tileIds: readonly string[], remembered: string): string {
+  if (!tileIds.length || tileIds.includes(remembered)) return remembered;
+  return tileIds.includes('all') ? 'all' : tileIds[0];
+}
+
+/** One branch section's key in the open/shut map — per company tile ('all' has its own). */
+export const foldKey = (bizId: string, code: string): string => `${bizId}:${code}`;
+
+/** Is a branch section open? The person's own choice wins; otherwise sections start folded, so a
+ *  company reads as its list of branches — except a lone section, which starts open (folding the
+ *  only section would leave nothing on screen). */
+export function isSectionOpen(open: Readonly<Record<string, boolean>>, bizId: string, code: string, sections: number): boolean {
+  const k = foldKey(bizId, code);
+  return k in open ? !!open[k] : sections === 1;
+}
+
+/** Open (or fold) every section under one company tile at once. Does not touch the input. */
+export function setAllSections(
+  open: Readonly<Record<string, boolean>>, bizId: string, codes: readonly string[], to: boolean,
+): Record<string, boolean> {
+  const next = { ...open };
+  for (const c of codes) next[foldKey(bizId, c)] = to;
+  return next;
 }
 
 // The Africa branches were re-coded with an H prefix (shared branches rows say HNBO/HDAR/HFBM since
