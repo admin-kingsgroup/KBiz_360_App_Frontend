@@ -6,12 +6,14 @@ import { getAttendanceHistory, type AttendanceHistoryEntry } from '../../api/att
 import { requestRegularization } from '../../api/hr';
 import { ApiError } from '../../api/client';
 import { localDayKey } from '../../logic/attendanceEdit';
-import { shiftDay } from '../../logic/leave';
+import { spanCount } from '../../logic/leave';
 import { useUiStore } from '../../store/uiStore';
 
-// The server takes a correction for today and up to this many days back (regularization.service
-// REGULARIZE_BACK_DAYS); the picker offers the same window so a choice can never bounce.
-const BACK_DAYS = 62;
+// A correction may be asked for any past day — no look-back limit (owner 2026-10-12). The picker
+// still needs a floor; this one is only there to stop the month arrows.
+const EARLIEST_DAY = '2000-01-01';
+// Punches loaded when the sheet opens; a day picked further back loads its own reach.
+const PRELOAD_DAYS = 63;
 
 const dateLabel = (key: string): string => {
   const d = new Date(key + 'T00:00:00');
@@ -19,7 +21,7 @@ const dateLabel = (key: string): string => {
   const yest = new Date(today); yest.setDate(today.getDate() - 1);
   if (d.getTime() === today.getTime()) return 'Today';
   if (d.getTime() === yest.getTime()) return 'Yesterday';
-  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) });
 };
 
 // "Time correction" from anywhere (the Profile quick action): the same request sheet the
@@ -43,7 +45,7 @@ export function TimeCorrectionSheet({ visible, onClose, onSent }: { visible: boo
     const today = localDayKey(new Date());
     setTarget(targetFor(today));
     let active = true;
-    getAttendanceHistory(BACK_DAYS + 1)
+    getAttendanceHistory(PRELOAD_DAYS)
       .then((h) => {
         if (!active) return;
         history.current = h;
@@ -67,6 +69,20 @@ export function TimeCorrectionSheet({ visible, onClose, onSent }: { visible: boo
       .finally(() => setSaving(false));
   };
 
+  // A picked day older than what is loaded: load back to it, so it too starts from its real punches.
+  const pickDay = (day: string): void => {
+    setPicking(false);
+    setTarget(targetFor(day));
+    const loaded = history.current;
+    if (!loaded.length || day >= loaded[loaded.length - 1].date) return;
+    getAttendanceHistory(spanCount(day, localDayKey(new Date())))
+      .then((h) => {
+        history.current = h;
+        setTarget((t) => (t && t.date === day && h.some((x) => x.date === day) ? targetFor(day) : t));
+      })
+      .catch(() => undefined);
+  };
+
   const today = localDayKey(new Date());
   // The day picker is a CHILD of the sheet so its Modal opens on top of the sheet's (Android).
   return (
@@ -82,10 +98,10 @@ export function TimeCorrectionSheet({ visible, onClose, onSent }: { visible: boo
         visible={visible && picking}
         title="Which day needs a correction?"
         initial={target?.date ?? today}
-        minDay={shiftDay(today, -BACK_DAYS)}
+        minDay={EARLIEST_DAY}
         maxDay={today}
         onClose={() => setPicking(false)}
-        onConfirm={(day) => { setPicking(false); setTarget(targetFor(day)); }}
+        onConfirm={pickDay}
       />
     </RegularizeSheet>
   );
