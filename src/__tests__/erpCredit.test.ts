@@ -1,5 +1,5 @@
 import type { ErpCreditRequest } from '../api/erp';
-import { creditApproveAsk, creditAsked, creditButtons, creditDoneText, creditLevelOf, creditOpLabel, creditState, creditSteps, pastWords } from '../logic/erpCredit';
+import { creditAccount, creditApproveAsk, creditAsked, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditLevelOf, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay, pastWords } from '../logic/erpCredit';
 
 // Approvals ▸ Credit in the app (owner, 2026-10-13) signs credit as the ERP's Approvals ▸ Credit does (Books
 // creditRequestsPanel.jsx). These pin the mirror: which buttons a row offers, their words, and what Approve asks.
@@ -80,5 +80,79 @@ describe('what Approve asks first', () => {
   it('in turn: a plain confirm; the toast names the level and who was skipped', () => {
     expect(creditApproveAsk(row({ yourTurn: true }))).toMatchObject({ kind: 'confirm', ownerPast: false, title: 'Confirm (Director)?' });
     expect(creditDoneText(row(OWNER_PAST))).toBe('Hotel Mota: Approve (Owner) done (Director skipped)');
+  });
+});
+
+// THE WHOLE CLIENT (owner, 2026-10-27: "i want all details of client … do also on kbiz app ui so that they can approve from app
+// also"): the same words the ERP's Approvals ▸ Credit row uses — who to call, the account with us, what the master lacks.
+describe('the whole client on a credit card', () => {
+  const jbj = (over: Partial<ErpCreditRequest> = {}): ErpCreditRequest => row({
+    op: 'party_terms', kind: 'Client credit', name: 'JBJ RESOURCES LTD', branch: 'HDAR', limit: 10803, creditDays: 7,
+    contact: { party: 'client', phone: '', person: '', email: '', reference: null },
+    details: { from: 'master', missing: ['Phone', 'Email', 'Address', 'Reference'], fields: [{ key: 'customerType', label: 'Customer Type', value: 'B2E' }] },
+    standing: { currency: 'USD', owes: 10803, billed: 52000, paid: 41197, lastPaid: '2026-10-03', onCredit: false, waiting: 700, overdue: { amount: 4200, count: 3, oldestDays: 45 } },
+    ...over,
+  });
+
+  it('a blank master: the Reference and the client contact both say they are not on the master', () => {
+    expect(creditContactLines(jbj())).toEqual([
+      { label: 'Reference', value: '', phone: '', warn: 'not on the client master' },
+      { label: 'Client contact', value: '', phone: '', warn: 'not on the client master' },
+    ]);
+    expect(creditMissing(jbj())).toBe('Phone, Email, Address, Reference — not on the client master');
+    expect(creditDetailsTitle(jbj())).toBe('Client details — from the client master, as it is now');
+  });
+
+  it('a full one: Reference code · name with its phone; the client’s person with its phone; a supplier says Supplier', () => {
+    const full = jbj({ contact: { party: 'client', phone: '+255 22 000 111', person: 'Joseph B', email: 'ap@jbj.test',
+      reference: { code: 'RFCHDAR001', name: 'Fauzia Kitenge', phone: '+255 791 211 980' } }, details: { from: 'master', missing: [], fields: [] } });
+    expect(creditContactLines(full)).toEqual([
+      { label: 'Reference', value: 'RFCHDAR001 · Fauzia Kitenge', phone: '+255 791 211 980', warn: '' },
+      { label: 'Client contact', value: 'Joseph B', phone: '+255 22 000 111', warn: '' },
+    ]);
+    expect(creditMissing(full)).toBe('');
+    const sup = jbj({ contact: { party: 'supplier', phone: '', person: 'Ravi', email: '', reference: { code: 'RFCBOM002', name: 'Asif Khan', phone: '' } } });
+    expect(creditContactLines(sup)).toEqual([
+      { label: 'Reference', value: 'RFCBOM002 · Asif Khan', phone: '', warn: 'no phone' },
+      { label: 'Supplier contact', value: 'Ravi', phone: '', warn: 'no phone' },
+    ]);
+    expect(creditContactLines(jbj({ contact: { party: 'client', phone: '', person: '', email: 'ar@x.test', reference: null } }))[1]).toMatchObject({ value: 'ar@x.test', warn: '' });
+  });
+
+  it('the account: owes, overdue in red, waiting, 12 months billed / received, last receipt — in the books’ currency', () => {
+    expect(creditAccount(jbj())).toEqual([
+      { text: 'Owes $10,803', tone: 'strong' },
+      { text: 'Overdue $4,200 (3 bills, oldest 45 days late)', tone: 'danger' },
+      { text: '$700 waiting to post', tone: 'plain' },
+      { text: 'Billed $52,000 · received $41,197 in 12 months', tone: 'plain' },
+      { text: 'Last receipt 3 Oct 2026', tone: 'plain' },
+    ]);
+  });
+
+  it('on a CFM line: the line and its room, a hold in red, nothing overdue in green; no receipt said', () => {
+    const texts = creditAccount(jbj({ standing: { currency: 'USD', owes: 500, billed: 0, paid: 0, lastPaid: '', onCredit: true, limit: 5000, available: 4500, held: true, waiting: 0, overdue: { amount: 0, count: 0, oldestDays: 0 } } }));
+    expect(texts.map((t) => t.text)).toEqual(['Owes $500', 'Nothing overdue', 'On a line of $5,000 · room $4,500', 'On credit hold', 'Billed $0 · received $0 in 12 months', 'No receipt in 12 months']);
+    expect(texts.find((t) => t.text === 'On credit hold')?.tone).toBe('danger');
+    expect(texts.find((t) => t.text === 'Nothing overdue')?.tone).toBe('good');
+  });
+
+  it('a supplier reads the other way round; a client paid ahead says so; no standing → nothing', () => {
+    const sup = jbj({ branch: 'MHUB', contact: { party: 'supplier' }, standing: { currency: 'INR', owes: -9000, billed: 29000, paid: 20000, lastPaid: '' } });
+    expect(creditAccount(sup).map((t) => t.text)).toEqual(['We owe ₹9,000', 'Their bills ₹29,000 · paid ₹20,000 in 12 months', 'No payment in 12 months']);
+    expect(creditAccount(jbj({ standing: { currency: 'USD', owes: -250, billed: 0, paid: 250 } }))[0].text).toBe('Paid ahead $250');
+    expect(creditAccount(jbj({ standing: null }))).toEqual([]);
+  });
+
+  it('a new party: blanks are "not given on the form"; a bank line has no contact lines', () => {
+    const onboard = jbj({ op: 'party_onboard', standing: null, details: { from: 'form', missing: ['Reference'], fields: [] } });
+    expect(creditMissing(onboard)).toBe('Reference — not given on the form');
+    expect(creditDetailsTitle(onboard)).toBe('Client details — as submitted on the form');
+    expect(creditContactLines(jbj({ op: 'line_create', contact: null }))).toEqual([]);
+    expect(creditPartyWord(jbj({ contact: null }))).toBe('');
+  });
+
+  it('isoDay reads the same on every phone', () => {
+    expect(isoDay('2026-01-09')).toBe('9 Jan 2026');
+    expect(isoDay('')).toBe('');
   });
 });

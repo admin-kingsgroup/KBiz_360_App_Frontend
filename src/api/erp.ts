@@ -76,8 +76,19 @@ export interface ErpCreditRequest {
   before?: { limit?: number | null; creditLimit?: number | null; creditDays?: number | null; currency?: string } | null;
   reopen?: boolean; renew?: boolean; active?: boolean; limitCheckOff?: boolean;
   grace?: { days?: number; limit?: number; until?: string; reason?: string } | null;
-  /** A new party's whole form as submitted — what the FM reviews before it is created. */
-  details?: { fields?: Array<{ key: string; label: string; value: string }> } | null;
+  /** The party's whole profile: a new party's form as submitted (from 'form'), or — a terms change, a line, a grace — its
+   *  master as it is now (from 'master', ERP 2026-10-27); `missing` = the essentials still blank (Phone, Email, Address, Reference). */
+  details?: { from?: 'form' | 'master'; missing?: string[]; fields?: Array<{ key: string; label: string; value: string }> } | null;
+  /** Who to call: the party's phone / person / email and its Reference by code, name, phone (ERP 2026-10-27); null = no party. */
+  contact?: { party?: 'client' | 'supplier'; phone?: string; person?: string; email?: string;
+    reference?: { code?: string; name?: string; phone?: string } | null } | null;
+  /** Its account with us, on a request still waiting (ERP 2026-10-27): owes today (+ owes us, − we owe / paid ahead), the last
+   *  12 months billed / paid, its last receipt (a supplier: our last payment); a client's overdue, waiting, and its line. */
+  standing?: { currency?: string; ledger?: string; owes?: number; billed?: number; paid?: number; lastPaid?: string;
+    onCredit?: boolean; limit?: number; available?: number; held?: boolean; waiting?: number;
+    overdue?: { amount?: number; count?: number; oldestDays?: number } | null } | null;
+  /** The maker's word to the approvers — expected sales, salesperson, who on-boarded it (ERP 2026-10-21). */
+  remarks?: string; remarksBy?: string; remarksAt?: string | null;
   chain?: Array<{ role: string; label?: string }>;
   approvals?: Array<{ role: string; by?: string; at?: string; skipped?: boolean; signedPastBy?: string; reason?: string }>;
   // The ERP sends the next signer as { role, label } (or null) — never render it raw (2026-10-08 crash).
