@@ -143,3 +143,84 @@ export function creditSteps(r: ErpCreditRequest): Array<{ label: string; done: b
     now: !!waiting && waiting.role === l.role,
   }));
 }
+
+/* THE WHOLE CLIENT (owner, 2026-10-27: "i want all details of client — without knowing the client details how will the owner
+   approve … do also on kbiz app ui so that they can approve from app also"). The ERP now sends, on every client / supplier
+   request: `contact` (its phone and its Reference), `standing` (its account with us, while it waits) and `details` (its whole
+   profile — the master as it is now, or a new party's form — with `missing`, the essentials still blank). Mirrors of the
+   ERP's PartyContact / PartyAccount / MissingDetails / PartyDetails (Books creditRequestsPanel.jsx), same words. */
+
+/** "Client" / "Supplier" — '' on a row with no party (a bank / hub line). */
+export function creditPartyWord(r: ErpCreditRequest): string {
+  return r.contact ? (r.contact.party === 'supplier' ? 'Supplier' : 'Client') : '';
+}
+const blankWhere = (r: ErpCreditRequest): string =>
+  r.op === 'party_onboard' || r.details?.from === 'form' ? 'not given on the form' : `not on the ${(creditPartyWord(r) || 'party').toLowerCase()} master`;
+
+export interface CreditContactLine { label: string; value: string; phone: string; warn: string }
+/** Who to call: the Reference (code · name, its phone) and the party's own contact (person, its phone — else its email).
+ *  A blank one says so in `warn` ("not on the client master"), never hidden. [] on a row with no party. */
+export function creditContactLines(r: ErpCreditRequest): CreditContactLine[] {
+  const c = r.contact;
+  if (!c) return [];
+  const missing = blankWhere(r);
+  const ref = c.reference;
+  const refLine: CreditContactLine = ref
+    ? { label: 'Reference', value: [erpText(ref.code), erpText(ref.name)].filter(Boolean).join(' · '), phone: erpText(ref.phone), warn: ref.phone ? '' : 'no phone' }
+    : { label: 'Reference', value: '', phone: '', warn: missing };
+  const phone = erpText(c.phone);
+  const person = erpText(c.person);
+  const email = erpText(c.email);
+  const party: CreditContactLine = phone || email
+    ? { label: `${creditPartyWord(r)} contact`, value: phone ? person : [email, person].filter(Boolean).join(' · '), phone, warn: '' }
+    : { label: `${creditPartyWord(r)} contact`, value: person, phone: '', warn: person ? 'no phone' : missing };
+  return [refLine, party];
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** '2026-10-03' → '3 Oct 2026' — the same on every phone, whatever its locale. */
+export function isoDay(iso?: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1] || m[2]} ${m[1]}` : erpText(iso);
+}
+
+export type CreditAccountTone = 'strong' | 'danger' | 'good' | 'plain';
+/** Its account with us, in pieces with a tone each — owes, overdue (red when any), waiting to post, its line and room, a
+ *  hold (red), the last 12 months billed / paid, its last receipt. A supplier reads the other way round. [] with no `standing`. */
+export function creditAccount(r: ErpCreditRequest): Array<{ text: string; tone: CreditAccountTone }> {
+  const s = r.standing;
+  if (!s) return [];
+  const supplier = r.contact?.party === 'supplier';
+  const m = (n?: number) => money(Number(n) || 0, s.currency || bookCurrency(r.branch));
+  const owes = Number(s.owes) || 0;
+  const out: Array<{ text: string; tone: CreditAccountTone }> = [{
+    text: owes > 0 ? `${supplier ? 'Advance with them' : 'Owes'} ${m(owes)}` : owes < 0 ? `${supplier ? 'We owe' : 'Paid ahead'} ${m(-owes)}` : 'Owes nothing',
+    tone: 'strong',
+  }];
+  const od = s.overdue;
+  if (od) {
+    const n = Number(od.count) || 0;
+    const d = Number(od.oldestDays) || 0;
+    out.push(Number(od.amount) > 0
+      ? { text: `Overdue ${m(od.amount)} (${n} bill${n === 1 ? '' : 's'}, oldest ${d} day${d === 1 ? '' : 's'} late)`, tone: 'danger' }
+      : { text: 'Nothing overdue', tone: 'good' });
+  }
+  if (Number(s.waiting) > 0) out.push({ text: `${m(s.waiting)} waiting to post`, tone: 'plain' });
+  if (s.onCredit) out.push({ text: `On a line of ${m(s.limit)} · room ${m(s.available)}`, tone: 'plain' });
+  if (s.held) out.push({ text: 'On credit hold', tone: 'danger' });
+  out.push({ text: `${supplier ? 'Their bills' : 'Billed'} ${m(s.billed)} · ${supplier ? 'paid' : 'received'} ${m(s.paid)} in 12 months`, tone: 'plain' });
+  out.push({ text: s.lastPaid ? `Last ${supplier ? 'payment' : 'receipt'} ${isoDay(s.lastPaid)}` : `No ${supplier ? 'payment' : 'receipt'} in 12 months`, tone: 'plain' });
+  return out;
+}
+
+/** "Phone, Email, Address, Reference — not on the client master" — '' when nothing essential is blank. */
+export function creditMissing(r: ErpCreditRequest): string {
+  const miss = (r.details?.missing || []).map(erpText).filter(Boolean);
+  return miss.length ? `${miss.join(', ')} — ${blankWhere(r)}` : '';
+}
+
+/** The details box's heading: "Client details — from the client master, as it is now" / "… — as submitted on the form". */
+export function creditDetailsTitle(r: ErpCreditRequest): string {
+  const w = creditPartyWord(r) || 'Party';
+  return `${w} details — ${r.details?.from === 'master' ? `from the ${w.toLowerCase()} master, as it is now` : 'as submitted on the form'}`;
+}
