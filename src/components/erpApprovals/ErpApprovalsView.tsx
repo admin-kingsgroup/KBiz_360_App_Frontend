@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { ApiError } from '../../api/client';
 import {
@@ -13,7 +13,7 @@ import {
   RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, waitingLabel,
 } from '../../logic/erpPayables';
-import { creditApproveAsk, creditAsked, creditButtons, creditDoneText, creditOpLabel, creditState, creditSteps } from '../../logic/erpCredit';
+import { creditAccount, creditApproveAsk, creditAsked, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
 import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
@@ -486,7 +486,14 @@ function PaymentCard({ cr, me, busy, anyBusy, onAct }: { cr: ErpChangeRequest; m
    raised it, the three steps — and the buttons the ERP would accept from this person, with its reason when Approve is off.
    An approved one whose change did not go through offers Re-run / Close to the Owner / Super Admin (the ERP's canRetry). */
 function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCreditRequest; busy: boolean; anyBusy: boolean; onAct: (a: 'approve' | 'reject' | 'send_back') => void; onRerun: () => void; onClose: () => void }) {
-  const [open, setOpen] = useState(false);
+  // The party's details show OPEN (owner, 2026-10-27: "without knowing the client details how will the owner approve") — a tap hides them.
+  const [open, setOpen] = useState(true);
+  const contacts = creditContactLines(c);
+  const account = creditAccount(c);
+  const missing = creditMissing(c);
+  const word = creditPartyWord(c);
+  const remarks = erpText(c.remarks);
+  const toneColor = (t: string) => (t === 'danger' ? colors.dangerText : t === 'good' ? colors.primary : t === 'strong' ? colors.ink : colors.coolText);
   const asked = creditAsked(c);
   const steps = creditSteps(c);
   const state = creditState(c);
@@ -508,12 +515,41 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
         <Text style={{ fontWeight: '700' }}>{asked.to}</Text>
       </Text>
       {asked.warn ? <Text style={[st.rowSub, { color: colors.orange }]}>{asked.warn}</Text> : null}
+      {/* Who to call (ERP 2026-10-27): the Reference and the party, each phone a tap to dial; a blank one said in orange. */}
+      {contacts.map((l) => (
+        <Text key={l.label} style={st.rowSub}>
+          {l.label}{'  '}
+          {l.value ? <Text style={{ color: colors.ink, fontWeight: '600' }}>{l.value}</Text> : null}
+          {l.value && (l.phone || l.warn) ? ' · ' : null}
+          {l.phone ? <Text onPress={() => void Linking.openURL(`tel:${l.phone.replace(/[^\d+]/g, '')}`)} style={{ color: colors.primary, fontWeight: '700' }}>{l.phone}</Text> : null}
+          {l.warn ? <Text style={{ color: colors.orange, fontWeight: '600' }}>{l.warn}</Text> : null}
+        </Text>
+      ))}
+      {account.length ? (
+        <Text style={st.rowSub}>
+          Account{'  '}
+          {account.map((a, i) => (
+            <Text key={a.text}>
+              {i ? ' · ' : ''}
+              <Text style={{ color: toneColor(a.tone), fontWeight: a.tone === 'plain' ? '400' : '700' }}>{a.text}</Text>
+            </Text>
+          ))}
+        </Text>
+      ) : null}
+      {missing ? <Text style={[st.rowSub, { color: colors.orange, fontWeight: '700' }]}>{missing}</Text> : null}
+      {remarks ? (
+        <Text style={st.rowSub}>
+          Remarks{'  '}<Text style={{ color: colors.ink }}>{remarks}</Text>
+          {erpText(c.remarksBy) ? <Text style={{ color: colors.coolText3 }}>{`  — ${erpText(c.remarksBy)}${c.remarksAt ? `, ${isoDay(String(c.remarksAt).slice(0, 10))}` : ''}`}</Text> : null}
+        </Text>
+      ) : null}
       <Text style={st.rowSub}>
         by {maker || '—'}{c.source === 'crm' ? ' (salesperson, CRM)' : ''}{c.createdAt ? ` · ${ageOf(c.createdAt)}` : ''}
-        {fields.length ? <Text onPress={() => setOpen(!open)} style={{ color: colors.orange, fontWeight: '700' }}>{`  ·  ${open ? 'Hide details' : 'Details'}`}</Text> : null}
+        {fields.length ? <Text onPress={() => setOpen(!open)} style={{ color: colors.orange, fontWeight: '700' }}>{`  ·  ${open ? `Hide ${word ? `${word.toLowerCase()} ` : ''}details` : word ? `${word} details` : 'Details'}`}</Text> : null}
       </Text>
       {open && fields.length ? (
         <View style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.coolMuted, gap: 3 }}>
+          <Text style={[st.rowSub, { marginTop: 0, fontWeight: '800', color: colors.coolText }]}>{creditDetailsTitle(c)}</Text>
           {fields.map((f) => (
             <Text key={f.key} style={[st.rowSub, { marginTop: 0 }]}>{erpText(f.label)}: <Text style={{ color: colors.ink, fontWeight: '600' }}>{erpText(f.value)}</Text></Text>
           ))}
