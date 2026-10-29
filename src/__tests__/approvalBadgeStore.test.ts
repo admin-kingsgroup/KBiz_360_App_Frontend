@@ -4,7 +4,7 @@ import { ApiError } from '../api/client';
 
 const getApprovalCounts = jest.fn();
 const getRegularizationsForAdmin = jest.fn();
-const erp = { changeRequests: jest.fn(), leaveApplications: jest.fn(), creditRequests: jest.fn(), closeBoard: jest.fn() };
+const erp = { changeRequests: jest.fn(), leaveApplications: jest.fn(), creditRequests: jest.fn(), pendingWork: jest.fn() };
 const loadErpAccess = jest.fn();
 
 jest.mock('../api/approvals', () => ({ getApprovalCounts: () => getApprovalCounts() }));
@@ -28,14 +28,15 @@ beforeEach(() => {
   erp.changeRequests.mockResolvedValue([pay('BOM'), pay('MHUB'), req('AMD')]);
   erp.leaveApplications.mockResolvedValue([{ _id: 'l1', branch: 'HNBO' }]);
   erp.creditRequests.mockResolvedValue([{ _id: 'cr1', branch: 'BOM' }]);
-  erp.closeBoard.mockResolvedValue([{ branch: 'AMD', status: 'held' }, { branch: 'BOM', status: 'closed' }]);
+  // Entries (owner, 2026-10-29): one voucher waiting at AMD, from the Pending Work feed. Month Close is not counted any more.
+  erp.pendingWork.mockResolvedValue({ branches: [{ branch: 'AMD', cards: [{ key: 'approvals', items: [{ key: 'vouchers', entries: [{ id: 'e1', ref: 'RV/AMD/1', kind: 'voucher', type: 'RV', branch: 'AMD', actionBranch: 'AMD', stage: 'check' }] }] }] }] });
 });
 
 describe('Approvals tab badge', () => {
   it('ERP user: all-branches ERP total + App requests, corrections not added twice', async () => {
     loadErpAccess.mockResolvedValue({ state: 'ready', me: { email: 'o@kb.test' } });
     await badge().refresh();
-    // ERP: 2 payables + 1 request + 1 HR + 1 credit + 1 held close = 6; App requests: 2.
+    // ERP: 1 entry + 2 payables + 1 request + 1 HR + 1 credit = 6; App requests: 2.
     expect(badge()).toMatchObject({ erp: 6, app: 2, count: 8 });
     expect(getRegularizationsForAdmin).not.toHaveBeenCalled();
   });
@@ -57,7 +58,7 @@ describe('Approvals tab badge', () => {
   it('a failed ERP or app read keeps the last number instead of zeroing it', async () => {
     loadErpAccess.mockResolvedValue({ state: 'ready', me: { email: 'o@kb.test' } });
     await badge().refresh();
-    erp.closeBoard.mockRejectedValue(new Error('offline'));
+    erp.pendingWork.mockRejectedValue(new Error('offline'));
     getApprovalCounts.mockRejectedValue(new Error('offline'));
     await badge().refresh();
     expect(badge()).toMatchObject({ erp: 6, app: 2, count: 8 });

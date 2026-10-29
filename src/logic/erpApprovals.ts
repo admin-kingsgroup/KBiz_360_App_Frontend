@@ -6,9 +6,10 @@ import type { ErpEntryDetail, ErpLeaveSwap, ErpMe, ErpPendingEntry, ErpPendingWo
 
 export const ALL_BRANCHES = 'ALL';
 
-/** The approval-chain lists (lower-cased emails) from the ERP's app-config. */
-export interface ErpChain { verify: string[]; approve: string[]; director: string[]; owner: string[] }
-export const EMPTY_CHAIN: ErpChain = { verify: [], approve: [], director: [], owner: [] };
+/** The approval-chain lists (lower-cased emails) from the ERP's app-config. `dealApprove` — who approves a hub deal's
+ *  allocation / settlement legs (the ERP's approval.dealApproveEmails, falling back to `approve` when unset). */
+export interface ErpChain { verify: string[]; approve: string[]; director: string[]; owner: string[]; dealApprove?: string[] }
+export const EMPTY_CHAIN: ErpChain = { verify: [], approve: [], director: [], owner: [], dealApprove: [] };
 
 const SUPER = /super.?admin/i;
 
@@ -105,7 +106,8 @@ export function nextErpAction(e: ErpEntryDetail, me: Pick<ErpMe, 'email' | 'name
   const email = String(me.email || '').toLowerCase().trim();
   const su = SUPER.test(me.role || '');
   const inVerify = chain.verify.includes(email);
-  const inApprove = chain.approve.includes(email);
+  // A deal approver may give a hub leg's final approval too; the ERP refuses (and says why) when this entry is not one.
+  const inApprove = chain.approve.includes(email) || (chain.dealApprove ?? []).includes(email);
   const stage = e.reviewStage;
   if (stage === 'check') return { stage, action: 'check', label: 'Check', allowed: true, hint: 'Level 1 · checked in the branch' };
   if (stage === 'verify') {
