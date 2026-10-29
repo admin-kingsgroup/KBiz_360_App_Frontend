@@ -45,6 +45,12 @@ export function pendingEntries(pw: ErpPendingWork | null | undefined, branch: st
   return out.sort((a, b) => (b.days ?? 0) - (a.days ?? 0) || a.ref.localeCompare(b.ref));
 }
 
+/** The stages the app's Entries lists (owner, 2026-10-29: "don't give Check entries in the mobile app, only those that come
+ *  for Approve"): the final Approve and the Director / Owner sign-offs that sit with it. Check (and Verify, off since
+ *  2026-10-11) stay on the laptop. An entry with no stage is a settled leftover, not waiting for anyone — left out too. */
+export const APP_ENTRY_STAGES: ReadonlySet<string> = new Set(['approve', 'director', 'owner']);
+export const awaitingApproval = <T extends { stage?: string }>(entries: T[]): T[] => entries.filter((e) => APP_ENTRY_STAGES.has(String(e.stage || '')));
+
 /** "Check 5 · Verify 4 · Approve 3" for the strip above the list. */
 export function stageCounts(entries: ErpPendingEntry[]): { check: number; verify: number; approve: number; total: number } {
   const c = { check: 0, verify: 0, approve: 0, total: entries.length };
