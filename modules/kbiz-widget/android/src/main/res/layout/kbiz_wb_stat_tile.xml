@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One large-board stat: icon on top, big number, label. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/kbiz_wb_stat"
+  android:layout_width="0dp"
+  android:layout_height="match_parent"
+  android:layout_weight="1"
+  android:background="@drawable/kbiz_wb_tile"
+  android:orientation="vertical"
+  android:padding="8dp">
+
+  <ImageView
+    android:id="@+id/kbiz_wb_stat_icon"
+    android:layout_width="13dp"
+    android:layout_height="13dp"
+    android:importantForAccessibility="no" />
+
+  <FrameLayout
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1" />
+
+  <TextView
+    android:id="@+id/kbiz_wb_stat_value"
+    style="@style/KbizWb.Text.Bold"
+    android:textSize="21sp" />
+
+  <TextView
+    android:id="@+id/kbiz_wb_stat_label"
+    style="@style/KbizWb.Text.Semi.Mute"
+    android:layout_marginTop="1dp"
+    android:textSize="9.5sp" />
+</LinearLayout>

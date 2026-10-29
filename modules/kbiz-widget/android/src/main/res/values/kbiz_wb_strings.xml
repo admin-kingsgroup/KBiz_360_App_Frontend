@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="kbiz_wb_label">Work Board</string>
+  <string name="kbiz_wb_description">Reminders, approvals, unread chats and attendance together.</string>
+</resources>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown for the moment between placing the widget and its first draw. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@android:id/background"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/kbiz_wb_bg"
+  android:clipToOutline="true"
+  android:gravity="center"
+  android:orientation="vertical">
+
+  <ImageView
+    android:layout_width="26dp"
+    android:layout_height="26dp"
+    android:importantForAccessibility="no"
+    android:src="@drawable/kbiz_wb_brand" />
+
+  <TextView
+    style="@style/KbizWb.Text.Semi"
+    android:layout_marginTop="6dp"
+    android:text="KBiz 360"
+    android:textSize="14sp" />
+</LinearLayout>
