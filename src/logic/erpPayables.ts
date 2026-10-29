@@ -6,7 +6,7 @@ import { money } from './erpApprovals';
 // changeRequests.js + inbox.js and approvals/RecentlyApprovedPayments.jsx — so the app shows what the
 // ERP shows and never offers a button the ERP refuses. The ERP still decides every act; change both together.
 
-/** A supplier payment request (FM → Director → Owner, every amount). The ERP's PAYMENT_TYPES. */
+/** A supplier payment request (BM → FM → Director since 2026-10-29, every amount). The ERP's PAYMENT_TYPES. */
 export const PAYMENT_TYPES: readonly string[] = ['payment_request'];
 export const isPaymentRequest = (cr: { type?: string } | null | undefined): boolean => PAYMENT_TYPES.includes(String(cr?.type || ''));
 /** HR's request types live on the HR tab (the ERP's HR_TAB_TYPES are all hr_*). */
@@ -79,6 +79,8 @@ export function chainRoleOf(role: string | undefined): string {
   if (/^(owner|super\s*_?admin)$/i.test(r)) return 'Owner';
   if (/^director$/i.test(r)) return 'Director';
   if (/^finance\s*_?manager$/i.test(r) || r === 'FinanceManager') return 'FinanceManager';
+  // The Branch / General Manager signs first on Requests and CFM since 2026-10-29 (the ERP's BranchManager level).
+  if (/^(branch|general)\s*_?manager$/i.test(r) || r === 'BranchManager' || /^(bm|gm)$/i.test(r)) return 'BranchManager';
   return r;
 }
 

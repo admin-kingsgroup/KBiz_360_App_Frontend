@@ -350,7 +350,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
 
         {!loading && tab === 'requests' && sub === 'payables' ? (
           <>
-            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard — signed FM → Director → Owner; the supplier is paid only after the Owner signs.</Text>
+            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard — signed BM → FM → Director (no BM step where the branch has none); the supplier is paid only after the Director approves.</Text>
             {crs.refused ? refusedNote('Payables') : errorNote(crs.error)}
             {payables.length === 0 && !crs.refused && !crs.error ? <Text style={st.empty}>No payment request is waiting.</Text> : null}
             {payables.map((cr) => <PaymentCard key={cr._id} cr={cr} me={me} busy={busy === cr._id} anyBusy={!!busy} onAct={(a) => actOnPayment(cr, a)} />)}
@@ -480,7 +480,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
 
         {!loading && tab === 'cfm' ? (
           <>
-            <Text style={st.note}>FM reviews → Director confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
+            <Text style={st.note}>BM reviews → Director confirms → FM confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
             {credit.refused ? refusedNote('Credit requests') : errorNote(credit.error)}
             {creditRows.length === 0 && !credit.refused && !credit.error ? <Text style={st.empty}>No credit requests are waiting.</Text> : null}
             {creditRows.map((c) => <CreditCard key={c.id} c={c} busy={busy === c.id} anyBusy={!!busy} onAct={(a) => actOnCredit(c, a)} onRerun={() => rerunCredit(c)} onClose={() => closeCredit(c)} />)}
