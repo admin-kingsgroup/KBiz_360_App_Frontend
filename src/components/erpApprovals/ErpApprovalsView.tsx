@@ -10,7 +10,7 @@ import {
 } from '../../api/erp';
 import {
   ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, money, nextErpAction, ownerSignsPast,
-  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
+  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, awaitingApproval, branchOptions, pendingEntries, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
   type ErpChain, type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
@@ -105,11 +105,11 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   // The ERP's split: Below GP reviews sit in Entries; Other leaves out HR's types and payment requests.
-  const allEntries = useMemo(() => pendingEntries(pw.rows), [pw.rows]);
+  // Only the entries waiting for Approve (owner, 2026-10-29) — Check is done on the laptop.
+  const allEntries = useMemo(() => awaitingApproval(pendingEntries(pw.rows)), [pw.rows]);
   const lists = useMemo(() => ({ crs: crs.rows, leave: leave.rows, credit: credit.rows, entries: allEntries }), [crs.rows, leave.rows, credit.rows, allEntries]);
   const here = useMemo(() => approvalsAt(lists, branch), [lists, branch]);
   const { entries, margin, payables, requests, hrRequests, leave: leaveRows, credit: creditRows } = here;
-  const stages = useMemo(() => stageCounts(entries), [entries]);
   const stuckPay = useMemo(() => atFocus(approvedPay.rows.filter((r) => isPaymentRequest(r) && isStuck(r)), branch), [approvedPay.rows, branch]);
   const screen = tabCounts(here);
   const totals = tabTotals(screen);
@@ -298,8 +298,8 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
         {!loading && tab === 'entries' ? (
           <>
             <View style={st.strip}>
-              <Text style={st.stripTitle}>PENDING BY STAGE · {branch === ALL_BRANCHES ? 'All branches' : branch} · {stages.total} pending</Text>
-              <Text style={st.stripLine}>Check {stages.check}{stages.verify ? `  ·  Verify ${stages.verify}` : ''}  ·  Approve {stages.approve}</Text>
+              <Text style={st.stripTitle}>WAITING FOR APPROVAL · {branch === ALL_BRANCHES ? 'All branches' : branch}</Text>
+              <Text style={st.stripLine}>{entries.length} entr{entries.length === 1 ? 'y' : 'ies'} to approve — Check is done in the ERP</Text>
             </View>
             {pw.refused ? refusedNote('Entries') : errorNote(pw.error)}
             {entries.length === 0 && !pw.refused && !pw.error ? <Text style={st.empty}>No entry is waiting for approval here.</Text> : null}
