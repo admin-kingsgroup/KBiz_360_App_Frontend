@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Work Board widget palette (Light). Same tokens as the iOS widget (targets/widget/expo-target.config.js). -->
+<resources>
+  <color name="kbiz_wb_bg">#FFFFFF</color>
+  <color name="kbiz_wb_tile">#F2F4F7</color>
+  <color name="kbiz_wb_main">#0C0E14</color>
+  <color name="kbiz_wb_mute">#5B6472</color>
+  <color name="kbiz_wb_neutral">#735B6472</color>
+  <color name="kbiz_wb_green">#25D366</color>
+  <color name="kbiz_wb_primary">#0B6E60</color>
+  <color name="kbiz_wb_purple">#9A6CF0</color>
+  <color name="kbiz_wb_orange">#E8A13A</color>
+  <color name="kbiz_wb_danger">#D92D20</color>
+  <color name="kbiz_wb_danger_soft">#FEE4E2</color>
+  <color name="kbiz_wb_danger_text">#B42318</color>
+  <color name="kbiz_wb_warn_soft">#FDF0E6</color>
+  <color name="kbiz_wb_warn_text">#B54708</color>
+  <color name="kbiz_wb_purple_soft">#F0EAFD</color>
+  <color name="kbiz_wb_purple_text">#6D3FD0</color>
+  <color name="kbiz_wb_primary_soft">#E7F4F1</color>
+  <color name="kbiz_wb_primary_text">#0B6E60</color>
+  <color name="kbiz_wb_on_green">#FFFFFF</color>
+</resources>

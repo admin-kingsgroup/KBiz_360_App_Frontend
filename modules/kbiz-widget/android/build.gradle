@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.kingsgroup.kbiz360'
+version = '1.0.0'
+
+android {
+  namespace "com.kingsgroup.kbiz360.widget"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+  // Android's org.json is a stub in local unit tests; the real one parses the snapshot there.
+  testImplementation 'org.json:json:20240303'
+}
