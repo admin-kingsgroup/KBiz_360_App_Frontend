@@ -50,6 +50,9 @@ describe('the chain and whose turn it is', () => {
   it('Super Admin signs at the Owner level', () => {
     expect(chainRoleOf('Super Admin')).toBe('Owner');
     expect(chainRoleOf('Finance Manager')).toBe('FinanceManager');
+    // The BM signs first on Requests / CFM (owner, 2026-10-29).
+    expect(chainRoleOf('Branch Manager')).toBe('BranchManager');
+    expect(chainRoleOf('General Manager')).toBe('BranchManager');
   });
 });
 

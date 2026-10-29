@@ -496,7 +496,7 @@ export function ErpApprovalsView({ me, chain, openTab }: { me: ErpMe; chain: Erp
 
         {!loading && tab === 'cfm' ? (
           <>
-            <Text style={st.note}>FM reviews → Director confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
+            <Text style={st.note}>BM reviews → Director confirms → FM confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
             {credit.refused ? refusedNote('Credit requests') : errorNote(credit.error)}
             {creditRows.length === 0 && !credit.refused && !credit.error ? <Text style={st.empty}>No credit requests are waiting.</Text> : null}
             {creditRows.map((c) => <CreditCard key={c.id} c={c} busy={busy === c.id} anyBusy={!!busy} onAct={(a) => actOnCredit(c, a)} onRerun={() => rerunCredit(c)} onClose={() => closeCredit(c)} />)}
