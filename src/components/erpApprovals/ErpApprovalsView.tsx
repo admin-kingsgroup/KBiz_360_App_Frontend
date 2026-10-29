@@ -1,35 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronRight, X } from 'lucide-react-native';
 import { ApiError } from '../../api/client';
 import {
-  erpApi, type ErpChangeRequest, type ErpCloseRow, type ErpCreditRequest, type ErpLeaveApplication, type ErpMe, type ErpPaymentRequestRow,
+  erpApi, type ErpChangeRequest, type ErpCreditRequest, type ErpEntryDetail, type ErpJournal, type ErpLeaveApplication, type ErpMe,
+  type ErpPaymentRequestRow, type ErpPendingEntry, type ErpPendingWork,
 } from '../../api/erp';
 import {
-  ALL_BRANCHES, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, swapAwaitingPartner, swapCardLines, swapHoldNote,
-  type LeaveTagTone,
+  ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, money, nextErpAction, ownerSignsPast,
+  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
+  type ErpChain, type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
   RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
-  paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, waitingLabel,
+  paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, tabTotals, waitingLabel,
 } from '../../logic/erpPayables';
 import { creditAccount, creditApproveAsk, creditAsked, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
 import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
 
-// ERP approvals inside the app (owner, 2026-10-07) for a person with ERP access. The tabs follow the ERP's
-// Approvals ▸ All approvals — Receivables, Payables, Requests, Credit, HR, Month Close. Entries is NOT here
-// (owner, 2026-10-09: "remove entries section from app"); Receivables and Payables joined the same day,
-// "with the same functionality as the ERP". Every read and action goes through the app's backend to the ERP
-// as this person; the ERP applies all of its rules and its refusal reason is shown as is. Credit is signed
-// here as on the ERP's Approvals ▸ Credit (owner, 2026-10-13); Month Close stays view-only (the ERP signs it
-// on its own screen).
+// ERP approvals inside the app (owner, 2026-10-07) for a person with ERP access. Every read and action goes through
+// the app's backend to the ERP as this person; the ERP applies all of its rules and its refusal reason is shown as is.
+//
+// THREE TABS (owner, 2026-10-29: "in mobile app show Entries, CFM and Request") — the ERP's Approvals folded to five tabs
+// the same day (Status · Entries · CFM · Requests · Month Close), and the app carries the three a phone works:
+//   Entries   the pending vouchers and SO/PO/GP files (Check → Approve), each opened in a sheet — back in the app after
+//             leaving it on 2026-10-09 — and the Below GP Line reviews, as on the ERP's Entries
+//   CFM       credit requests, signed here (owner, 2026-10-13)
+//   Requests  sub-tabs Payables (first) · Receivables · HR · Other, as on the ERP
+// Month Close left the app (it was view-only here; the ERP signs it on its own screen).
 
-type Tab = 'receivables' | 'payables' | 'requests' | 'credit' | 'hr' | 'close';
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'receivables', label: 'Receivables' }, { key: 'payables', label: 'Payables' }, { key: 'requests', label: 'Requests' },
-  { key: 'credit', label: 'Credit' }, { key: 'hr', label: 'HR' }, { key: 'close', label: 'Month Close' },
+type Tab = 'entries' | 'cfm' | 'requests';
+const TABS: Array<{ key: Tab; label: string }> = [{ key: 'entries', label: 'Entries' }, { key: 'cfm', label: 'CFM' }, { key: 'requests', label: 'Requests' }];
+type Sub = 'payables' | 'receivables' | 'hr' | 'other';
+const SUBS: Array<{ key: Sub; label: string }> = [
+  { key: 'payables', label: 'Payables' }, { key: 'receivables', label: 'Receivables' }, { key: 'hr', label: 'HR' }, { key: 'other', label: 'Other' },
 ];
 const errText = (e: unknown, fallback: string): string => (e instanceof ApiError && e.message ? e.message : fallback);
 const roleRefused = (e: unknown): boolean => e instanceof ApiError && e.status === 403;
@@ -53,19 +61,21 @@ const ageOf = (s?: string): string => {
 interface Loaded<T> { rows: T; refused?: boolean; error?: string }
 interface Asking { title: string; cta: string; tone?: 'primary' | 'danger'; placeholder?: string; run: (reason: string) => Promise<unknown>; done?: string }
 
-export function ErpApprovalsView({ me }: { me: ErpMe }) {
+export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) {
   const showToast = useUiStore((s) => s.showToast);
   const options = useMemo(() => branchOptions(me), [me]);
   const [branch, setBranch] = useState<string>(options[0] ?? ALL_BRANCHES);
-  const [tab, setTab] = useState<Tab>('receivables');
+  const [tab, setTab] = useState<Tab>('entries');
+  const [sub, setSub] = useState<Sub>('payables');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pw, setPw] = useState<Loaded<ErpPendingWork | null>>({ rows: null });
   const [crs, setCrs] = useState<Loaded<ErpChangeRequest[]>>({ rows: [] });
   const [approvedPay, setApprovedPay] = useState<Loaded<ErpChangeRequest[]>>({ rows: [] });
   const [recentPay, setRecentPay] = useState<Loaded<ErpPaymentRequestRow[]>>({ rows: [] });
   const [leave, setLeave] = useState<Loaded<ErpLeaveApplication[]>>({ rows: [] });
   const [credit, setCredit] = useState<Loaded<ErpCreditRequest[]>>({ rows: [] });
-  const [close, setClose] = useState<Loaded<ErpCloseRow[]>>({ rows: [] });
+  const [open, setOpen] = useState<ErpPendingEntry | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -75,6 +85,8 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
       try { set({ rows: await p }); } catch (e) { set({ rows: empty, refused: roleRefused(e), error: roleRefused(e) ? undefined : errText(e, 'Could not load') }); }
     };
     await Promise.all([
+      // Entries: the Pending Work feed — every branch the person sees, in one read; split here per branch chip.
+      settle(erpApi.pendingWork(), null, setPw),
       settle(erpApi.changeRequests(), [], setCrs),
       // Payables, as on the ERP: the payment requests signed off but not applied, and those approved this week.
       settle(erpApi.changeRequests('approved', 'payment_request'), [], setApprovedPay),
@@ -86,24 +98,28 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
       // HR and Credit are read for every branch and split here, so each branch chip can show its count.
       settle(erpApi.leaveApplications(), [], setLeave),
       settle(erpApi.creditRequests(), [], setCredit),
-      settle(erpApi.closeBoard(), [], setClose),
     ]);
     setLoading(false);
     setRefreshing(false);
   }, [scoped]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  // Requests leaves out HR's types (the HR tab) and payment requests (the Payables tab) — the ERP's split.
-  const lists = useMemo(() => ({ crs: crs.rows, leave: leave.rows, credit: credit.rows, close: close.rows }), [crs.rows, leave.rows, credit.rows, close.rows]);
+  // The ERP's split: Below GP reviews sit in Entries; Other leaves out HR's types and payment requests.
+  const allEntries = useMemo(() => pendingEntries(pw.rows), [pw.rows]);
+  const lists = useMemo(() => ({ crs: crs.rows, leave: leave.rows, credit: credit.rows, entries: allEntries }), [crs.rows, leave.rows, credit.rows, allEntries]);
   const here = useMemo(() => approvalsAt(lists, branch), [lists, branch]);
-  const { payables, requests, hrRequests, leave: leaveRows, credit: creditRows, close: closeRows } = here;
+  const { entries, margin, payables, requests, hrRequests, leave: leaveRows, credit: creditRows } = here;
+  const stages = useMemo(() => stageCounts(entries), [entries]);
   const stuckPay = useMemo(() => atFocus(approvedPay.rows.filter((r) => isPaymentRequest(r) && isStuck(r)), branch), [approvedPay.rows, branch]);
-  const counts: Record<Tab, number | null> = { receivables: null, ...tabCounts(here) };
+  const screen = tabCounts(here);
+  const totals = tabTotals(screen);
+  const counts: Record<Tab, number> = { entries: totals.entries, cfm: totals.cfm, requests: totals.requests };
+  const subCounts: Record<Sub, number | null> = { payables: screen.payables, receivables: null, hr: screen.hr, other: screen.requests };
   // Each branch chip carries the sum of the badges that branch would show.
   const chipCounts = useMemo(() => branchCounts(lists, options), [lists, options]);
   // The Approvals tab badge carries the all-branches total (plus App requests) — pushed after each load,
   // but not from a list that failed to load (a refused one is a real 0).
-  const listFailed = !!(crs.error || leave.error || credit.error || close.error);
+  const listFailed = !!(pw.error || crs.error || leave.error || credit.error);
   useEffect(() => {
     if (!loading && !listFailed) useApprovalBadgeStore.getState().setErp(allBranchesTotal(lists));
   }, [lists, loading, listFailed]);
@@ -200,6 +216,20 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
   const refusedNote = (what: string) => <Text style={st.empty}>{what} are not open to your ERP role.</Text>;
   const errorNote = (msg?: string) => (msg ? <Pressable onPress={() => void load()} style={st.error}><Text style={{ color: colors.danger, fontSize: 12.5 }}>{msg} — tap to retry</Text></Pressable> : null);
 
+  /* A Below GP Line review (owner, 2026-10-29 — a pill of the ERP's Entries): the booking is already posted, so each level
+     CONFIRMS or SENDS BACK to the Branch Manager — never rejects. Signed through the ordinary change-request act. */
+  const confirmMargin = (r: ErpChangeRequest) => {
+    const subject = typeof r.payload?.summary === 'string' ? r.payload.summary : prettyType(r.type);
+    Alert.alert('Confirm this booking below the GP line?', subject, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', onPress: () => void act(r._id, () => erpApi.actChangeRequest(r._id, 'approve', '', r.branch), 'Confirmed') },
+    ]);
+  };
+  const sendBackMargin = (r: ErpChangeRequest) => setAsking({
+    title: 'Send back to the Branch Manager', placeholder: 'What should the BM explain or correct?', cta: 'Send back', done: 'Sent back to the BM',
+    run: (reason) => erpApi.actChangeRequest(r._id, 'send_back', reason, r.branch),
+  });
+
   return (
     <View style={{ flex: 1 }}>
       {/* Branch focus — the ERP's branch selector, each chip with what waits there. ALL only for an all-branch login. */}
@@ -238,13 +268,70 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
         })}
       </ScrollView>
 
+      {/* Requests' sub-tabs, Payables first (owner, 2026-10-29) — as on the ERP. Receivables reads nothing, so no badge. */}
+      {tab === 'requests' ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, gap: 6 }}>
+          {SUBS.map((s) => {
+            const on = s.key === sub;
+            const n = loading ? null : subCounts[s.key];
+            return (
+              <Pressable key={s.key} onPress={() => setSub(s.key)} style={[st.chip, on && st.subOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}
+                accessibilityLabel={n == null ? s.label : `${s.label}, ${n} waiting`}>
+                <Text style={[st.chipText, on && st.subTextOn]}>{s.label}</Text>
+                {n != null ? (
+                  <View style={[st.chipCount, n > 0 && st.chipCountBusy]}>
+                    <Text style={[st.chipCountText, n > 0 && st.chipCountTextBusy]}>{n}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
       <ScrollView
         contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} tintColor={colors.primary} />}
       >
         {loading ? <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View> : null}
 
-        {!loading && tab === 'receivables' ? (
+        {!loading && tab === 'entries' ? (
+          <>
+            <View style={st.strip}>
+              <Text style={st.stripTitle}>PENDING BY STAGE · {branch === ALL_BRANCHES ? 'All branches' : branch} · {stages.total} pending</Text>
+              <Text style={st.stripLine}>Check {stages.check}{stages.verify ? `  ·  Verify ${stages.verify}` : ''}  ·  Approve {stages.approve}</Text>
+            </View>
+            {pw.refused ? refusedNote('Entries') : errorNote(pw.error)}
+            {entries.length === 0 && !pw.refused && !pw.error ? <Text style={st.empty}>No entry is waiting for approval here.</Text> : null}
+            {entries.map((e) => {
+              const mine = actsHere(e, me);
+              return (
+                <Pressable key={e.id} onPress={() => setOpen(e)} style={st.row} accessibilityRole="button" accessibilityLabel={`Open ${e.ref || e.type}`}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.rowRef} numberOfLines={1}>{e.ref || e.type}</Text>
+                    <Text style={st.rowTitle} numberOfLines={1}>{erpText(e.title)}</Text>
+                    <Text style={st.rowSub} numberOfLines={1}>{[erpText(e.sub), e.branch, e.days ? `${e.days}d waiting` : ''].filter(Boolean).join(' · ')}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 5 }}>
+                    {e.amount != null ? <Text style={st.amount}>{money(e.amount, e.currency)}</Text> : null}
+                    {mine
+                      ? <View style={st.stage}><Text style={st.stageText}>{STAGE_LABEL[e.stage] || 'Approve'}</Text></View>
+                      : <Text style={st.withText}>⏳ With {e.actionBranch}</Text>}
+                  </View>
+                  <ChevronRight size={16} color={colors.coolText3} />
+                </Pressable>
+              );
+            })}
+
+            {/* BELOW GP LINE — the minimum-GP reviews of posted bookings, as on the ERP's Entries (owner, 2026-10-29). */}
+            {margin.length || crs.error ? <Text style={st.section}>BELOW GP LINE ({margin.length})</Text> : null}
+            {margin.length ? <Text style={st.note}>Already in the books, reviewed after: the BM gives the reason, then FM → Director → Owner confirm. Not accepted → send it back to the BM.</Text> : null}
+            {errorNote(crs.error)}
+            {margin.map((r) => <MarginCard key={r._id} r={r} busy={busy === r._id} anyBusy={!!busy} onConfirm={() => confirmMargin(r)} onSendBack={() => sendBackMargin(r)} />)}
+          </>
+        ) : null}
+
+        {!loading && tab === 'requests' && sub === 'receivables' ? (
           crs.refused ? (
             <View style={st.emptyBox}>
               <Text style={st.emptyTitle}>Receivables — not open to you</Text>
@@ -261,7 +348,7 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
           )
         ) : null}
 
-        {!loading && tab === 'payables' ? (
+        {!loading && tab === 'requests' && sub === 'payables' ? (
           <>
             <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard — signed FM → Director → Owner; the supplier is paid only after the Owner signs.</Text>
             {crs.refused ? refusedNote('Payables') : errorNote(crs.error)}
@@ -316,7 +403,7 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
           </>
         ) : null}
 
-        {!loading && tab === 'requests' ? (
+        {!loading && tab === 'requests' && sub === 'other' ? (
           <>
             {crs.refused ? refusedNote('Requests') : errorNote(crs.error)}
             {requests.length === 0 && !crs.refused && !crs.error ? <Text style={st.empty}>No requests are waiting.</Text> : null}
@@ -330,7 +417,7 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
           </>
         ) : null}
 
-        {!loading && tab === 'hr' ? (
+        {!loading && tab === 'requests' && sub === 'hr' ? (
           <>
             {leave.refused ? refusedNote('HR approvals') : errorNote(leave.error)}
             {leaveRows.length === 0 && hrRequests.length === 0 && !leave.refused && !leave.error ? <Text style={st.empty}>No leave or HR requests are waiting.</Text> : null}
@@ -391,7 +478,7 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
           </>
         ) : null}
 
-        {!loading && tab === 'credit' ? (
+        {!loading && tab === 'cfm' ? (
           <>
             <Text style={st.note}>FM reviews → Director confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
             {credit.refused ? refusedNote('Credit requests') : errorNote(credit.error)}
@@ -399,23 +486,9 @@ export function ErpApprovalsView({ me }: { me: ErpMe }) {
             {creditRows.map((c) => <CreditCard key={c.id} c={c} busy={busy === c.id} anyBusy={!!busy} onAct={(a) => actOnCredit(c, a)} onRerun={() => rerunCredit(c)} onClose={() => closeCredit(c)} />)}
           </>
         ) : null}
-
-        {!loading && tab === 'close' ? (
-          <>
-            <Text style={st.note}>Month Close is signed and locked in the ERP. Branches whose close is being checked or is on hold are listed here.</Text>
-            {close.refused ? refusedNote('Month Close') : errorNote(close.error)}
-            {closeRows.length === 0 && !close.refused && !close.error ? <Text style={st.empty}>No month close is waiting.</Text> : null}
-            {closeRows.map((r) => (
-              <View key={`${r.branch}-${r.upTo}`} style={st.card}>
-                <Text style={st.rowRef}>{erpText(r.branch)}</Text>
-                <Text style={st.rowTitle}>{erpText(r.label) || [day(r.from), day(r.upTo)].filter(Boolean).join(' – ')}</Text>
-                <Text style={[st.rowSub, { color: r.status === 'held' ? colors.orange : colors.coolText }]}>{r.status === 'held' ? 'On hold — signed by the FM, waiting for the Owner to lock' : 'Being checked'}</Text>
-              </View>
-            ))}
-          </>
-        ) : null}
       </ScrollView>
 
+      {open ? <EntrySheet entry={open} me={me} chain={chain} onClose={() => setOpen(null)} onDone={() => { setOpen(null); void load(); }} /> : null}
       {asking ? <ReasonSheet title={asking.title} cta={asking.cta} tone={asking.tone} placeholder={asking.placeholder} onClose={() => setAsking(null)} onSubmit={async (reason) => {
         const job = asking;
         setAsking(null);
@@ -655,6 +728,144 @@ const TAG_TONE: Record<LeaveTagTone, { bg: string; fg: string; edge: string }> =
   swap: { bg: '#F1EBFD', fg: colors.swap, edge: '#DCCDF8' },
 };
 
+/* One pending entry opened (owner, 2026-10-29 — Entries is back in the app): the voucher or SO/PO/GP file, its journal,
+   who has stamped it, and the ONE step the viewer may give it now — the ERP's own rule (nextErpAction mirrors Books
+   core/approvalChain.jsx nextActionFor). Reject asks why. The ERP decides; its refusal is shown here, in the sheet. */
+function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEntry; me: ErpMe; chain: ErpChain; onClose: () => void; onDone: () => void }) {
+  const insets = useSafeAreaInsets();
+  const showToast = useUiStore((s) => s.showToast);
+  const [detail, setDetail] = useState<ErpEntryDetail | null>(null);
+  const [journal, setJournal] = useState<ErpJournal | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  // The ERP's refusal ("Awaiting Check", "Ledger not in BOM's chart"…) is shown IN the sheet: the app's toast host sits
+  // under an open Modal, so a toast here would never be seen.
+  const [actionError, setActionError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([erpApi.entry(entry.kind, entry.id), erpApi.journal(entry.kind, entry.id).catch(() => null)])
+      .then(([raw, j]) => { if (!alive) return; setDetail(toEntryDetail(entry.kind, raw)); setJournal(j); })
+      .catch((e) => { if (alive) setError(errText(e, 'Could not open this entry')); });
+    return () => { alive = false; };
+  }, [entry.kind, entry.id]);
+
+  const mine = actsHere(entry, me);
+  const action = detail ? nextErpAction(detail, me, chain) : null;
+  const fxBlocked = !!detail?.approvalNeedsFx && action?.action === 'approve';
+  const actingBranch = entry.actionBranch || entry.branch;
+
+  const run = async (fn: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    setActionError('');
+    try { await fn(); showToast(done); onDone(); }
+    catch (e) { setActionError(errText(e, 'The ERP did not accept that')); setBusy(false); }
+  };
+  const doAction = () => {
+    if (!action) return;
+    if (action.action === 'approve') {
+      Alert.alert('Approve & post?', 'This posts the entry to the books.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Approve & Post', onPress: () => void run(() => erpApi.approve(entry.kind, entry.id, actingBranch), 'Approved and posted') },
+      ]);
+    } else {
+      void run(() => erpApi.review(entry.kind, entry.id, action.action, actingBranch), `${action.label} — done`);
+    }
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+        <Pressable onPress={() => undefined} style={{ backgroundColor: colors.coolBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%', paddingBottom: Math.max(20, insets.bottom + 12) }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800' }} numberOfLines={1}>{detail?.number || entry.ref}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 2 }}>{[detail?.type || entry.type, entry.branch, day(detail?.date)].filter(Boolean).join(' · ')}</Text>
+            </View>
+            <Pressable onPress={onClose} accessibilityLabel="Close" style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}><X size={15} color={colors.coolText} /></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+            {error ? <Text style={{ color: colors.danger, padding: 12 }}>{error}</Text> : null}
+            {!detail && !error ? <ActivityIndicator style={{ padding: 24 }} color={colors.primary} /> : null}
+            {detail ? (
+              <>
+                <View style={[st.card, { marginHorizontal: 0 }]}>
+                  <Text style={st.rowTitle}>{erpText(detail.party) || erpText(entry.title)}</Text>
+                  {entry.amount != null ? <Text style={[st.amount, { marginTop: 4 }]}>{money(entry.amount, entry.currency)}</Text> : null}
+                  {detail.narration ? <Text style={[st.rowSub, { marginTop: 6 }]}>{erpText(detail.narration)}</Text> : null}
+                  <Text style={[st.rowSub, { marginTop: 8 }]}>Entered by {erpText(detail.submittedBy) || '—'}</Text>
+                  <Text style={st.rowSub}>Checked: {detail.checkedBy ? `${erpText(detail.checkedBy)}${detail.checkedAt ? ` · ${day(detail.checkedAt)}` : ''}` : 'not yet'}</Text>
+                  {detail.verifiedBy ? <Text style={st.rowSub}>Verified: {erpText(detail.verifiedBy)}{detail.verifiedAt ? ` · ${day(detail.verifiedAt)}` : ''}</Text> : null}
+                </View>
+                {journal && journal.postings?.length ? (
+                  <View style={[st.card, { marginHorizontal: 0 }]}>
+                    <Text style={[st.rowRef, { marginBottom: 6 }]}>Journal</Text>
+                    {journal.postings.map((p, i) => (
+                      <View key={i} style={{ flexDirection: 'row', paddingVertical: 4, borderTopWidth: i ? 1 : 0, borderTopColor: colors.coolDivider }}>
+                        <Text style={{ flex: 1, color: colors.ink, fontSize: 12.5 }} numberOfLines={2}>{erpText(p.ledger)}</Text>
+                        <Text style={{ width: 90, textAlign: 'right', color: colors.ink, fontSize: 12.5 }}>{p.debit ? money(p.debit, entry.currency) : ''}</Text>
+                        <Text style={{ width: 90, textAlign: 'right', color: colors.ink, fontSize: 12.5 }}>{p.credit ? money(p.credit, entry.currency) : ''}</Text>
+                      </View>
+                    ))}
+                    <View style={{ flexDirection: 'row', paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.coolDivider }}>
+                      <Text style={{ flex: 1, color: colors.coolText, fontSize: 12, fontWeight: '700' }}>Total{journal.balanced === false ? ' · not balanced' : ''}</Text>
+                      <Text style={{ width: 90, textAlign: 'right', fontSize: 12, fontWeight: '700', color: colors.ink }}>{money(journal.totalDebit, entry.currency)}</Text>
+                      <Text style={{ width: 90, textAlign: 'right', fontSize: 12, fontWeight: '700', color: colors.ink }}>{money(journal.totalCredit, entry.currency)}</Text>
+                    </View>
+                  </View>
+                ) : null}
+                {!mine ? <Text style={[st.note, { marginHorizontal: 0 }]}>⏳ Its next step is given in {actingBranch}, outside your branch access.</Text> : null}
+                {mine && me.viewOnly ? <Text style={[st.note, { marginHorizontal: 0 }]}>Your ERP login is view-only.</Text> : null}
+                {mine && action && !action.allowed ? <Text style={[st.note, { marginHorizontal: 0 }]}>{action.hint}</Text> : null}
+                {mine && fxBlocked ? <Text style={[st.note, { marginHorizontal: 0 }]}>Approving this needs an exchange rate — approve it in the ERP.</Text> : null}
+                {actionError ? <View style={[st.error, { marginHorizontal: 0 }]}><Text style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}>{actionError}</Text></View> : null}
+              </>
+            ) : null}
+          </ScrollView>
+          {detail && mine && !me.viewOnly ? (
+            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 8 }}>
+              <View style={{ flex: 1 }}><ActionButton label="Reject" tone="danger" disabled={busy} onPress={() => setRejecting(true)} /></View>
+              {action ? <View style={{ flex: 2 }}><ActionButton label={action.label} busy={busy} disabled={busy || !action.allowed || fxBlocked} onPress={doAction} /></View> : null}
+            </View>
+          ) : null}
+        </Pressable>
+      </Pressable>
+      {rejecting ? <ReasonSheet title={`Reject ${detail?.number || entry.ref}`} cta="Reject" onClose={() => setRejecting(false)} onSubmit={(reason) => { setRejecting(false); void run(() => erpApi.reject(entry.kind, entry.id, reason, actingBranch), 'Rejected'); }} /> : null}
+    </Modal>
+  );
+}
+
+/* One Below GP Line review, as the ERP lists it: the booking, its GP against the floor, why it was flagged, the chain and
+   whom it waits on. Confirm or Send back — the booking is already posted, so it is never rejected. */
+function MarginCard({ r, busy, anyBusy, onConfirm, onSendBack }: { r: ErpChangeRequest; busy: boolean; anyBusy: boolean; onConfirm: () => void; onSendBack: () => void }) {
+  const a = ((r.payload as { after?: Record<string, unknown> } | undefined)?.after ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number | null => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+  const gp = num(a.gpPct);
+  const floor = num(a.floor);
+  const discount = num(a.discount);
+  const reasons = Array.isArray(a.reasons) ? (a.reasons as unknown[]).map(erpText).filter(Boolean) : [];
+  const steps = chainSteps(r);
+  const waiting = waitingLabel(r);
+  return (
+    <View style={st.card}>
+      <Text style={st.rowRef}>{erpText(a.bookingNo) || 'Booking'}{r.branch ? ` · ${r.branch}` : ''}</Text>
+      {erpText(a.client) ? <Text style={st.rowTitle}>{erpText(a.client)}</Text> : null}
+      <Text style={[st.rowSub, { color: colors.ink, fontWeight: '700' }]}>
+        {erpText(a.productLabel) || 'GP'}{gp != null ? ` ${gp}%` : ''}{floor != null ? ` · minimum ${floor}%` : ''}{discount ? ` · discount ${discount}` : ''}
+      </Text>
+      {reasons.map((x) => <Text key={x} style={st.rowSub}>• {x}</Text>)}
+      {erpText(a.consultant) ? <Text style={st.rowSub}>Consultant {erpText(a.consultant)}{r.createdAt ? ` · ${ageOf(r.createdAt)}` : ''}</Text> : null}
+      {steps.length ? <ChainLine steps={steps} /> : null}
+      {waiting ? <Text style={[st.rowSub, { color: colors.danger, fontWeight: '700' }]}>Waiting on {waiting}</Text> : null}
+      <View style={st.actions}>
+        <ActionButton label="Send back" tone="plain" disabled={anyBusy} onPress={onSendBack} />
+        <ActionButton label="Confirm" busy={busy} disabled={anyBusy} onPress={onConfirm} />
+      </View>
+    </View>
+  );
+}
+
 const st = {
   chip: { height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 },
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
@@ -695,4 +906,15 @@ const st = {
   emptyHint: { color: colors.coolText, fontSize: 12.5, textAlign: 'center' as const, lineHeight: 18 },
   note: { color: colors.coolText, fontSize: 12.5, marginHorizontal: 16, marginTop: 12, lineHeight: 18 },
   error: { marginHorizontal: 16, marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: '#FEF2F2' },
+  // Entries (back 2026-10-29) and the Requests sub-tabs.
+  subOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  subTextOn: { color: '#fff', fontWeight: '700' as const },
+  strip: { marginHorizontal: 16, marginTop: 12, marginBottom: 4, padding: 12, borderRadius: 12, backgroundColor: colors.coolMuted },
+  stripTitle: { color: colors.coolText, fontSize: 11, fontWeight: '800' as const, letterSpacing: 0.4 },
+  stripLine: { color: colors.ink, fontSize: 13.5, fontWeight: '700' as const, marginTop: 4 },
+  row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.coolDivider, backgroundColor: colors.card },
+  amount: { color: colors.ink, fontSize: 14, fontWeight: '800' as const },
+  stage: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.orange + '22' },
+  stageText: { color: colors.orange, fontSize: 11, fontWeight: '800' as const },
+  withText: { color: colors.coolText, fontSize: 11.5, fontWeight: '600' as const },
 };

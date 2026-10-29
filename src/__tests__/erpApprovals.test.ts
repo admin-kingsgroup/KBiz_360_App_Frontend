@@ -67,6 +67,11 @@ describe('nextErpAction — mirrors the ERP button rule', () => {
     expect(nextErpAction(d({ reviewStage: 'approve', submittedBy: 'faiz@travkings.com' }), me('faiz@travkings.com', 'Finance Manager'), chain).allowed).toBe(true);
     expect(nextErpAction(d({ reviewStage: 'approve' }), me('sughra@travkings.com'), chain).allowed).toBe(false);
   });
+  it('a deal approver may give the final approval too (approval.dealApproveEmails, 2026-10-29)', () => {
+    const withDeal: ErpChain = { ...chain, dealApprove: ['hub.fm@travkings.com'] };
+    expect(nextErpAction(d({ reviewStage: 'approve', submittedBy: 'x@travkings.com' }), me('hub.fm@travkings.com', 'Finance Manager'), withDeal).allowed).toBe(true);
+    expect(nextErpAction(d({ reviewStage: 'approve', submittedBy: 'x@travkings.com' }), me('hub.fm@travkings.com', 'Finance Manager'), chain).allowed).toBe(false);
+  });
   it('a settled row (no stage) keeps the plain Approve', () => {
     expect(nextErpAction(d({ reviewStage: '' }), me('x@y.z'), chain)).toMatchObject({ action: 'approve', label: 'Approve' });
   });

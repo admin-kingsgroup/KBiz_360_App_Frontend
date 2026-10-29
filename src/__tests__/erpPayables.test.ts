@@ -1,7 +1,7 @@
 import type { ErpChangeRequest } from '../api/erp';
 import {
   allBranchesTotal, approvalsAt, atFocus, branchCounts, chainRoleOf, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
-  paymentDetailRows, paymentState, paymentSubject, recentSubject, signPastLevels, signedWhy, tabCounts, waitingLabel,
+  paymentDetailRows, paymentState, paymentSubject, recentSubject, signPastLevels, signedWhy, tabCounts, tabTotals, waitingLabel,
 } from '../logic/erpPayables';
 
 // Approvals ▸ Payables in the app (owner, 2026-10-09) mirrors the ERP's own rules (Books tk-group/utils
@@ -131,41 +131,49 @@ describe('recently approved — where each went', () => {
   });
 });
 
-describe('branch chip counts (owner, 2026-10-10)', () => {
+describe('branch chip counts (owner, 2026-10-10; Entries · CFM · Requests 2026-10-29)', () => {
   const lists = {
     crs: [
       cr({ _id: 'p-bom', branch: 'BOM' }), cr({ _id: 'p-nbo', branch: 'NBO' }), cr({ _id: 'p-group', branch: '' }),
       cr({ _id: 'r-bom', type: 'hub_fx', branch: 'bom' }), cr({ _id: 'r-group', type: 'hub_fx', branch: '' }),
       cr({ _id: 'h-nbo', type: 'hr_change', branch: 'NBO' }),
+      cr({ _id: 'm-bom', type: 'margin_floor', branch: 'BOM' }),
     ],
     leave: [{ branch: 'BOM' }, { branch: 'BOM' }, { branch: 'DAR' }],
     credit: [{ branch: 'NBO' }, { branch: 'AMD' }],
-    close: [{ branch: 'BOM', status: 'held' }, { branch: 'NBO', status: 'checking' }, { branch: 'AMD', status: 'locked' }],
+    // An entry counts where it is booked and where its next step is given (pendingEntries' rule).
+    entries: [{ branch: 'BOM', actionBranch: 'BOM' }, { branch: 'NBO', actionBranch: 'MHUB' }],
   };
 
-  it('splits each tab at a branch the way the tabs show it', () => {
-    expect(tabCounts(approvalsAt(lists, 'BOM'))).toEqual({ payables: 2, requests: 1, credit: 0, hr: 2, close: 1 });
-    expect(tabCounts(approvalsAt(lists, 'NBO'))).toEqual({ payables: 2, requests: 0, credit: 1, hr: 1, close: 1 });
-    expect(tabCounts(approvalsAt(lists, 'ALL'))).toEqual({ payables: 3, requests: 2, credit: 2, hr: 4, close: 2 });
+  it('splits each screen at a branch the way the tabs show it — Below GP in Entries, never in Other', () => {
+    expect(tabCounts(approvalsAt(lists, 'BOM'))).toEqual({ entries: 1, margin: 1, payables: 2, requests: 1, credit: 0, hr: 2 });
+    expect(tabCounts(approvalsAt(lists, 'NBO'))).toEqual({ entries: 1, margin: 0, payables: 2, requests: 0, credit: 1, hr: 1 });
+    expect(tabCounts(approvalsAt(lists, 'MHUB'))).toEqual({ entries: 1, margin: 0, payables: 1, requests: 0, credit: 0, hr: 0 });
+    expect(tabCounts(approvalsAt(lists, 'ALL'))).toEqual({ entries: 2, margin: 1, payables: 3, requests: 2, credit: 2, hr: 4 });
+  });
+
+  it('the three tabs: Entries = entries + Below GP, CFM = credit, Requests = Payables + HR + Other', () => {
+    expect(tabTotals(tabCounts(approvalsAt(lists, 'BOM')))).toEqual({ entries: 2, cfm: 0, requests: 5 });
+    expect(tabTotals(tabCounts(approvalsAt(lists, 'ALL')))).toEqual({ entries: 3, cfm: 2, requests: 9 });
   });
 
   it('a chip carries the sum of the badges its branch shows', () => {
-    const n = branchCounts(lists, ['ALL', 'BOM', 'NBO', 'AMD', 'DAR', 'FBM']);
+    const n = branchCounts(lists, ['ALL', 'BOM', 'NBO', 'MHUB', 'AMD', 'DAR', 'FBM']);
     // A group-wide payment request waits in every branch; a group-wide request only under All branches.
-    expect(n).toEqual({ ALL: 13, BOM: 6, NBO: 5, AMD: 2, DAR: 2, FBM: 1 });
+    expect(n).toEqual({ ALL: 14, BOM: 7, NBO: 5, MHUB: 2, AMD: 2, DAR: 2, FBM: 1 });
     for (const b of Object.keys(n)) {
-      const c = tabCounts(approvalsAt(lists, b));
-      expect(n[b]).toBe(c.payables + c.requests + c.credit + c.hr + c.close);
+      const t = tabTotals(tabCounts(approvalsAt(lists, b)));
+      expect(n[b]).toBe(t.entries + t.cfm + t.requests);
     }
   });
 
   it('nothing loaded → every chip reads 0', () => {
-    expect(branchCounts({ crs: [], leave: [], credit: [], close: [] }, ['ALL', 'BOM'])).toEqual({ ALL: 0, BOM: 0 });
+    expect(branchCounts({ crs: [], leave: [], credit: [], entries: [] }, ['ALL', 'BOM'])).toEqual({ ALL: 0, BOM: 0 });
   });
 
   it('the all-branches total is the All branches chip — each row once, not the sum of the branch chips', () => {
-    expect(allBranchesTotal(lists)).toBe(13);
+    expect(allBranchesTotal(lists)).toBe(14);
     expect(allBranchesTotal(lists)).toBe(branchCounts(lists, ['ALL']).ALL);
-    expect(allBranchesTotal({ crs: [], leave: [], credit: [], close: [] })).toBe(0);
+    expect(allBranchesTotal({ crs: [], leave: [], credit: [] })).toBe(0);
   });
 });
