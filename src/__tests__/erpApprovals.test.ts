@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, awaitingApproval, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -42,6 +42,17 @@ describe('branches and where one may act', () => {
     expect(actsHere({ branch: 'BOM', actionBranch: 'MHUB' }, scoped)).toBe(false);
     expect(actsHere({ branch: 'BOM', actionBranch: 'MHUB' }, { branches: [], allBranches: true, viewOnly: false })).toBe(true);
     expect(actsHere({ branch: 'BOM', actionBranch: 'BOM' }, { ...scoped, viewOnly: true })).toBe(false);
+  });
+});
+
+// Owner, 2026-10-29: "don't give Check entries in the mobile app, only those that come for Approve".
+describe('awaitingApproval — the app lists only entries waiting for Approve', () => {
+  it('keeps Approve and the Director / Owner sign-offs; drops Check, Verify and a stageless row', () => {
+    const rows = [entry('k'), entry('v', { stage: 'verify' }), entry('a1', { stage: 'approve' }), entry('d1', { stage: 'director' }), entry('o1', { stage: 'owner' }), entry('n1', { stage: '' })];
+    expect(awaitingApproval(rows).map((e) => e.id)).toEqual(['a1', 'd1', 'o1']);
+  });
+  it('on the Pending Work feed: only the two waiting for Approve', () => {
+    expect(awaitingApproval(pendingEntries(pw)).map((e) => e.id).sort()).toEqual(['c', 'd']);
   });
 });
 

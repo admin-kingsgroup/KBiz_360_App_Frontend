@@ -4,7 +4,7 @@ import { getRegularizationsForAdmin } from '../api/hr';
 import { erpApi } from '../api/erp';
 import { ApiError } from '../api/client';
 import { allBranchesTotal } from '../logic/erpPayables';
-import { pendingEntries } from '../logic/erpApprovals';
+import { awaitingApproval, pendingEntries } from '../logic/erpApprovals';
 import { loadErpAccess } from '../components/erpApprovals/useErpAccess';
 import { useAuthStore } from './authStore';
 
@@ -40,8 +40,9 @@ interface ApprovalBadgeState {
 async function erpWaitingAllBranches(): Promise<number | null> {
   const read = <T,>(p: Promise<T[]>): Promise<T[] | null> =>
     p.catch((e) => (e instanceof ApiError && e.status === 403 ? [] : null));
-  // The pending entries come from the Pending Work feed (one object, every branch the person sees).
-  const pwRead = erpApi.pendingWork().then((pw) => pendingEntries(pw)).catch((e) => (e instanceof ApiError && e.status === 403 ? [] : null));
+  // The entries come from the Pending Work feed (one object, every branch the person sees) — only those waiting for
+  // Approve, as the app's Entries lists them (owner, 2026-10-29).
+  const pwRead = erpApi.pendingWork().then((pw) => awaitingApproval(pendingEntries(pw))).catch((e) => (e instanceof ApiError && e.status === 403 ? [] : null));
   const [crs, leave, credit, entries] = await Promise.all([
     read(erpApi.changeRequests()), read(erpApi.leaveApplications()), read(erpApi.creditRequests()), pwRead,
   ]);
