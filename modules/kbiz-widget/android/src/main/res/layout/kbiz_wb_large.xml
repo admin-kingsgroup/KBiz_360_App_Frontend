@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Work Board, large: greeting + punch pill, four stats, the next reminders and the newest unread
+     chats. Rows are added from code, as many as the widget's height has room for. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@android:id/background"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/kbiz_wb_bg"
+  android:clipToOutline="true"
+  android:orientation="vertical"
+  android:padding="@dimen/kbiz_wb_padding">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+      android:layout_width="28dp"
+      android:layout_height="28dp"
+      android:importantForAccessibility="no"
+      android:src="@drawable/kbiz_wb_brand" />
+
+    <LinearLayout
+      android:layout_width="0dp"
+      android:layout_height="wrap_content"
+      android:layout_marginStart="8dp"
+      android:layout_weight="1"
+      android:orientation="vertical">
+
+      <TextView
+        android:id="@+id/kbiz_wb_greeting"
+        style="@style/KbizWb.Text.Bold"
+        android:layout_width="match_parent"
+        android:textSize="15sp" />
+
+      <TextView
+        android:id="@+id/kbiz_wb_date"
+        style="@style/KbizWb.Text.Mute"
+        android:layout_width="match_parent"
+        android:layout_marginTop="2dp"
+        android:textSize="10.5sp" />
+    </LinearLayout>
+
+    <LinearLayout
+      android:id="@+id/kbiz_wb_punch"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginStart="4dp"
+      android:background="@drawable/kbiz_wb_pill_neutral"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:paddingStart="8dp"
+      android:paddingTop="4dp"
+      android:paddingEnd="8dp"
+      android:paddingBottom="4dp">
+
+      <ImageView
+        android:id="@+id/kbiz_wb_punch_dot"
+        android:layout_width="6dp"
+        android:layout_height="6dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/kbiz_wb_ring" />
+
+      <ImageView
+        android:id="@+id/kbiz_wb_punch_check"
+        android:layout_width="9dp"
+        android:layout_height="9dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/kbiz_wb_ic_check"
+        android:visibility="gone" />
+
+      <Chronometer
+        android:id="@+id/kbiz_wb_punch_timer"
+        style="@style/KbizWb.Text.Bold"
+        android:layout_marginStart="4dp"
+        android:textColor="@color/kbiz_wb_primary_text"
+        android:textSize="10.5sp"
+        android:visibility="gone" />
+
+      <TextView
+        android:id="@+id/kbiz_wb_punch_text"
+        style="@style/KbizWb.Text.Bold"
+        android:layout_marginStart="4dp"
+        android:textColor="@color/kbiz_wb_mute"
+        android:textSize="10.5sp" />
+    </LinearLayout>
+  </LinearLayout>
+
+  <LinearLayout
+    android:id="@+id/kbiz_wb_stats"
+    android:layout_width="match_parent"
+    android:layout_height="66dp"
+    android:layout_marginTop="9dp"
+    android:orientation="horizontal" />
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="9dp"
+    android:orientation="horizontal">
+
+    <TextView
+      style="@style/KbizWb.Text.Section"
+      android:layout_width="0dp"
+      android:layout_weight="1"
+      android:text="NEXT UP" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_next_count"
+      style="@style/KbizWb.Text.Semi.Mute"
+      android:textSize="9.5sp" />
+  </LinearLayout>
+
+  <LinearLayout
+    android:id="@+id/kbiz_wb_reminders"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="6dp"
+    android:orientation="vertical" />
+
+  <TextView
+    android:id="@+id/kbiz_wb_reminders_empty"
+    style="@style/KbizWb.Text.Mute"
+    android:layout_marginTop="6dp"
+    android:text="No reminders waiting for you"
+    android:textSize="11.5sp"
+    android:visibility="gone" />
+
+  <LinearLayout
+    android:id="@+id/kbiz_wb_chats_section"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="9dp"
+      android:orientation="horizontal">
+
+      <TextView
+        style="@style/KbizWb.Text.Section"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:text="UNREAD CHATS" />
+
+      <TextView
+        android:id="@+id/kbiz_wb_chats_count"
+        style="@style/KbizWb.Text.Semi.Mute"
+        android:textSize="9.5sp" />
+    </LinearLayout>
+
+    <LinearLayout
+      android:id="@+id/kbiz_wb_chats"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="6dp"
+      android:orientation="vertical" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_chats_empty"
+      style="@style/KbizWb.Text.Mute"
+      android:layout_marginTop="6dp"
+      android:text="All chats read"
+      android:textSize="11.5sp"
+      android:visibility="gone" />
+  </LinearLayout>
+</LinearLayout>

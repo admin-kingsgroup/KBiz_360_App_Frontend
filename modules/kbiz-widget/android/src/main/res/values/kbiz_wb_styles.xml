@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text styles for the Work Board widget. Sizes follow the iOS widget (pt there = dp/sp here). -->
+<resources>
+  <style name="KbizWb" />
+  <style name="KbizWb.Text">
+    <item name="android:layout_width">wrap_content</item>
+    <item name="android:layout_height">wrap_content</item>
+    <item name="android:maxLines">1</item>
+    <item name="android:ellipsize">end</item>
+    <item name="android:includeFontPadding">false</item>
+    <item name="android:textColor">@color/kbiz_wb_main</item>
+  </style>
+  <style name="KbizWb.Text.Bold">
+    <item name="android:textStyle">bold</item>
+  </style>
+  <style name="KbizWb.Text.Semi">
+    <item name="android:fontFamily">sans-serif-medium</item>
+  </style>
+  <style name="KbizWb.Text.Mute">
+    <item name="android:textColor">@color/kbiz_wb_mute</item>
+  </style>
+  <style name="KbizWb.Text.Semi.Mute">
+    <item name="android:textColor">@color/kbiz_wb_mute</item>
+  </style>
+  <style name="KbizWb.Text.Section">
+    <item name="android:textSize">9.5sp</item>
+    <item name="android:textStyle">bold</item>
+    <item name="android:letterSpacing">0.04</item>
+    <item name="android:textColor">@color/kbiz_wb_mute</item>
+  </style>
+  <style name="KbizWb.Text.Chip">
+    <item name="android:textSize">10sp</item>
+    <item name="android:fontFamily">sans-serif-medium</item>
+    <item name="android:paddingStart">6dp</item>
+    <item name="android:paddingEnd">6dp</item>
+    <item name="android:paddingTop">3dp</item>
+    <item name="android:paddingBottom">3dp</item>
+  </style>
+</resources>

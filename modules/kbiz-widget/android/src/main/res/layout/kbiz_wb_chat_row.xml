@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An unread chat: initials, name, last message, how long ago, unread count. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/kbiz_wb_chat"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:gravity="center_vertical"
+  android:orientation="horizontal">
+
+  <TextView
+    android:id="@+id/kbiz_wb_chat_avatar"
+    style="@style/KbizWb.Text.Bold"
+    android:layout_width="28dp"
+    android:layout_height="28dp"
+    android:gravity="center"
+    android:textSize="10.5sp" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:layout_weight="1"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/kbiz_wb_chat_name"
+      style="@style/KbizWb.Text.Semi"
+      android:layout_width="match_parent"
+      android:textSize="12.5sp" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_chat_preview"
+      style="@style/KbizWb.Text.Mute"
+      android:layout_width="match_parent"
+      android:layout_marginTop="2dp"
+      android:textSize="10.5sp" />
+  </LinearLayout>
+
+  <LinearLayout
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="6dp"
+    android:gravity="end"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/kbiz_wb_chat_ago"
+      style="@style/KbizWb.Text.Semi"
+      android:textColor="@color/kbiz_wb_green"
+      android:textSize="9.5sp" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_chat_count"
+      style="@style/KbizWb.Text.Bold"
+      android:layout_marginTop="3dp"
+      android:background="@drawable/kbiz_wb_count"
+      android:gravity="center"
+      android:minWidth="16dp"
+      android:minHeight="16dp"
+      android:paddingStart="4dp"
+      android:paddingEnd="4dp"
+      android:textColor="@color/kbiz_wb_on_green"
+      android:textSize="9.5sp" />
+  </LinearLayout>
+</LinearLayout>

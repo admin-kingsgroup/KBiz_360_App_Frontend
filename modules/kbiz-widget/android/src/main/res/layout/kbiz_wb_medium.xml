@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Work Board, medium (4x2): greeting + four tiles. Tiles are added from code (kbiz_wb_board_tile). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@android:id/background"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/kbiz_wb_bg"
+  android:clipToOutline="true"
+  android:orientation="vertical"
+  android:padding="@dimen/kbiz_wb_padding">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+      android:layout_width="16dp"
+      android:layout_height="16dp"
+      android:importantForAccessibility="no"
+      android:src="@drawable/kbiz_wb_brand" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_greeting"
+      style="@style/KbizWb.Text.Bold"
+      android:layout_width="0dp"
+      android:layout_marginStart="6dp"
+      android:layout_weight="1"
+      android:textSize="13sp" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_date"
+      style="@style/KbizWb.Text.Semi.Mute"
+      android:layout_marginStart="4dp"
+      android:textSize="10.5sp" />
+  </LinearLayout>
+
+  <LinearLayout
+    android:id="@+id/kbiz_wb_row1"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginTop="8dp"
+    android:layout_weight="1"
+    android:orientation="horizontal" />
+
+  <LinearLayout
+    android:id="@+id/kbiz_wb_row2"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginTop="6dp"
+    android:layout_weight="1"
+    android:orientation="horizontal" />
+</LinearLayout>
