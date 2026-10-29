@@ -4,6 +4,7 @@ import { getRegularizationsForAdmin } from '../api/hr';
 import { erpApi } from '../api/erp';
 import { ApiError } from '../api/client';
 import { allBranchesTotal } from '../logic/erpPayables';
+import { pendingEntries } from '../logic/erpApprovals';
 import { loadErpAccess } from '../components/erpApprovals/useErpAccess';
 import { useAuthStore } from './authStore';
 
@@ -12,8 +13,9 @@ import { useAuthStore } from './authStore';
 //   - app: the App requests still pending. For someone WITHOUT ERP approvals it also counts attendance
 //     time corrections, which their Inbox lists; an ERP user decides those under ERP approvals ▸ HR, so
 //     they are already in the ERP part and are not added twice.
-//   - erp: ERP approvals waiting across ALL branches — the "All branches" chip's number (Payables +
-//     Requests + Credit + HR + Month Close, each row once). 0 for someone the ERP does not know.
+//   - erp: ERP approvals waiting across ALL branches — the "All branches" chip's number (Entries + Below GP + CFM +
+//     Payables + HR + Other requests, each row once; owner, 2026-10-29: the app shows Entries, CFM and Requests).
+//     0 for someone the ERP does not know.
 //
 // App approvals come from GET /approvals/counts, scoped 'all' like the list. Corrections are super-admin
 // only; the endpoint 403s everyone else, which simply means none to decide.
@@ -38,11 +40,13 @@ interface ApprovalBadgeState {
 async function erpWaitingAllBranches(): Promise<number | null> {
   const read = <T,>(p: Promise<T[]>): Promise<T[] | null> =>
     p.catch((e) => (e instanceof ApiError && e.status === 403 ? [] : null));
-  const [crs, leave, credit, close] = await Promise.all([
-    read(erpApi.changeRequests()), read(erpApi.leaveApplications()), read(erpApi.creditRequests()), read(erpApi.closeBoard()),
+  // The pending entries come from the Pending Work feed (one object, every branch the person sees).
+  const pwRead = erpApi.pendingWork().then((pw) => pendingEntries(pw)).catch((e) => (e instanceof ApiError && e.status === 403 ? [] : null));
+  const [crs, leave, credit, entries] = await Promise.all([
+    read(erpApi.changeRequests()), read(erpApi.leaveApplications()), read(erpApi.creditRequests()), pwRead,
   ]);
-  if (!crs || !leave || !credit || !close) return null;
-  return allBranchesTotal({ crs, leave, credit, close });
+  if (!crs || !leave || !credit || !entries) return null;
+  return allBranchesTotal({ crs, leave, credit, entries });
 }
 
 const clamp = (n: number): number => Math.max(0, n);

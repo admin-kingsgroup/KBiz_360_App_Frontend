@@ -1,4 +1,4 @@
-import type { ErpChangeRequest, ErpCloseRow, ErpMe, ErpPaymentRequestRow } from '../api/erp';
+import type { ErpChangeRequest, ErpMe, ErpPaymentRequestRow } from '../api/erp';
 import { money } from './erpApprovals';
 
 // Approvals ▸ Payables in the app (owner, 2026-10-09: "show Receivables and Payables in the app with the
@@ -11,6 +11,10 @@ export const PAYMENT_TYPES: readonly string[] = ['payment_request'];
 export const isPaymentRequest = (cr: { type?: string } | null | undefined): boolean => PAYMENT_TYPES.includes(String(cr?.type || ''));
 /** HR's request types live on the HR tab (the ERP's HR_TAB_TYPES are all hr_*). */
 export const isHrRequest = (cr: { type?: string } | null | undefined): boolean => /^hr_/i.test(String(cr?.type || ''));
+/** A booking below its minimum GP — reviewed after posting (BM reason → FM → Director → Owner confirm, or send back; never
+ *  rejected). The ERP lists these on Approvals ▸ Entries ▸ Below GP Line since 2026-10-29, so the app does too. */
+export const MARGIN_TYPES: readonly string[] = ['margin_floor'];
+export const isMarginReview = (cr: { type?: string } | null | undefined): boolean => MARGIN_TYPES.includes(String(cr?.type || ''));
 
 /** Which requests a branch focus shows — the ERP's atFocus: ALL → every one; a branch → its own plus
  *  the group-wide ones (no branch), which belong to every branch. */
@@ -21,26 +25,35 @@ export function atFocus<T extends { branch?: string }>(rows: T[] | null | undefi
   return list.filter((r) => !r || !r.branch || String(r.branch).toUpperCase() === c);
 }
 
-/** What each tab holds at a branch focus. Payables keeps the group-wide requests in every branch (atFocus);
- *  Requests, HR, Credit and Month Close keep a branch's own rows, the group-wide ones only under ALL. */
-export function approvalsAt<L extends { branch?: string }, C extends { branch?: string }>(
-  lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[]; close: ErpCloseRow[] }, focus: string,
+/** What each screen holds at a branch focus. Payables keeps the group-wide requests in every branch (atFocus);
+ *  Below GP, Other requests, HR and CFM keep a branch's own rows, the group-wide ones only under ALL; an entry counts in
+ *  the branch it is booked in and in the branch its next step is given in (pendingEntries' rule). Month Close is not in
+ *  the app any more (owner, 2026-10-29: "in mobile app show Entries, CFM and Request"). */
+export function approvalsAt<L extends { branch?: string }, C extends { branch?: string }, E extends { branch?: string; actionBranch?: string }>(
+  lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[]; entries?: E[] }, focus: string,
 ) {
   const f = String(focus || '').trim().toUpperCase();
-  const at = (b?: string) => !f || f === 'ALL' || String(b || '').toUpperCase() === f;
+  const all = !f || f === 'ALL';
+  const at = (b?: string) => all || String(b || '').toUpperCase() === f;
   return {
+    entries: (lists.entries ?? []).filter((e) => all || String(e.branch || '').toUpperCase() === f || String(e.actionBranch || '').toUpperCase() === f),
+    margin: lists.crs.filter((r) => isMarginReview(r) && at(r.branch)),
     payables: atFocus(lists.crs.filter(isPaymentRequest), f),
-    requests: lists.crs.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && at(r.branch)),
+    requests: lists.crs.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && !isMarginReview(r) && at(r.branch)),
     hrRequests: lists.crs.filter((r) => isHrRequest(r) && at(r.branch)),
     leave: lists.leave.filter((a) => at(a.branch)),
     credit: lists.credit.filter((c) => at(c.branch)),
-    close: lists.close.filter((r) => (r.status === 'held' || r.status === 'checking') && at(r.branch)),
   };
 }
 
-/** The badge on each tab. Receivables reads nothing, so it has none (as on the ERP). */
-export function tabCounts(a: ReturnType<typeof approvalsAt>): { payables: number; requests: number; credit: number; hr: number; close: number } {
-  return { payables: a.payables.length, requests: a.requests.length, credit: a.credit.length, hr: a.leave.length + a.hrRequests.length, close: a.close.length };
+/** The badge on each screen. Receivables reads nothing, so it has none (as on the ERP). `requests` is Requests ▸ Other. */
+export function tabCounts(a: ReturnType<typeof approvalsAt>): { entries: number; margin: number; payables: number; requests: number; credit: number; hr: number } {
+  return { entries: a.entries.length, margin: a.margin.length, payables: a.payables.length, requests: a.requests.length, credit: a.credit.length, hr: a.leave.length + a.hrRequests.length };
+}
+
+/** The three tabs' badges (owner, 2026-10-29): Entries = entries + Below GP; CFM = credit; Requests = Payables + HR + Other. */
+export function tabTotals(c: ReturnType<typeof tabCounts>): { entries: number; cfm: number; requests: number } {
+  return { entries: c.entries + c.margin, cfm: c.credit, requests: c.payables + c.hr + c.requests };
 }
 
 /** The number on each branch chip (owner, 2026-10-10: "branches should show how many approvals are in which
@@ -48,8 +61,8 @@ export function tabCounts(a: ReturnType<typeof approvalsAt>): { payables: number
 export function branchCounts(lists: Parameters<typeof approvalsAt>[0], branches: string[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const b of branches) {
-    const c = tabCounts(approvalsAt(lists, b));
-    out[b] = c.payables + c.requests + c.credit + c.hr + c.close;
+    const t = tabTotals(tabCounts(approvalsAt(lists, b)));
+    out[b] = t.entries + t.cfm + t.requests;
   }
   return out;
 }
