@@ -21,6 +21,7 @@ jest.mock('../store/reminderBadgeStore', () => ({
   useReminderBadgeStore: mockStore({ count: 8, forMe: 7, top: [{ id: 'r1', text: 'Send snapshot', when: '', dueAt: 123, by: '' }] }),
 }));
 jest.mock('../store/approvalBadgeStore', () => ({ useApprovalBadgeStore: mockStore({ count: 5 }) }));
+jest.mock('../store/ownerReviewStore', () => ({ useOwnerReviewStore: mockStore({ owner: false, rows: [], lastSeen: null }), reviewNewCount: () => 0 }));
 jest.mock('../store/attendanceStore', () => ({ useAttendanceStore: mockStore({ att: { inTime: null, outTime: null, via: null } }) }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -36,7 +37,7 @@ describe('Android widget feed', () => {
     expect(mockSetSnapshot).toHaveBeenCalledTimes(1);
     expect(lastJson()).toMatchObject({
       signedIn: true, userName: 'Anubhav Maurya',
-      unreadChats: 1, reminderForMe: 7, approvals: 5,
+      unreadChats: 1, reminderForMe: 8, approvals: 5,
       chats: [{ id: 'c1', unread: 3, group: true }],
       reminders: [{ id: 'r1', dueAt: 123 }],
     });

@@ -11,6 +11,25 @@ const qs = (params: Record<string, string | undefined>): string => {
   return pairs.length ? `?${new URLSearchParams(pairs as Array<[string, string]>).toString()}` : '';
 };
 
+/** One request the Director's own signature decided — no Owner level in its chain (payments, HR, salary, Hub FX,
+ *  settings, a leave). The ERP's Owner Desk list "Approved by the Director" (ba-dashboard/directorDecided.js). */
+export interface ErpDirectorDecision {
+  key: string;
+  source?: string;
+  id?: string;
+  type?: string;
+  /** "Payment", "HR change", "Salary", "Leave" … */
+  what?: string;
+  subject?: string;
+  branch?: string;
+  amount?: number | null;
+  currency?: string;
+  decidedAt?: string | null;
+  maker?: string;
+  why?: string;
+  where?: string;
+}
+
 /** The person as the ERP sees them (role and branch scope come from their Books grant). */
 export interface ErpMe { id: string; email: string; name?: string; role: string; branches: string[]; allBranches: boolean; viewOnly: boolean }
 
@@ -158,6 +177,12 @@ export const erpApi = {
   creditRequests: (branch?: string): Promise<ErpCreditRequest[]> =>
     unwrap(apiFetch<Envelope<ErpCreditRequest[] | { requests?: ErpCreditRequest[]; items?: ErpCreditRequest[] }>>(`/api/erp/credit-facilities/requests${qs({ branch })}`))
       .then((d) => (Array.isArray(d) ? d : d?.requests ?? d?.items ?? [])),
+  /** The Owner's Review (owner, 2026-10-30): what the Director approved in the last `days` — read only; the ERP lets only
+   *  the Owner and the Director read it. `tab=all` is for the ERP before 2026-10-29's read-only list (it defaulted to its
+   *  review tab); the newer ERP ignores it. */
+  directorDecided: (days: number): Promise<ErpDirectorDecision[]> =>
+    unwrap(apiFetch<Envelope<ErpDirectorDecision[] | { rows?: ErpDirectorDecision[] }>>(`/api/erp/ba-dashboard/owner/director-decided${qs({ tab: 'all', days: String(days) })}`))
+      .then((d) => (Array.isArray(d) ? d : d?.rows ?? [])),
   closeBoard: (): Promise<ErpCloseRow[]> =>
     unwrap(apiFetch<Envelope<ErpCloseRow[] | { rows?: ErpCloseRow[] }>>('/api/erp/reconciliation/close/board'))
       .then((d) => (Array.isArray(d) ? d : d?.rows ?? [])),

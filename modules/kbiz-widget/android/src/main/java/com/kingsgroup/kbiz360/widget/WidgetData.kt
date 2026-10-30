@@ -35,6 +35,22 @@ data class ChatItem(
   val group: Boolean,
 )
 
+/** One thing the Director approved that the Owner has not looked at yet (the Owner's Review, 2026-10-30). */
+data class ReviewItem(
+  val id: String,
+  /** "Payment · Dream Holidays · advance". */
+  val title: String,
+  /** "HFBM"; may be empty. */
+  val branch: String,
+  /** Formatted by the app, "$5,000" or "₹1,20,000"; may be empty. */
+  val amount: String,
+  /** The Director's signature, epoch ms. */
+  val at: Long?,
+) {
+  /** The row's second line: "HFBM · $5,000", leaving out whichever part is empty. */
+  val detail: String get() = listOf(branch, amount).filter { it.isNotEmpty() }.joinToString(" · ")
+}
+
 data class Snapshot(
   val signedIn: Boolean,
   val userName: String,
@@ -49,10 +65,20 @@ data class Snapshot(
   val attendanceInAt: Long?,
   val attendanceOutAt: Long?,
   val updatedAt: Long?,
+  /**
+   * The Owner's Review: Director approvals new since the Owner last opened Review in the app. The app
+   * writes it only for the Owner, so null means everyone else (and every older snapshot).
+   */
+  val review: Int? = null,
+  /** Newest first, at most [MAX_REVIEW_ROWS]. Only the Owner's snapshot has any. */
+  val reviewItems: List<ReviewItem> = emptyList(),
 )
 
 private fun JSONObject.longOrNull(key: String): Long? =
   if (!has(key) || isNull(key)) null else (opt(key) as? Number)?.toLong()
+
+private fun JSONObject.intOrNull(key: String): Int? =
+  if (!has(key) || isNull(key)) null else (opt(key) as? Number)?.toInt()
 
 private fun JSONObject.intOr(key: String, fallback: Int): Int =
   if (!has(key) || isNull(key)) fallback else (opt(key) as? Number)?.toInt() ?: fallback
@@ -100,6 +126,16 @@ fun parseSnapshot(json: String?): Snapshot? {
       attendanceInAt = o.longOrNull("attendanceInAt"),
       attendanceOutAt = o.longOrNull("attendanceOutAt"),
       updatedAt = o.longOrNull("updatedAt"),
+      review = o.intOrNull("review"),
+      reviewItems = o.optJSONArray("reviewItems").mapObjects { r ->
+        ReviewItem(
+          id = r.str("id"),
+          title = r.str("title"),
+          branch = r.str("branch"),
+          amount = r.str("amount"),
+          at = r.longOrNull("at"),
+        )
+      },
     )
   } catch (e: Exception) {
     null
@@ -189,6 +225,16 @@ fun ago(ms: Long, now: Long, f: Formats): String {
   }
 }
 
+/** "just now" (under an hour), "3h ago" (under two days), "2d ago": the app's Review list words, as on iOS. */
+fun reviewAgo(at: Long, now: Long): String {
+  val h = max(0L, (now - at) / 3_600_000L)
+  return when {
+    h < 1 -> "just now"
+    h < 48 -> "${h}h ago"
+    else -> "${h / 24}d ago"
+  }
+}
+
 /** "MHUB - Branch Accounts" → "MB": first letters of words that start with a letter or digit. */
 fun initials(name: String): String {
   val s = name.split(' ')
@@ -229,6 +275,18 @@ class Work(val s: Snapshot, val now: Long, val zone: TimeZone = TimeZone.getDefa
 
   val greetingLine: String get() = if (firstName.isEmpty()) greeting else "$greeting, $firstName"
 
+  /**
+   * The Owner's board (2026-10-30): Review where everyone else sees Late, a "To review" list in place
+   * of unread chats, and no punch (he is excused from attendance). Only his snapshot carries `review`.
+   */
+  val isOwner: Boolean get() = s.review != null
+
+  /** Director approvals new since the Owner last looked; 0 for everyone else. */
+  val review: Int get() = s.review ?: 0
+
+  /** The review rows the board can show, newest first. */
+  val reviewItems: List<ReviewItem> get() = s.reviewItems.take(MAX_REVIEW_ROWS)
+
   /** Today's punch. A punch from an earlier day (app not opened since) counts as not checked in. */
   val punch: Punch
     get() {
@@ -263,8 +321,13 @@ fun nextRedraw(now: Long, snapshot: Snapshot?, zone: TimeZone): Long {
 
 data class LargePlan(val reminderRows: Int, val chatRows: Int, val showChats: Boolean)
 
+/** The Owner's large board: reminders, then "To review" (no chats section). */
+data class OwnerLargePlan(val reminderRows: Int, val reviewRows: Int, val showReview: Boolean)
+
 const val MAX_REMINDER_ROWS = 6
 const val MAX_CHAT_ROWS = 4
+/** The app sends at most 4 review rows (REVIEW_WIDGET_CAP in src/logic/ownerReview.ts). */
+const val MAX_REVIEW_ROWS = 4
 
 /**
  * Rows for a large board [heightDp] tall. First the iOS large board: reminders (up to 3, or 4 when
@@ -274,16 +337,56 @@ const val MAX_CHAT_ROWS = 4
  * (kbiz_wb_large and its rows), grown with the phone's font size.
  */
 fun largePlan(heightDp: Float, fontScale: Float, reminders: Int, chats: Int): LargePlan {
+  val f = fitLarge(
+    heightDp, fontScale,
+    reminders = reminders, reminderBase = if (chats == 0) 4 else 3,
+    below = chats, belowBase = 2, belowMax = MAX_CHAT_ROWS, belowRowDp = 31f,
+    spareBelowFirst = false,
+  )
+  return LargePlan(f.reminders, f.below, f.showBelow)
+}
+
+/**
+ * The Owner's large board, budgeted the same way: first the iOS board — up to 2 reminders (4 when
+ * there is nothing to review, as when no chat is unread), then the "To review" section (up to 3) if at
+ * least its first row fits. Leftover room goes to the last review row first (the app sends at most
+ * [MAX_REVIEW_ROWS]; these are what the Owner put the board up for), then to more reminders. Review
+ * rows use the reminder row's layout, so they are as tall.
+ */
+fun ownerLargePlan(heightDp: Float, fontScale: Float, reminders: Int, reviews: Int): OwnerLargePlan {
+  val f = fitLarge(
+    heightDp, fontScale,
+    reminders = reminders, reminderBase = if (reviews == 0) 4 else 2,
+    below = reviews, belowBase = 3, belowMax = MAX_REVIEW_ROWS, belowRowDp = 30f,
+    spareBelowFirst = true,
+  )
+  return OwnerLargePlan(f.reminders, f.below, f.showBelow)
+}
+
+private data class LargeFit(val reminders: Int, val below: Int, val showBelow: Boolean)
+
+/** Reminders under "Next up", then one section below them (unread chats, or the Owner's review). */
+private fun fitLarge(
+  heightDp: Float,
+  fontScale: Float,
+  reminders: Int,
+  reminderBase: Int,
+  below: Int,
+  belowBase: Int,
+  belowMax: Int,
+  belowRowDp: Float,
+  spareBelowFirst: Boolean,
+): LargeFit {
   val fs = max(1f, fontScale)
   val label = 9f + 13f * fs + 6f
   val reminderRow = 30f * fs
-  val chatRow = 31f * fs
+  val belowRow = belowRowDp * fs
   val gap = 7f
   val empty = 15f * fs
   // padding 32 + header + stats (gap 9 + 66) + the "Next up" label
   var budget = heightDp - 32f - 36f * fs - 75f - label
 
-  val remWant = min(reminders, if (chats == 0) 4 else 3)
+  val remWant = min(reminders, reminderBase)
   var rem = 0
   if (remWant == 0) budget -= empty
   while (rem < remWant) {
@@ -293,28 +396,39 @@ fun largePlan(heightDp: Float, fontScale: Float, reminders: Int, chats: Int): La
     rem++
   }
 
-  val chatWant = min(chats, 2)
-  if (budget < label + (if (chatWant == 0) empty else chatRow)) return LargePlan(rem, 0, false)
+  val belowWant = min(below, belowBase)
+  if (budget < label + (if (belowWant == 0) empty else belowRow)) return LargeFit(rem, 0, false)
   budget -= label
-  if (chatWant == 0) budget -= empty
-  var ch = 0
-  while (ch < chatWant) {
-    val need = chatRow + if (ch > 0) gap else 0f
+  if (belowWant == 0) budget -= empty
+  var bel = 0
+  while (bel < belowWant) {
+    val need = belowRow + if (bel > 0) gap else 0f
     if (need > budget) break
     budget -= need
-    ch++
+    bel++
   }
 
-  // Room to spare once the iOS board fits whole (a tall widget): more reminders, then more chats.
-  if (rem == remWant && ch == chatWant) {
-    while (rem in 1 until min(reminders, MAX_REMINDER_ROWS) && reminderRow + gap <= budget) {
-      budget -= reminderRow + gap
-      rem++
+  // Room to spare once the iOS board fits whole (a tall widget): more rows, up to the caps.
+  if (rem == remWant && bel == belowWant) {
+    fun moreReminders() {
+      while (rem in 1 until min(reminders, MAX_REMINDER_ROWS) && reminderRow + gap <= budget) {
+        budget -= reminderRow + gap
+        rem++
+      }
     }
-    while (ch in 1 until min(chats, MAX_CHAT_ROWS) && chatRow + gap <= budget) {
-      budget -= chatRow + gap
-      ch++
+    fun moreBelow() {
+      while (bel in 1 until min(below, belowMax) && belowRow + gap <= budget) {
+        budget -= belowRow + gap
+        bel++
+      }
+    }
+    if (spareBelowFirst) {
+      moreBelow()
+      moreReminders()
+    } else {
+      moreReminders()
+      moreBelow()
     }
   }
-  return LargePlan(rem, ch, true)
+  return LargeFit(rem, bel, true)
 }
