@@ -1,5 +1,5 @@
 import type { ErpCreditRequest } from '../api/erp';
-import { creditAccount, creditApproveAsk, creditAsked, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditLevelOf, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay, pastWords } from '../logic/erpCredit';
+import { creditAccount, creditApproveAsk, creditAsked, creditBoxRows, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditLevelOf, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay, pastWords } from '../logic/erpCredit';
 
 // Approvals ▸ Credit in the app (owner, 2026-10-13) signs credit as the ERP's Approvals ▸ Credit does (Books
 // creditRequestsPanel.jsx). These pin the mirror: which buttons a row offers, their words, and what Approve asks.
@@ -117,6 +117,28 @@ describe('the whole client on a credit card', () => {
       { label: 'Supplier contact', value: 'Ravi', phone: '', warn: 'no phone' },
     ]);
     expect(creditContactLines(jbj({ contact: { party: 'client', phone: '', person: '', email: 'ar@x.test', reference: null } }))[1]).toMatchObject({ value: 'ar@x.test', warn: '' });
+  });
+
+  // Owner, 2026-10-30 (Mr Didier · HFBM): "client details showing twice — remove the client details from top one". While the
+  // box shows, who to call lives in it: Phone a tap to dial, the Reference row with the Reference's phone.
+  it('the details box carries who to call: Phone dials, Reference carries its person’s phone', () => {
+    const didier = jbj({ op: 'party_onboard', name: 'Mr Didier', branch: 'HFBM',
+      contact: { party: 'client', phone: '+243 977 556 636', person: '', email: 'didier@gmail.com', reference: { code: 'RFCHFBM003', name: 'Uday Pandya', phone: '+243 821 369 555' } },
+      details: { from: 'form', missing: [], fields: [
+        { key: 'customerType', label: 'Customer Type', value: 'B2C Reference' },
+        { key: 'referenceCode', label: 'Reference', value: 'RFCHFBM003 · Uday Pandya' },
+        { key: 'phone', label: 'Phone', value: '+243 977 556 636' },
+        { key: 'email', label: 'Email', value: 'didier@gmail.com' },
+      ] } });
+    expect(creditBoxRows(didier)).toEqual([
+      { key: 'customerType', label: 'Customer Type', value: 'B2C Reference', phone: '' },
+      { key: 'referenceCode', label: 'Reference', value: 'RFCHFBM003 · Uday Pandya', phone: '+243 821 369 555' },
+      { key: 'phone', label: 'Phone', value: '', phone: '+243 977 556 636' },
+      { key: 'email', label: 'Email', value: 'didier@gmail.com', phone: '' },
+    ]);
+    // A Reference with no phone, or none at all: nothing added.
+    expect(creditBoxRows(jbj())).toEqual([{ key: 'customerType', label: 'Customer Type', value: 'B2E', phone: '' }]);
+    expect(creditBoxRows(jbj({ details: null }))).toEqual([]);
   });
 
   it('the account: owes, overdue in red, waiting, 12 months billed / received, last receipt — in the books’ currency', () => {
