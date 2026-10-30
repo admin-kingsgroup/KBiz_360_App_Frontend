@@ -17,7 +17,7 @@ import {
   RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, tabTotals, waitingLabel,
 } from '../../logic/erpPayables';
-import { creditAccount, creditApproveAsk, creditAsked, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
+import { creditAccount, creditApproveAsk, creditAsked, creditBoxRows, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
 import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
@@ -555,7 +555,10 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
   const state = creditState(c);
   const b = creditButtons(c);
   const maker = typeof c.maker === 'string' ? c.maker : erpText(c.maker?.name) || erpText(c.maker?.userId);
-  const fields = c.details?.fields ?? [];
+  const fields = creditBoxRows(c);
+  // The details box, when it shows, holds the client — the lines above it would say the same twice (owner, 2026-10-30).
+  const boxShown = open && fields.length > 0;
+  const dial = (phone: string) => void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`);
   return (
     <View style={st.card}>
       <View style={st.cardHead}>
@@ -571,13 +574,14 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
         <Text style={{ fontWeight: '700' }}>{asked.to}</Text>
       </Text>
       {asked.warn ? <Text style={[st.rowSub, { color: colors.orange }]}>{asked.warn}</Text> : null}
-      {/* Who to call (ERP 2026-10-27): the Reference and the party, each phone a tap to dial; a blank one said in orange. */}
-      {contacts.map((l) => (
+      {/* Who to call (ERP 2026-10-27): the Reference and the party, each phone a tap to dial; a blank one said in orange.
+          Only while the details box is hidden — when it shows, these are in it (owner, 2026-10-30). */}
+      {!boxShown && contacts.map((l) => (
         <Text key={l.label} style={st.rowSub}>
           {l.label}{'  '}
           {l.value ? <Text style={{ color: colors.ink, fontWeight: '600' }}>{l.value}</Text> : null}
           {l.value && (l.phone || l.warn) ? ' · ' : null}
-          {l.phone ? <Text onPress={() => void Linking.openURL(`tel:${l.phone.replace(/[^\d+]/g, '')}`)} style={{ color: colors.primary, fontWeight: '700' }}>{l.phone}</Text> : null}
+          {l.phone ? <Text onPress={() => dial(l.phone)} style={{ color: colors.primary, fontWeight: '700' }}>{l.phone}</Text> : null}
           {l.warn ? <Text style={{ color: colors.orange, fontWeight: '600' }}>{l.warn}</Text> : null}
         </Text>
       ))}
@@ -603,11 +607,15 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
         by {maker || '—'}{c.source === 'crm' ? ' (salesperson, CRM)' : ''}{c.createdAt ? ` · ${ageOf(c.createdAt)}` : ''}
         {fields.length ? <Text onPress={() => setOpen(!open)} style={{ color: colors.orange, fontWeight: '700' }}>{`  ·  ${open ? `Hide ${word ? `${word.toLowerCase()} ` : ''}details` : word ? `${word} details` : 'Details'}`}</Text> : null}
       </Text>
-      {open && fields.length ? (
+      {boxShown ? (
         <View style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.coolMuted, gap: 3 }}>
           <Text style={[st.rowSub, { marginTop: 0, fontWeight: '800', color: colors.coolText }]}>{creditDetailsTitle(c)}</Text>
           {fields.map((f) => (
-            <Text key={f.key} style={[st.rowSub, { marginTop: 0 }]}>{erpText(f.label)}: <Text style={{ color: colors.ink, fontWeight: '600' }}>{erpText(f.value)}</Text></Text>
+            <Text key={f.key} style={[st.rowSub, { marginTop: 0 }]}>
+              {f.label}: {f.value ? <Text style={{ color: colors.ink, fontWeight: '600' }}>{f.value}</Text> : null}
+              {f.value && f.phone ? ' · ' : null}
+              {f.phone ? <Text onPress={() => dial(f.phone)} style={{ color: colors.primary, fontWeight: '700' }}>{f.phone}</Text> : null}
+            </Text>
           ))}
         </View>
       ) : null}
