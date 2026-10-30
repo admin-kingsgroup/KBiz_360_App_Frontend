@@ -32,10 +32,12 @@ class WidgetDataTest {
     count: Int = 0,
     inAt: Long? = null,
     outAt: Long? = null,
+    review: Int? = null,
+    reviewItems: List<ReviewItem> = emptyList(),
   ) = Snapshot(
     signedIn = true, userName = "Anubhav Maurya", unreadChats = 0, unreadMessages = 0, chats = emptyList(),
     reminderCount = count, reminderForMe = forMe, reminderReview = 0, reminders = reminders, approvals = 0,
-    attendanceInAt = inAt, attendanceOutAt = outAt, updatedAt = null,
+    attendanceInAt = inAt, attendanceOutAt = outAt, updatedAt = null, review = review, reviewItems = reviewItems,
   )
 
   @Test
@@ -65,6 +67,10 @@ class WidgetDataTest {
     assertEquals(0, s.approvals)
     assertNull(s.reminders.single().dueAt)
     assertEquals(3, Work(s, at(10), ist).todo)
+    // no review fields: not the Owner, the board stays as it was
+    assertNull(s.review)
+    assertTrue(s.reviewItems.isEmpty())
+    assertFalse(Work(s, at(10), ist).isOwner)
     assertFalse(parseSnapshot("""{"signedIn":false}""")!!.signedIn)
     assertNull(parseSnapshot("not json"))
     assertNull(parseSnapshot(null))
@@ -148,5 +154,76 @@ class WidgetDataTest {
     assertFalse(short.showChats)
     // bigger text, fewer rows
     assertTrue(largePlan(420f, 1.3f, 7, 3).reminderRows + largePlan(420f, 1.3f, 7, 3).chatRows < 5)
+  }
+
+  @Test
+  fun `reads the Owner's review, and only the Owner's snapshot has one`() {
+    val s = parseSnapshot(
+      """{"signedIn":true,"userName":"Afshin","reminderCount":2,"approvals":3,"review":5,
+        "reviewItems":[
+          {"id":"k1","title":"Payment · Dream Holidays · advance","branch":"HFBM","amount":"${'$'}5,000","at":1761717600000},
+          {"id":"k2","title":"Credit grace · Rahul Shah","branch":"","amount":"₹1,20,000","at":null},
+          {"id":"k3","title":"","branch":"BOM"}
+        ]}""",
+    )!!
+    assertEquals(5, s.review)
+    assertEquals(ReviewItem("k1", "Payment · Dream Holidays · advance", "HFBM", "${'$'}5,000", 1761717600000L), s.reviewItems[0])
+    assertEquals(ReviewItem("k2", "Credit grace · Rahul Shah", "", "₹1,20,000", null), s.reviewItems[1])
+    assertEquals(ReviewItem("k3", "", "BOM", "", null), s.reviewItems[2])
+    val w = Work(s, at(10), ist)
+    assertTrue(w.isOwner)
+    assertEquals(5, w.review)
+    assertEquals(3, w.reviewItems.size)
+
+    // the Owner with nothing new is still the Owner; a null review is not
+    assertTrue(Work(parseSnapshot("""{"signedIn":true,"review":0}""")!!, at(10), ist).isOwner)
+    assertFalse(Work(parseSnapshot("""{"signedIn":true,"review":null,"reviewItems":[]}""")!!, at(10), ist).isOwner)
+    assertEquals(0, Work(snapshot(), at(10), ist).review)
+
+    // the board never shows more than the app's cap
+    val many = (1..6).map { ReviewItem("k$it", "t", "", "", null) }
+    assertEquals(MAX_REVIEW_ROWS, Work(snapshot(review = 6, reviewItems = many), at(10), ist).reviewItems.size)
+  }
+
+  @Test
+  fun `a review row's second line and how long ago the Director signed`() {
+    assertEquals("HFBM · ${'$'}5,000", ReviewItem("k", "t", "HFBM", "${'$'}5,000", null).detail)
+    assertEquals("₹1,20,000", ReviewItem("k", "t", "", "₹1,20,000", null).detail)
+    assertEquals("HFBM", ReviewItem("k", "t", "HFBM", "", null).detail)
+    assertEquals("", ReviewItem("k", "t", "", "", null).detail)
+
+    val now = at(14)
+    assertEquals("just now", reviewAgo(now, now))
+    assertEquals("just now", reviewAgo(at(13, 1), now))
+    assertEquals("just now", reviewAgo(now + 5 * 60_000L, now)) // a clock a little ahead
+    assertEquals("1h ago", reviewAgo(at(13), now))
+    assertEquals("3h ago", reviewAgo(at(11), now))
+    assertEquals("47h ago", reviewAgo(at(15, dayOffset = -2), now))
+    assertEquals("2d ago", reviewAgo(at(14, dayOffset = -2), now))
+    assertEquals("9d ago", reviewAgo(at(14, dayOffset = -9), now))
+  }
+
+  @Test
+  fun `the Owner's large board budgets reminders and review rows by height`() {
+    // the iOS board: 2 reminders + 3 review rows
+    assertEquals(OwnerLargePlan(2, 3, true), ownerLargePlan(370f, 1f, reminders = 7, reviews = 4))
+    assertEquals(OwnerLargePlan(2, 3, true), ownerLargePlan(400f, 1f, reminders = 7, reviews = 4))
+    // taller: the 4th review row first, then more reminders, up to the caps
+    assertEquals(OwnerLargePlan(2, 4, true), ownerLargePlan(407f, 1f, reminders = 7, reviews = 4))
+    assertEquals(OwnerLargePlan(3, 4, true), ownerLargePlan(444f, 1f, reminders = 7, reviews = 4))
+    assertEquals(OwnerLargePlan(5, 4, true), ownerLargePlan(520f, 1f, reminders = 7, reviews = 4))
+    assertEquals(OwnerLargePlan(MAX_REMINDER_ROWS, MAX_REVIEW_ROWS, true), ownerLargePlan(700f, 1f, reminders = 9, reviews = 9))
+    assertEquals(OwnerLargePlan(1, 2, true), ownerLargePlan(700f, 1f, reminders = 1, reviews = 2))
+    // nothing to review: "Nothing new from the Director" and the reminders get the room back (4, as with no unread chat)
+    assertEquals(OwnerLargePlan(4, 0, true), ownerLargePlan(360f, 1f, reminders = 7, reviews = 0))
+    assertEquals(OwnerLargePlan(5, 0, true), ownerLargePlan(400f, 1f, reminders = 7, reviews = 0))
+    // no reminders: the review rows still fill
+    assertEquals(OwnerLargePlan(0, 4, true), ownerLargePlan(400f, 1f, reminders = 0, reviews = 4))
+    // short: the section shows only once its first row fits
+    assertEquals(OwnerLargePlan(2, 0, false), ownerLargePlan(280f, 1f, reminders = 7, reviews = 4))
+    assertEquals(OwnerLargePlan(2, 1, true), ownerLargePlan(300f, 1f, reminders = 7, reviews = 4))
+    // bigger text, fewer rows
+    val big = ownerLargePlan(420f, 1.3f, reminders = 7, reviews = 4)
+    assertEquals(OwnerLargePlan(2, 2, true), big)
   }
 }
