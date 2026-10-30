@@ -46,7 +46,7 @@ export function approvalsAt<L extends { branch?: string }, C extends { branch?: 
   };
 }
 
-/** The badge on each screen. Receivables reads nothing, so it has none (as on the ERP). `requests` is Requests ▸ Other. */
+/** The badge on each screen. `requests` is Requests ▸ Other. */
 export function tabCounts(a: ReturnType<typeof approvalsAt>): { entries: number; margin: number; payables: number; requests: number; credit: number; hr: number } {
   return { entries: a.entries.length, margin: a.margin.length, payables: a.payables.length, requests: a.requests.length, credit: a.credit.length, hr: a.leave.length + a.hrRequests.length };
 }
