@@ -219,6 +219,20 @@ export function creditMissing(r: ErpCreditRequest): string {
   return miss.length ? `${miss.join(', ')} — ${blankWhere(r)}` : '';
 }
 
+/* ONE PLACE FOR THE CLIENT (owner, 2026-10-30: "client details showing twice — remove the client details from top one, below
+   all detail is fine"). While the details box shows, the Reference / contact lines above it are left out and who to call moves
+   into the box: its Phone is a tap to dial, and its Reference row carries the Reference's own phone (the ERP sends it on
+   `contact`, not in the box). */
+export interface CreditBoxRow { key: string; label: string; value: string; phone: string }
+export function creditBoxRows(r: ErpCreditRequest): CreditBoxRow[] {
+  const refPhone = erpText(r.contact?.reference?.phone);
+  return (r.details?.fields ?? []).map((f) => {
+    const value = erpText(f.value);
+    const phone = f.key === 'phone' ? value : f.key === 'referenceCode' && refPhone && !value.includes(refPhone) ? refPhone : '';
+    return { key: String(f.key), label: erpText(f.label), value: f.key === 'phone' ? '' : value, phone };
+  });
+}
+
 /** The details box's heading: "Client details — from the client master, as it is now" / "… — as submitted on the form". */
 export function creditDetailsTitle(r: ErpCreditRequest): string {
   const w = creditPartyWord(r) || 'Party';
