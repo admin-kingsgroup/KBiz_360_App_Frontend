@@ -113,7 +113,7 @@ export default function SwapScreen() {
   const accept = useCallback((r: SwapRequest): void => {
     Alert.alert(
       'Accept this swap?',
-      `You’ll be OFF ${dayLabel(r.you.off)} and WORK ${dayLabel(r.you.work)}. It goes to the FM, the Director and the Owner next — your days change only once they approve.`,
+      `You’ll be OFF ${dayLabel(r.you.off)} and WORK ${dayLabel(r.you.work)}. It goes to the BM, the Director and the FM next — your days change only once they approve.`,
       [
         { text: 'Not now', style: 'cancel' },
         {
@@ -176,7 +176,7 @@ export default function SwapScreen() {
             <ArrowLeftRight size={18} color={colors.swap} />
           </View>
           <Text style={{ flex: 1, color: colors.ink, fontSize: 13, lineHeight: 19 }}>
-            Work one of your Saturdays off and take one of your working Saturdays off instead. Your colleague does the opposite. They accept here first, then the FM, the Director and the Owner approve.
+            Work one of your Saturdays off and take one of your working Saturdays off instead. Your colleague does the opposite. They accept here first, then the BM, the Director and the FM approve.
           </Text>
         </View>
 
@@ -255,7 +255,7 @@ export default function SwapScreen() {
                     {draftError && reason ? <Text style={{ color: colors.coral, fontSize: 11, fontWeight: '700', marginBottom: 8 }}>{draftError}</Text> : null}
                     <SheetSave label={sending ? 'Sending…' : `Send to ${firstName(partner.name)}`} disabled={!!draftError || sending} onPress={send} />
                     <Text style={{ color: colors.coolText, fontSize: 11, textAlign: 'center', marginTop: 8 }}>
-                      {firstName(partner.name)} accepts in the app first, then the FM, the Director and the Owner approve.
+                      {firstName(partner.name)} accepts in the app first, then the BM, the Director and the FM approve.
                     </Text>
                   </>
                 ) : null}
@@ -333,7 +333,7 @@ const IncomingCard = memo(function IncomingCard({ r, busy, onAccept, onDecline }
     <View style={{ padding: 14, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.swap + '55' }}>
       <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600', lineHeight: 20 }}>{incomingAskText(r)}</Text>
       {r.reason ? <Text style={{ color: colors.coolText, fontSize: 12.5, marginTop: 4 }}>“{r.reason}”</Text> : null}
-      <Text style={{ color: colors.coolText, fontSize: 11.5, marginTop: 4 }}>If you accept, it goes to the FM, the Director and the Owner. Nothing changes until they approve.</Text>
+      <Text style={{ color: colors.coolText, fontSize: 11.5, marginTop: 4 }}>If you accept, it goes to the BM, the Director and the FM. Nothing changes until they approve.</Text>
       {declining ? (
         <>
           <TextInput value={note} onChangeText={setNote} placeholder={`Note to ${firstName(r.applicant.name)} (optional)`} placeholderTextColor={colors.coolText3}

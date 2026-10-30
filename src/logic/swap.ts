@@ -4,7 +4,7 @@ import { dayLabel } from './leave';
 // Pure helpers behind "Swap Saturday" (app/hr/swap.tsx). Owner, 2026-10-12: staff on alternate
 // Saturdays may exchange two Saturdays with a colleague. The applicant WORKS one of their own
 // week-off Saturdays and takes one of their working Saturdays off; the partner does the opposite.
-// The partner accepts in the app first, then FM → Director → Owner sign it on the ERP. The server
+// The partner accepts in the app first, then BM → Director → FM sign it on the ERP. The server
 // decides every rule; these only decide what to show and which Saturdays to offer.
 
 type Fmt = (day: string) => string;

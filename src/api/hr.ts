@@ -199,7 +199,7 @@ export const decideRegularization = (id: string, action: 'approve' | 'reject', n
 
 // ── Work from home (owner, 2026-10-12) ──
 // An approved WFH day counts as a full PRESENT day with no check-in needed, shown "WFH". It is not
-// drawn from the leave balance. Signed like leave on the ERP: FM → Director → Owner.
+// drawn from the leave balance. Signed like leave on the ERP: BM recommends → Director → FM (2026-10-30).
 export interface WfhApplication {
   id: string;
   from: string; // 'YYYY-MM-DD'
@@ -226,7 +226,7 @@ export const cancelWfh = (id: string): Promise<WfhApplication> =>
 // ── Saturday swap (owner, 2026-10-12) ──
 // Staff on alternate Saturdays exchange two Saturdays: the applicant WORKS `workDay` (their own week
 // off) and takes `offDay` (one of their working Saturdays) off; the partner does the opposite. The
-// partner accepts in the app first, then the leave chain FM → Director → Owner signs it on the ERP.
+// partner accepts in the app first, then the leave chain (BM → Director → FM) signs it on the ERP.
 export type SwapPartnerStatus = 'pending' | 'accepted' | 'declined';
 export interface SwapPerson { userId: string; name: string }
 export interface SwapRequest {

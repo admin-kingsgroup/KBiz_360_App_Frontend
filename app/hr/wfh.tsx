@@ -15,7 +15,7 @@ import { waitingLine, wfhDecisionLine, wfhDraftError } from '../../src/logic/wfh
 
 // Work from home — self-service (owner, 2026-10-12): "give option to apply for work from home so
 // that on that day employee not mark as absent instead show wfh and count in present". Applying
-// only FILES the ask; the FM, the Director and the Owner sign it on the ERP (Approvals ▸ HR, or the
+// only FILES the ask; the BM, the Director and the FM sign it on the ERP (Approvals ▸ HR, or the
 // app's ERP approvals tab). On the final signature each working day in the span becomes a present
 // day marked WFH — no check-in needed. It never draws on the leave balance.
 
@@ -110,7 +110,7 @@ export default function WfhScreen() {
             <HouseWifi size={18} color={colors.wfh} />
           </View>
           <Text style={{ flex: 1, color: colors.ink, fontSize: 13, lineHeight: 19 }}>
-            An approved work-from-home day counts as present — no check-in needed. Approved by the FM, the Director and the Owner.
+            An approved work-from-home day counts as present — no check-in needed. Approved by the BM, the Director and the FM.
           </Text>
         </View>
 
