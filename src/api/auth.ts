@@ -213,6 +213,7 @@ export async function logout(): Promise<void> {
   (require('../store/pulseStore') as typeof import('../store/pulseStore')).usePulseStore.getState().reset();
   (require('../store/reminderBadgeStore') as typeof import('../store/reminderBadgeStore')).useReminderBadgeStore.getState().reset();
   (require('../store/approvalBadgeStore') as typeof import('../store/approvalBadgeStore')).useApprovalBadgeStore.getState().reset();
+  (require('../store/ownerReviewStore') as typeof import('../store/ownerReviewStore')).useOwnerReviewStore.getState().reset();
   (require('../store/attendanceStore') as typeof import('../store/attendanceStore')).useAttendanceStore.getState().reset();
   /* eslint-enable @typescript-eslint/no-require-imports */
 }

@@ -19,6 +19,9 @@ import {
 } from '../../logic/erpPayables';
 import { creditAccount, creditApproveAsk, creditAsked, creditBoxRows, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
 import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
+import { reviewNewCount, useOwnerReviewStore } from '../../store/ownerReviewStore';
+import { REVIEW_DAYS, decidedAgo, decisionAmount, decisionTitle, isNewDecision, seenFrom, sortDecisions } from '../../logic/ownerReview';
+import type { ErpDirectorDecision } from '../../api/erp';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
 
@@ -33,8 +36,10 @@ import { colors } from '../../theme';
 //   Requests  sub-tabs Payables (first) · HR · Other, as on the ERP (Receivables removed, owner 2026-10-30: "of no use")
 // Month Close left the app (it was view-only here; the ERP signs it on its own screen).
 
-type Tab = 'entries' | 'cfm' | 'requests';
+export type Tab = 'entries' | 'cfm' | 'requests' | 'review';
 const TABS: Array<{ key: Tab; label: string }> = [{ key: 'entries', label: 'Entries' }, { key: 'cfm', label: 'CFM' }, { key: 'requests', label: 'Requests' }];
+// The Owner's fourth tab (owner, 2026-10-30): what the Director approved — read only. The widget's Review tile opens it.
+const REVIEW_TAB: { key: Tab; label: string } = { key: 'review', label: 'Review' };
 type Sub = 'payables' | 'hr' | 'other';
 const SUBS: Array<{ key: Sub; label: string }> = [
   { key: 'payables', label: 'Payables' }, { key: 'hr', label: 'HR' }, { key: 'other', label: 'Other' },
@@ -61,11 +66,15 @@ const ageOf = (s?: string): string => {
 interface Loaded<T> { rows: T; refused?: boolean; error?: string }
 interface Asking { title: string; cta: string; tone?: 'primary' | 'danger'; placeholder?: string; run: (reason: string) => Promise<unknown>; done?: string }
 
-export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) {
+export function ErpApprovalsView({ me, chain, openTab }: { me: ErpMe; chain: ErpChain; openTab?: Tab }) {
   const showToast = useUiStore((s) => s.showToast);
   const options = useMemo(() => branchOptions(me), [me]);
   const [branch, setBranch] = useState<string>(options[0] ?? ALL_BRANCHES);
-  const [tab, setTab] = useState<Tab>('entries');
+  const owner = isOwnerRole(me.role);
+  const tabs = owner ? [...TABS, REVIEW_TAB] : TABS;
+  const [tab, setTab] = useState<Tab>(openTab === 'review' && owner ? 'review' : 'entries');
+  // A link that names a tab (the widget's Review tile) opens it, also when this screen is already mounted.
+  useEffect(() => { if (openTab && (openTab !== 'review' || owner)) setTab(openTab); }, [openTab, owner]);
   const [sub, setSub] = useState<Sub>('payables');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,11 +107,25 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
       // HR and Credit are read for every branch and split here, so each branch chip can show its count.
       settle(erpApi.leaveApplications(), [], setLeave),
       settle(erpApi.creditRequests(), [], setCredit),
+      // The Owner's Review reads its own list (store) — pulled with the rest.
+      owner ? useOwnerReviewStore.getState().refresh() : Promise.resolve(),
     ]);
     setLoading(false);
     setRefreshing(false);
-  }, [scoped]);
+  }, [scoped, owner]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  // REVIEW (owner, 2026-10-30): opening the tab marks everything listed as seen — the count and the widget go back to 0 —
+  // while this visit still marks what was new when it opened.
+  const review = useOwnerReviewStore();
+  const reviewRows = useMemo(() => sortDecisions(review.rows), [review.rows]);
+  const [reviewFrom, setReviewFrom] = useState<number | null>(null);
+  useEffect(() => {
+    if (tab !== 'review') { setReviewFrom(null); return; }
+    if (!review.loaded || reviewFrom != null) return;
+    setReviewFrom(seenFrom(useOwnerReviewStore.getState().lastSeen, Date.now()));
+    useOwnerReviewStore.getState().markSeen();
+  }, [tab, review.loaded, reviewFrom]);
 
   // The ERP's split: Below GP reviews sit in Entries; Other leaves out HR's types and payment requests.
   // Only the entries waiting for Approve (owner, 2026-10-29) — Check is done on the laptop.
@@ -113,7 +136,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
   const stuckPay = useMemo(() => atFocus(approvedPay.rows.filter((r) => isPaymentRequest(r) && isStuck(r)), branch), [approvedPay.rows, branch]);
   const screen = tabCounts(here);
   const totals = tabTotals(screen);
-  const counts: Record<Tab, number> = { entries: totals.entries, cfm: totals.cfm, requests: totals.requests };
+  const counts: Record<Tab, number> = { entries: totals.entries, cfm: totals.cfm, requests: totals.requests, review: reviewNewCount(review) };
   const subCounts: Record<Sub, number | null> = { payables: screen.payables, hr: screen.hr, other: screen.requests };
   // Each branch chip carries the sum of the badges that branch would show.
   const chipCounts = useMemo(() => branchCounts(lists, options), [lists, options]);
@@ -256,7 +279,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
 
       {/* The tabs, each with its pending count — as on the ERP. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[st.barRow, { borderBottomWidth: 1, borderBottomColor: colors.coolDivider }]} contentContainerStyle={{ paddingHorizontal: 12, gap: 4 }}>
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const on = t.key === tab;
           const n = counts[t.key];
           return (
@@ -461,6 +484,16 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
           </>
         ) : null}
 
+        {tab === 'review' ? (
+          <>
+            <Text style={st.note}>Approved by the Director — payments, HR, salary, Hub FX, settings and leave whose chain ends with him, so they never came to you. Read only · all branches · last {REVIEW_DAYS} days; what is new since you last opened Review is marked.</Text>
+            {!review.loaded ? <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View> : null}
+            {review.loaded && review.error && reviewRows.length === 0 ? errorNote(review.error) : null}
+            {review.loaded && !review.error && reviewRows.length === 0 ? <Text style={st.empty}>The Director approved nothing in the last {REVIEW_DAYS} days.</Text> : null}
+            {reviewRows.map((r) => <ReviewCard key={r.key || r.id} r={r} fresh={reviewFrom != null && isNewDecision(r, reviewFrom)} />)}
+          </>
+        ) : null}
+
         {!loading && tab === 'cfm' ? (
           <>
             <Text style={st.note}>FM reviews → Director confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
@@ -534,6 +567,29 @@ function PaymentCard({ cr, me, busy, anyBusy, onAct }: { cr: ErpChangeRequest; m
           {!approveWhy ? <ActionButton label="Approve" busy={busy} disabled={anyBusy} onPress={() => onAct('approve')} /> : null}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/* One decision the Director made, as the ERP's Owner Desk lists it: what, on whom, the branch and amount, when he signed,
+   who raised it and why. `fresh` = approved after the Owner last opened Review. Nothing to act on. */
+function ReviewCard({ r, fresh }: { r: ErpDirectorDecision; fresh: boolean }) {
+  const amount = decisionAmount(r);
+  const ago = decidedAgo(r, Date.now());
+  const why = erpText(r.why);
+  return (
+    <View style={[st.card, fresh && { borderColor: colors.orange }]}>
+      <View style={st.cardHead}>
+        <Text style={[st.rowRef, { flexShrink: 1 }]}>{decisionTitle(r)}</Text>
+        {fresh ? <View style={[st.tag, { backgroundColor: colors.orange + '22', borderColor: colors.orange }]}><Text style={[st.tagText, { color: colors.orange }]}>NEW</Text></View> : null}
+      </View>
+      <Text style={st.rowTitle}>
+        {[erpText(r.branch), amount].filter(Boolean).join(' · ')}
+        {ago ? <Text style={{ color: colors.coolText3 }}>{`${erpText(r.branch) || amount ? ' · ' : ''}approved by the Director ${ago}`}</Text> : null}
+      </Text>
+      {erpText(r.maker) ? <Text style={st.rowSub}>Raised by {erpText(r.maker)}</Text> : null}
+      {why ? <Text style={st.rowSub}>Why: <Text style={{ color: colors.ink }}>{why}</Text></Text> : null}
+      {erpText(r.where) ? <Text style={[st.rowSub, { color: colors.coolText3 }]}>In the ERP: {erpText(r.where)}</Text> : null}
     </View>
   );
 }
