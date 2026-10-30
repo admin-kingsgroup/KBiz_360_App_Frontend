@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { erpApi, type ErpDirectorDecision } from '../api/erp';
+import { ApiError } from '../api/client';
 import { isOwnerRole } from '../logic/erpApprovals';
 import { REVIEW_DAYS, newDecisions, seenFrom } from '../logic/ownerReview';
 import { loadErpAccess } from '../components/erpApprovals/useErpAccess';
@@ -58,7 +59,9 @@ export const useOwnerReviewStore = create<OwnerReviewState>((set, get) => ({
       set({ owner: true, rows, loaded: true, error: '' });
     } catch (e) {
       // Keep the last list on a hiccup; say why only when there is nothing to show.
-      set({ loaded: true, error: e instanceof Error ? e.message : 'Could not read what the Director approved' });
+      // 403 / 404 = the ERP or the app server does not open this list to the app yet (both changes ship with it).
+      const notYet = e instanceof ApiError && (e.status === 403 || e.status === 404);
+      set({ loaded: true, error: notYet ? 'Review opens once the ERP and the app server are updated.' : e instanceof Error ? e.message : 'Could not read what the Director approved' });
     }
   },
   markSeen: () => {
