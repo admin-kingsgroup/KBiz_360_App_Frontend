@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One medium-board tile: tinted icon badge, a number (or live timer) and its label, optional red chip. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/kbiz_wb_tile"
+  android:layout_width="0dp"
+  android:layout_height="match_parent"
+  android:layout_weight="1"
+  android:background="@drawable/kbiz_wb_tile"
+  android:gravity="center_vertical"
+  android:orientation="horizontal"
+  android:paddingStart="8dp"
+  android:paddingEnd="8dp">
+
+  <FrameLayout
+    android:id="@+id/kbiz_wb_tile_box"
+    android:layout_width="26dp"
+    android:layout_height="26dp">
+
+    <ImageView
+      android:id="@+id/kbiz_wb_tile_icon"
+      android:layout_width="14dp"
+      android:layout_height="14dp"
+      android:layout_gravity="center"
+      android:importantForAccessibility="no" />
+  </FrameLayout>
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:layout_weight="1"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/kbiz_wb_tile_value"
+      style="@style/KbizWb.Text.Bold"
+      android:textSize="17sp" />
+
+    <Chronometer
+      android:id="@+id/kbiz_wb_tile_timer"
+      style="@style/KbizWb.Text.Bold"
+      android:textSize="17sp"
+      android:visibility="gone" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_tile_label"
+      style="@style/KbizWb.Text.Semi.Mute"
+      android:layout_marginTop="1dp"
+      android:textSize="10sp" />
+  </LinearLayout>
+
+  <TextView
+    android:id="@+id/kbiz_wb_tile_chip"
+    style="@style/KbizWb.Text.Chip"
+    android:layout_marginStart="4dp"
+    android:background="@drawable/kbiz_wb_pill_danger"
+    android:textColor="@color/kbiz_wb_danger_text"
+    android:visibility="gone" />
+</LinearLayout>

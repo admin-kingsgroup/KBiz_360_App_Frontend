@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the widget picker shows (Android 12+): the medium board with example numbers. Never drawn with real data. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@android:id/background"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/kbiz_wb_bg"
+  android:clipToOutline="true"
+  android:orientation="vertical"
+  android:padding="@dimen/kbiz_wb_padding">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+      android:layout_width="16dp"
+      android:layout_height="16dp"
+      android:importantForAccessibility="no"
+      android:src="@drawable/kbiz_wb_brand" />
+
+    <TextView
+      style="@style/KbizWb.Text.Bold"
+      android:layout_width="0dp"
+      android:layout_marginStart="6dp"
+      android:layout_weight="1"
+      android:text="Good morning"
+      android:textSize="13sp" />
+  </LinearLayout>
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginTop="8dp"
+    android:layout_weight="1"
+    android:orientation="horizontal">
+    <LinearLayout
+      android:layout_width="0dp"
+      android:layout_height="match_parent"
+      android:layout_weight="1"
+      android:background="@drawable/kbiz_wb_tile"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:paddingStart="8dp"
+      android:paddingEnd="8dp">
+
+      <FrameLayout
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:background="@drawable/kbiz_wb_box_purple">
+
+        <ImageView
+          android:layout_width="14dp"
+          android:layout_height="14dp"
+          android:layout_gravity="center"
+          android:importantForAccessibility="no"
+          android:src="@drawable/kbiz_wb_ic_bell"
+          android:tint="@color/kbiz_wb_purple" />
+      </FrameLayout>
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+          style="@style/KbizWb.Text.Bold"
+          android:text="7"
+          android:textSize="17sp" />
+
+        <TextView
+          style="@style/KbizWb.Text.Semi.Mute"
+          android:layout_marginTop="1dp"
+          android:text="Reminders"
+          android:textSize="10sp" />
+      </LinearLayout>
+      <TextView
+        style="@style/KbizWb.Text.Chip"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/kbiz_wb_pill_danger"
+        android:text="2 late"
+        android:textColor="@color/kbiz_wb_danger_text" />
+    </LinearLayout>
+    <FrameLayout
+      android:layout_width="6dp"
+      android:layout_height="match_parent" />
+    <LinearLayout
+      android:layout_width="0dp"
+      android:layout_height="match_parent"
+      android:layout_weight="1"
+      android:background="@drawable/kbiz_wb_tile"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:paddingStart="8dp"
+      android:paddingEnd="8dp">
+
+      <FrameLayout
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:background="@drawable/kbiz_wb_box_primary">
+
+        <ImageView
+          android:layout_width="14dp"
+          android:layout_height="14dp"
+          android:layout_gravity="center"
+          android:importantForAccessibility="no"
+          android:src="@drawable/kbiz_wb_ic_seal"
+          android:tint="@color/kbiz_wb_primary" />
+      </FrameLayout>
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+          style="@style/KbizWb.Text.Bold"
+          android:text="5"
+          android:textSize="17sp" />
+
+        <TextView
+          style="@style/KbizWb.Text.Semi.Mute"
+          android:layout_marginTop="1dp"
+          android:text="Approvals"
+          android:textSize="10sp" />
+      </LinearLayout>
+    </LinearLayout>
+  </LinearLayout>
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginTop="6dp"
+    android:layout_weight="1"
+    android:orientation="horizontal">
+    <LinearLayout
+      android:layout_width="0dp"
+      android:layout_height="match_parent"
+      android:layout_weight="1"
+      android:background="@drawable/kbiz_wb_tile"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:paddingStart="8dp"
+      android:paddingEnd="8dp">
+
+      <FrameLayout
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:background="@drawable/kbiz_wb_box_primary">
+
+        <ImageView
+          android:layout_width="14dp"
+          android:layout_height="14dp"
+          android:layout_gravity="center"
+          android:importantForAccessibility="no"
+          android:src="@drawable/kbiz_wb_ic_forum"
+          android:tint="@color/kbiz_wb_green" />
+      </FrameLayout>
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+          style="@style/KbizWb.Text.Bold"
+          android:text="3"
+          android:textSize="17sp" />
+
+        <TextView
+          style="@style/KbizWb.Text.Semi.Mute"
+          android:layout_marginTop="1dp"
+          android:text="Unread chats"
+          android:textSize="10sp" />
+      </LinearLayout>
+    </LinearLayout>
+    <FrameLayout
+      android:layout_width="6dp"
+      android:layout_height="match_parent" />
+    <LinearLayout
+      android:layout_width="0dp"
+      android:layout_height="match_parent"
+      android:layout_weight="1"
+      android:background="@drawable/kbiz_wb_tile"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:paddingStart="8dp"
+      android:paddingEnd="8dp">
+
+      <FrameLayout
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:background="@drawable/kbiz_wb_box_primary">
+
+        <ImageView
+          android:layout_width="14dp"
+          android:layout_height="14dp"
+          android:layout_gravity="center"
+          android:importantForAccessibility="no"
+          android:src="@drawable/kbiz_wb_ic_clock"
+          android:tint="@color/kbiz_wb_green" />
+      </FrameLayout>
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+          style="@style/KbizWb.Text.Bold"
+          android:text="3:12:05"
+          android:textSize="17sp" />
+
+        <TextView
+          style="@style/KbizWb.Text.Semi.Mute"
+          android:layout_marginTop="1dp"
+          android:text="In since 9:42 AM"
+          android:textSize="10sp" />
+      </LinearLayout>
+    </LinearLayout>
+  </LinearLayout>
+</LinearLayout>

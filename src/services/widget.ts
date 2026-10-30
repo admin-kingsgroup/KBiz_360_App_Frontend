@@ -1,25 +1,36 @@
 import { Platform, AppState } from 'react-native';
-import { isRunningInExpoGo } from 'expo';
+import { isRunningInExpoGo, requireOptionalNativeModule } from 'expo';
 import { useAuthStore } from '../store/authStore';
 import { useMessagingStore } from '../store/messagingStore';
 import { useReminderBadgeStore } from '../store/reminderBadgeStore';
 import { useAttendanceStore } from '../store/attendanceStore';
+import { useApprovalBadgeStore } from '../store/approvalBadgeStore';
+import { buildWidgetSnapshot, type WidgetSnapshot } from '../logic/widgetSnapshot';
 
-// iOS home-screen widget feed. Writes a JSON snapshot of the signed-in user's data (unread chats,
-// reminder badge + top items, today's punch) into the shared App Group so the WidgetKit extension
-// (targets/widget/index.swift) can render it, then asks WidgetKit to redraw. ExtensionStorage
-// no-ops when the native module is absent (Expo Go / builds made before the widget target), so
-// this is safe to call anywhere. Keep the JSON shape in lockstep with `Snapshot` in index.swift.
+// Home-screen widget feed. Writes a JSON snapshot of the signed-in user's work (unread chats, my
+// reminders with due times, approvals waiting, today's punch) where the widgets can read it, then
+// asks them to redraw:
+// - iOS: the shared App Group, read by the WidgetKit extension (targets/widget/index.swift).
+//   ExtensionStorage no-ops when its native module is absent (Expo Go / builds made before the target).
+// - Android: the KbizWidget native module (modules/kbiz-widget), which stores it for the Work Board
+//   widget. Absent in Expo Go and in binaries built before it, so an OTA of this file is a no-op there.
+// Keep the JSON shape in lockstep with `Snapshot` in index.swift and parseSnapshot in WidgetData.kt.
 
 const APP_GROUP = 'group.com.kingsgroup.kbiz360';
 const SNAPSHOT_KEY = 'widgetSnapshot';
-const native = Platform.OS === 'ios' && !isRunningInExpoGo();
+const ios = Platform.OS === 'ios' && !isRunningInExpoGo();
+
+interface AndroidWidgetModule {
+  setSnapshot(json: string): Promise<void>;
+}
+const androidWidget = Platform.OS === 'android' ? requireOptionalNativeModule<AndroidWidgetModule>('KbizWidget') : null;
+const native = ios || androidWidget != null;
 
 type Storage = import('@bacons/apple-targets').ExtensionStorage;
 let storage: Storage | null = null;
 let ExtensionStorageClass: typeof import('@bacons/apple-targets').ExtensionStorage | null = null;
 function getStorage(): Storage | null {
-  if (!native) return null;
+  if (!ios) return null;
   if (!storage) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -33,31 +44,28 @@ function getStorage(): Storage | null {
   return storage;
 }
 
-const hhmm = (d: Date): string => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-function buildSnapshot(): Record<string, unknown> {
-  const user = useAuthStore.getState().user;
-  const conversations = useMessagingStore.getState().conversations;
-  const { count: reminderCount, top } = useReminderBadgeStore.getState();
-  const att = useAttendanceStore.getState().att;
-  return {
-    signedIn: true,
-    userName: user?.name ?? '',
-    // Same rule as the app-icon badge (chatNotifications): chats with unread, muted excluded.
-    unreadChats: conversations.filter((c) => (c.unread || 0) > 0 && !c.muted).length,
-    reminderCount,
-    reminders: top,
-    attendanceIn: att.inTime ? hhmm(att.inTime) : null,
-    attendanceOut: att.outTime ? hhmm(att.outTime) : null,
-    updatedAt: Date.now(),
-  };
+function buildSnapshot(): WidgetSnapshot {
+  const { count, forMe, top } = useReminderBadgeStore.getState();
+  return buildWidgetSnapshot({
+    userName: useAuthStore.getState().user?.name ?? '',
+    conversations: useMessagingStore.getState().conversations,
+    reminders: { count, forMe, top },
+    approvals: useApprovalBadgeStore.getState().count,
+    att: useAttendanceStore.getState().att,
+    now: Date.now(),
+  });
 }
 
-function write(snapshot: Record<string, unknown>): void {
-  const s = getStorage();
-  if (!s) return;
+function write(snapshot: WidgetSnapshot | { signedIn: false }): void {
+  const json = JSON.stringify(snapshot);
   try {
-    s.set(SNAPSHOT_KEY, JSON.stringify(snapshot));
+    if (androidWidget) {
+      androidWidget.setSnapshot(json).catch(() => undefined);
+      return;
+    }
+    const s = getStorage();
+    if (!s) return;
+    s.set(SNAPSHOT_KEY, json);
     ExtensionStorageClass?.reloadWidget();
   } catch {
     /* widget feed is best-effort — never let it break the app */
@@ -90,7 +98,9 @@ export function initWidgetSync(): () => void {
     // Unread chats are all the widget shows from this store — skip typing/presence/message churn.
     useMessagingStore.subscribe((s, prev) => { if (s.conversations !== prev.conversations) schedule(); }),
     useReminderBadgeStore.subscribe(schedule),
-    useAttendanceStore.subscribe(schedule),
+    useApprovalBadgeStore.subscribe(schedule),
+    // Only the punch matters here — presence repaints on every GPS fix and must not rewrite the feed.
+    useAttendanceStore.subscribe((s, prev) => { if (s.att !== prev.att) schedule(); }),
   ];
   const appState = AppState.addEventListener('change', (state) => {
     if (state === 'background') syncWidgetSnapshot();

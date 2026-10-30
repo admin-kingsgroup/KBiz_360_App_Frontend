@@ -30,14 +30,14 @@ import { colors } from '../../theme';
 //   Entries   the pending vouchers and SO/PO/GP files (Check → Approve), each opened in a sheet — back in the app after
 //             leaving it on 2026-10-09 — and the Below GP Line reviews, as on the ERP's Entries
 //   CFM       credit requests, signed here (owner, 2026-10-13)
-//   Requests  sub-tabs Payables (first) · Receivables · HR · Other, as on the ERP
+//   Requests  sub-tabs Payables (first) · HR · Other, as on the ERP (Receivables removed, owner 2026-10-30: "of no use")
 // Month Close left the app (it was view-only here; the ERP signs it on its own screen).
 
 type Tab = 'entries' | 'cfm' | 'requests';
 const TABS: Array<{ key: Tab; label: string }> = [{ key: 'entries', label: 'Entries' }, { key: 'cfm', label: 'CFM' }, { key: 'requests', label: 'Requests' }];
-type Sub = 'payables' | 'receivables' | 'hr' | 'other';
+type Sub = 'payables' | 'hr' | 'other';
 const SUBS: Array<{ key: Sub; label: string }> = [
-  { key: 'payables', label: 'Payables' }, { key: 'receivables', label: 'Receivables' }, { key: 'hr', label: 'HR' }, { key: 'other', label: 'Other' },
+  { key: 'payables', label: 'Payables' }, { key: 'hr', label: 'HR' }, { key: 'other', label: 'Other' },
 ];
 const errText = (e: unknown, fallback: string): string => (e instanceof ApiError && e.message ? e.message : fallback);
 const roleRefused = (e: unknown): boolean => e instanceof ApiError && e.status === 403;
@@ -114,7 +114,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
   const screen = tabCounts(here);
   const totals = tabTotals(screen);
   const counts: Record<Tab, number> = { entries: totals.entries, cfm: totals.cfm, requests: totals.requests };
-  const subCounts: Record<Sub, number | null> = { payables: screen.payables, receivables: null, hr: screen.hr, other: screen.requests };
+  const subCounts: Record<Sub, number | null> = { payables: screen.payables, hr: screen.hr, other: screen.requests };
   // Each branch chip carries the sum of the badges that branch would show.
   const chipCounts = useMemo(() => branchCounts(lists, options), [lists, options]);
   // The Approvals tab badge carries the all-branches total (plus App requests) — pushed after each load,
@@ -234,7 +234,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
     <View style={{ flex: 1 }}>
       {/* Branch focus — the ERP's branch selector, each chip with what waits there. ALL only for an all-branch login. */}
       {options.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.barRow} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 6 }}>
           {options.map((b) => {
             const on = b === branch;
             const label = b === ALL_BRANCHES ? 'All branches' : b;
@@ -255,7 +255,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
       ) : null}
 
       {/* The tabs, each with its pending count — as on the ERP. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.coolDivider }} contentContainerStyle={{ paddingHorizontal: 12, gap: 4 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[st.barRow, { borderBottomWidth: 1, borderBottomColor: colors.coolDivider }]} contentContainerStyle={{ paddingHorizontal: 12, gap: 4 }}>
         {TABS.map((t) => {
           const on = t.key === tab;
           const n = counts[t.key];
@@ -268,9 +268,9 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
         })}
       </ScrollView>
 
-      {/* Requests' sub-tabs, Payables first (owner, 2026-10-29) — as on the ERP. Receivables reads nothing, so no badge. */}
+      {/* Requests' sub-tabs, Payables first (owner, 2026-10-29) — as on the ERP. */}
       {tab === 'requests' ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, gap: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.barRow} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 2, gap: 6 }}>
           {SUBS.map((s) => {
             const on = s.key === sub;
             const n = loading ? null : subCounts[s.key];
@@ -331,26 +331,9 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
           </>
         ) : null}
 
-        {!loading && tab === 'requests' && sub === 'receivables' ? (
-          crs.refused ? (
-            <View style={st.emptyBox}>
-              <Text style={st.emptyTitle}>Receivables — not open to you</Text>
-              <Text style={st.emptyHint}>Worked at TK Group by AE / FM / Director / Owner — your role does not open it.</Text>
-            </View>
-          ) : (
-            <>
-              <Text style={st.note}>The receivable side of Financial Planning — beside Payables.</Text>
-              <View style={st.emptyBox}>
-                <Text style={st.emptyTitle}>Nothing is raised for approval on the receivable side yet.</Text>
-                <Text style={st.emptyHint}>Supplier payment requests raised from the Financial Planning Dashboard wait on Payables.</Text>
-              </View>
-            </>
-          )
-        ) : null}
-
         {!loading && tab === 'requests' && sub === 'payables' ? (
           <>
-            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard — signed BM → FM → Director (no BM step where the branch has none); the supplier is paid only after the Director approves.</Text>
+            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard. Each card shows who signs and whose turn it is; the supplier is paid only after the last signature.</Text>
             {crs.refused ? refusedNote('Payables') : errorNote(crs.error)}
             {payables.length === 0 && !crs.refused && !crs.error ? <Text style={st.empty}>No payment request is waiting.</Text> : null}
             {payables.map((cr) => <PaymentCard key={cr._id} cr={cr} me={me} busy={busy === cr._id} anyBusy={!!busy} onAct={(a) => actOnPayment(cr, a)} />)}
@@ -867,12 +850,15 @@ function MarginCard({ r, busy, anyBusy, onConfirm, onSendBack }: { r: ErpChangeR
 }
 
 const st = {
-  chip: { height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 },
+  // A horizontal row above the list: ScrollView shrinks by default (flexShrink 1), and a long list below squeezed these rows on
+  // Android, cutting the tabs' and chips' bottoms off (owner, 2026-10-30) — same fix as Email's filter row.
+  barRow: { flexGrow: 0, flexShrink: 0 },
+  chip: { minHeight: 32, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 },
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.ink, fontSize: 12.5, fontWeight: '600' as const },
   chipTextOn: { color: '#fff', fontWeight: '700' as const },
   // A branch with work waiting reads green; an empty one stays grey.
-  chipCount: { minWidth: 20, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
+  chipCount: { minWidth: 20, minHeight: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
   chipCountBusy: { backgroundColor: colors.primarySoft },
   chipCountOn: { backgroundColor: 'rgba(255,255,255,0.22)' },
   chipCountText: { color: colors.coolText3, fontSize: 11, fontWeight: '700' as const },
@@ -882,7 +868,7 @@ const st = {
   tabOn: { borderBottomColor: colors.orange },
   tabText: { color: colors.coolText, fontSize: 14, fontWeight: '600' as const },
   tabTextOn: { color: colors.ink, fontWeight: '800' as const },
-  count: { minWidth: 22, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
+  count: { minWidth: 22, minHeight: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
   countOn: { backgroundColor: colors.orange + '33' },
   countText: { color: colors.coolText, fontSize: 11, fontWeight: '700' as const },
   countTextOn: { color: colors.ink },
