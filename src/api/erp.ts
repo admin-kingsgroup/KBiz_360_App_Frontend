@@ -74,7 +74,7 @@ export interface ErpLeaveApplication {
   id: string; name: string; branch?: string; from: string; to: string; days?: number; dayType?: string;
   reason?: string; kind?: string; waitingOn?: string; checkIn?: string; checkOut?: string;
   turn?: { allowed?: boolean; final?: boolean; why?: string; past?: string[] }; canReject?: boolean;
-  // The approval chain (FM → Director → Owner) and who has signed it — drives the ticks.
+  // The approval chain (as the ERP stamps it — e.g. BM → FM → Director) and who has signed it — drives the ticks.
   chain?: Array<{ order?: number; role: string; label?: string }>;
   approvals?: Array<{ role: string; by?: string; at?: string | null; skipped?: boolean }>;
   /** kind 'swap' only: the two Saturdays and the partner, who must accept in the app before anyone signs. */
