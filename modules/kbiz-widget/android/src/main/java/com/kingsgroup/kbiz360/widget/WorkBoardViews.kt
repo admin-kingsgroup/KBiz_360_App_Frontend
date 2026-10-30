@@ -26,6 +26,8 @@ internal object Links {
   const val REMINDERS = "kbiz360://reminders"
   const val APPROVALS = "kbiz360://approvals"
   const val ATTENDANCE = "kbiz360://attendance"
+  /** The Owner's Review — ERP approvals ▸ Review (2026-10-30). */
+  const val REVIEW = "kbiz360://approvals?tab=review"
   fun chat(id: String) = "kbiz360://chat/${Uri.encode(id)}"
 
   /** Opens the app at [url]; expo-router turns it into the screen. */
@@ -147,9 +149,12 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
       boardTile(R.drawable.kbiz_wb_ic_forum, Tone.GREEN, "$chats", if (chats == 1) "Unread chat" else "Unread chats", Links.HOME),
     )
     v.addView(R.id.kbiz_wb_row2, RemoteViews(pkg, R.layout.kbiz_wb_gap_h))
-    v.addView(R.id.kbiz_wb_row2, attendanceTile())
+    // The Owner is excused from attendance: his corner tile is what the Director approved since he last looked.
+    v.addView(R.id.kbiz_wb_row2, if (w.isOwner) reviewTile() else attendanceTile())
     return v
   }
+
+  private fun reviewTile(): RemoteViews = boardTile(R.drawable.kbiz_wb_ic_eye, Tone.WARN, "${w.review}", "To review", Links.REVIEW)
 
   private fun boardTile(
     icon: Int,
@@ -195,12 +200,16 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
     v.setTextViewText(R.id.kbiz_wb_greeting, w.greetingLine)
     v.setTextViewText(R.id.kbiz_wb_date, formats.longDate(w.now))
     v.setOnClickPendingIntent(android.R.id.background, Links.open(ctx, Links.HOME))
+    val owner = w.isOwner
     punchPill(v)
+    // The Owner has no punch pill (excused from attendance, as on iOS). Set both ways: the launcher reapplies.
+    v.setViewVisibility(R.id.kbiz_wb_punch, if (owner) View.GONE else View.VISIBLE)
 
     v.removeAllViews(R.id.kbiz_wb_stats)
     val stats = listOf(
       statTile(R.drawable.kbiz_wb_ic_bell, Tone.PURPLE, w.todo, "Reminders", Links.REMINDERS),
-      statTile(R.drawable.kbiz_wb_ic_error, Tone.DANGER, w.late, "Late", Links.REMINDERS, alert = true),
+      if (owner) statTile(R.drawable.kbiz_wb_ic_eye, Tone.WARN, w.review, "Review", Links.REVIEW, alert = true)
+      else statTile(R.drawable.kbiz_wb_ic_error, Tone.DANGER, w.late, "Late", Links.REMINDERS, alert = true),
       statTile(R.drawable.kbiz_wb_ic_seal, Tone.PRIMARY, w.s.approvals, "Approvals", Links.APPROVALS),
       statTile(R.drawable.kbiz_wb_ic_chat, Tone.GREEN, w.s.unreadChats, "Chats", Links.HOME),
     )
@@ -209,6 +218,9 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
       v.addView(R.id.kbiz_wb_stats, tile)
     }
 
+    // The Owner: "To review" in place of the unread chats (the Chats tile keeps the count).
+    val reviews = w.reviewItems
+    val ownerPlan = if (owner) ownerLargePlan(heightDp, fontScale, w.items.size, reviews.size) else null
     val chats = w.s.chats.take(MAX_CHAT_ROWS)
     val plan = largePlan(heightDp, fontScale, w.items.size, chats.size)
 
@@ -216,12 +228,18 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
     v.removeAllViews(R.id.kbiz_wb_reminders)
     v.setViewVisibility(R.id.kbiz_wb_reminders_empty, if (w.items.isEmpty()) View.VISIBLE else View.GONE)
     if (w.items.isNotEmpty()) {
-      w.items.take(plan.reminderRows).forEachIndexed { i, r ->
+      w.items.take(ownerPlan?.reminderRows ?: plan.reminderRows).forEachIndexed { i, r ->
         if (i > 0) v.addView(R.id.kbiz_wb_reminders, RemoteViews(pkg, R.layout.kbiz_wb_gap_v))
         v.addView(R.id.kbiz_wb_reminders, reminderRow(r))
       }
     }
 
+    if (ownerPlan != null) {
+      v.setViewVisibility(R.id.kbiz_wb_chats_section, View.GONE)
+      reviewSection(v, reviews, ownerPlan)
+      return v
+    }
+    v.setViewVisibility(R.id.kbiz_wb_review_section, View.GONE)
     v.setViewVisibility(R.id.kbiz_wb_chats_section, if (plan.showChats) View.VISIBLE else View.GONE)
     if (!plan.showChats) return v
     val messages = w.s.unreadMessages
@@ -235,6 +253,21 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
       }
     }
     return v
+  }
+
+  /**
+   * The Owner's "To review": what the Director approved since he last opened Review, newest first.
+   * Like the pill, every state sets every part (the launcher reapplies onto the views it shows).
+   */
+  private fun reviewSection(v: RemoteViews, reviews: List<ReviewItem>, plan: OwnerLargePlan) {
+    v.setViewVisibility(R.id.kbiz_wb_review_section, if (plan.showReview) View.VISIBLE else View.GONE)
+    v.setTextViewText(R.id.kbiz_wb_review_count, if (w.review > 0) "${w.review} new" else "")
+    v.removeAllViews(R.id.kbiz_wb_reviews)
+    v.setViewVisibility(R.id.kbiz_wb_reviews_empty, if (reviews.isEmpty()) View.VISIBLE else View.GONE)
+    reviews.take(plan.reviewRows).forEachIndexed { i, r ->
+      if (i > 0) v.addView(R.id.kbiz_wb_reviews, RemoteViews(pkg, R.layout.kbiz_wb_gap_v))
+      v.addView(R.id.kbiz_wb_reviews, reviewRow(r))
+    }
   }
 
   /**
@@ -285,6 +318,19 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
     row.setTextViewText(R.id.kbiz_wb_rem_due, due.text)
     palette.text(row, R.id.kbiz_wb_rem_due, due.tone.text)
     row.setOnClickPendingIntent(R.id.kbiz_wb_rem, Links.open(ctx, Links.REMINDERS))
+    return row
+  }
+
+  /** A review row wears the reminder row's layout: amber bar, title, "HFBM · $5,000", how long ago the Director signed. */
+  private fun reviewRow(r: ReviewItem): RemoteViews {
+    val row = RemoteViews(pkg, R.layout.kbiz_wb_reminder_row)
+    row.setInt(R.id.kbiz_wb_rem_bar, "setBackgroundResource", Tone.WARN.bar)
+    row.setTextViewText(R.id.kbiz_wb_rem_text, r.title.ifEmpty { "Approved by the Director" })
+    row.setTextViewText(R.id.kbiz_wb_rem_by, r.detail.ifEmpty { "Approved by the Director" })
+    row.setViewVisibility(R.id.kbiz_wb_rem_due, if (r.at != null) View.VISIBLE else View.GONE)
+    row.setTextViewText(R.id.kbiz_wb_rem_due, if (r.at != null) reviewAgo(r.at, w.now) else "")
+    palette.text(row, R.id.kbiz_wb_rem_due, Tone.WARN.text)
+    row.setOnClickPendingIntent(R.id.kbiz_wb_rem, Links.open(ctx, Links.REVIEW))
     return row
   }
 

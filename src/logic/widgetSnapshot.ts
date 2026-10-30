@@ -2,6 +2,7 @@ import type { ChatConversation } from '../api/chat';
 import type { AttendanceRecord } from '../types';
 import type { ReminderTopItem } from '../store/reminderBadgeStore';
 import { oneLine } from './text';
+import type { WidgetReviewItem } from './ownerReview';
 
 // The JSON the home-screen widgets read: iOS decodes it as `Snapshot` (targets/widget/index.swift),
 // Android's Work Board as parseSnapshot (modules/kbiz-widget/.../WidgetData.kt). Keep all three in
@@ -28,6 +29,10 @@ export interface WidgetSnapshot {
   reminderForMe: number;
   reminders: ReminderTopItem[];
   approvals: number;
+  /** The Owner's Review (owner, 2026-10-30): what the Director approved since the Owner last looked. Present ONLY for the
+   *  Owner — the widgets then show Review where everyone else sees Late, and the rows under it. */
+  review?: number;
+  reviewItems?: WidgetReviewItem[];
   attendanceIn: string | null;
   attendanceOut: string | null;
   attendanceInAt: number | null;
@@ -41,6 +46,8 @@ export interface WidgetInputs {
   reminders: { count: number; forMe: number; top: ReminderTopItem[] };
   /** Approvals tab badge total (ERP + app requests). */
   approvals: number;
+  /** The Owner's Review — null for everyone else. */
+  review?: { count: number; items: WidgetReviewItem[] } | null;
   att: AttendanceRecord;
   now: number;
 }
@@ -84,9 +91,12 @@ export function buildWidgetSnapshot(i: WidgetInputs): WidgetSnapshot {
     unreadMessages: unread.reduce((n, c) => n + (c.unread || 0), 0),
     chats,
     reminderCount: i.reminders.count,
-    reminderForMe: i.reminders.forMe,
+    // The widgets read reminderForMe first. It carries the Reminders tab badge's number (owner, 2026-10-30: "the reminder
+    // count on the widget is not what the app shows") — pending for me + mine waiting for my approval.
+    reminderForMe: i.reminders.count,
     reminders: i.reminders.top,
     approvals: i.approvals,
+    ...(i.review ? { review: i.review.count, reviewItems: i.review.items } : {}),
     attendanceIn: inTime ? hhmm(inTime) : null,
     attendanceOut: outTime ? hhmm(outTime) : null,
     attendanceInAt: inTime ? inTime.getTime() : null,

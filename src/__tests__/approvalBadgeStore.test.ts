@@ -28,8 +28,12 @@ beforeEach(() => {
   erp.changeRequests.mockResolvedValue([pay('BOM'), pay('MHUB'), req('AMD')]);
   erp.leaveApplications.mockResolvedValue([{ _id: 'l1', branch: 'HNBO' }]);
   erp.creditRequests.mockResolvedValue([{ _id: 'cr1', branch: 'BOM' }]);
-  // Entries (owner, 2026-10-29): one voucher waiting at AMD, from the Pending Work feed. Month Close is not counted any more.
-  erp.pendingWork.mockResolvedValue({ branches: [{ branch: 'AMD', cards: [{ key: 'approvals', items: [{ key: 'vouchers', entries: [{ id: 'e1', ref: 'RV/AMD/1', kind: 'voucher', type: 'RV', branch: 'AMD', actionBranch: 'AMD', stage: 'check' }] }] }] }] });
+  // Entries (owner, 2026-10-29): one voucher waiting for Approve at AMD, from the Pending Work feed — the one still at
+  // Check is not the app's (Check is done in the ERP). Month Close is not counted any more.
+  erp.pendingWork.mockResolvedValue({ branches: [{ branch: 'AMD', cards: [{ key: 'approvals', items: [{ key: 'vouchers', entries: [
+    { id: 'e1', ref: 'RV/AMD/1', kind: 'voucher', type: 'RV', branch: 'AMD', actionBranch: 'AMD', stage: 'approve' },
+    { id: 'e2', ref: 'RV/AMD/2', kind: 'voucher', type: 'RV', branch: 'AMD', actionBranch: 'AMD', stage: 'check' },
+  ] }] }] }] });
 });
 
 describe('Approvals tab badge', () => {

@@ -18,6 +18,8 @@ let homeURL = URL(string: "kbiz360://")!
 let remindersURL = URL(string: "kbiz360://reminders")!
 let approvalsURL = URL(string: "kbiz360://approvals")!
 let attendanceURL = URL(string: "kbiz360://attendance")!
+/// The Owner's Review — ERP approvals ▸ Review (owner, 2026-10-30).
+let reviewURL = URL(string: "kbiz360://approvals?tab=review")!
 func chatURL(_ id: String) -> URL { URL(string: "kbiz360://chat/\(id)") ?? homeURL }
 
 func msDate(_ ms: Double?) -> Date? { ms.map { Date(timeIntervalSince1970: $0 / 1000) } }
@@ -45,6 +47,33 @@ struct ReminderItem: Codable, Identifiable {
     var due: Date? { msDate(dueAt) }
     /// The server's rule: a pending reminder is overdue once its due time has passed.
     func isLate(at now: Date) -> Bool { due.map { $0 < now } ?? false }
+}
+
+/// One request the Director approved that the Owner has not looked at yet (owner, 2026-10-30). The app formats it.
+struct ReviewItem: Codable, Identifiable {
+    var id: String
+    /// "Payment · Dream Holidays · advance"
+    var title: String
+    var branch: String
+    /// Pre-formatted in the book's currency ("$5,000"); empty when there is no amount.
+    var amount: String
+    /// The Director's signature, epoch ms.
+    var at: Double?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        branch = try c.decodeIfPresent(String.self, forKey: .branch) ?? ""
+        amount = try c.decodeIfPresent(String.self, forKey: .amount) ?? ""
+        at = try c.decodeIfPresent(Double.self, forKey: .at)
+    }
+
+    /// "HFBM · $5,000" — or who signed it, when the row has neither.
+    var line: String {
+        let parts = [branch, amount].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Approved by the Director" : parts.joined(separator: " · ")
+    }
 }
 
 struct ChatItem: Codable, Identifiable {
@@ -83,6 +112,9 @@ struct Snapshot: Codable {
     var approvals: Int
     var attendanceInAt: Double?
     var attendanceOutAt: Double?
+    // The Owner's Review (2026-10-30). Present only for the Owner; absent = everyone else (Late, as before).
+    var review: Int?
+    var reviewItems: [ReviewItem]
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -100,6 +132,8 @@ struct Snapshot: Codable {
         approvals = try c.decodeIfPresent(Int.self, forKey: .approvals) ?? 0
         attendanceInAt = try c.decodeIfPresent(Double.self, forKey: .attendanceInAt)
         attendanceOutAt = try c.decodeIfPresent(Double.self, forKey: .attendanceOutAt)
+        review = try c.decodeIfPresent(Int.self, forKey: .review)
+        reviewItems = try c.decodeIfPresent([ReviewItem].self, forKey: .reviewItems) ?? []
     }
 }
 
@@ -209,6 +243,9 @@ struct Work {
     }
 
     var late: Int { items.filter { $0.isLate(at: now) }.count }
+    /// The Owner's widget: Review in place of Late, and no punch (he is excused from attendance).
+    var isOwner: Bool { s.review != nil }
+    var review: Int { s.review ?? 0 }
     /// Pending reminders set for me — the app's "For me" list.
     var todo: Int { s.reminderForMe ?? s.reminderCount }
 
@@ -413,6 +450,42 @@ struct ReminderRow: View {
                 .lineLimit(1)
         }
     }
+}
+
+/// What the Director approved, for the Owner: the title, then branch · amount, and how long ago he signed.
+struct ReviewRow: View {
+    let r: ReviewItem
+    let now: Date
+    var body: some View {
+        HStack(spacing: 8) {
+            Capsule().fill(Tone.warn.solid).frame(width: 3.5, height: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(r.title.isEmpty ? "Approved by the Director" : r.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(.kMain)
+                    .lineLimit(1)
+                    .privacySensitive()
+                Text(r.line)
+                    .font(.system(size: 10))
+                    .foregroundColor(.kMute)
+                    .lineLimit(1)
+                    .privacySensitive()
+            }
+            Spacer(minLength: 6)
+            if let at = msDate(r.at) {
+                Text(reviewAgo(at, now: now))
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(Tone.warn.text)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+/// "just now" · "3h ago" · "2d ago" — the same words as the app's Review list.
+func reviewAgo(_ d: Date, now: Date) -> String {
+    let h = max(0, Int(now.timeIntervalSince(d) / 3600))
+    return h < 1 ? "just now" : h < 48 ? "\(h)h ago" : "\(h / 24)d ago"
 }
 
 struct Avatar: View {
@@ -713,7 +786,11 @@ struct WorkBoardMedium: View {
                 HStack(spacing: 6) {
                     BoardTile(symbol: "bubble.left.and.bubble.right.fill", tone: .green, value: Text("\(w.s.unreadChats)"),
                               label: w.s.unreadChats == 1 ? "Unread chat" : "Unread chats", url: homeURL)
-                    attendanceTile
+                    if w.isOwner {
+                        BoardTile(symbol: "eye.fill", tone: .warn, value: Text("\(w.review)"), label: "To review", url: reviewURL)
+                    } else {
+                        attendanceTile
+                    }
                 }
             }
         }
@@ -734,8 +811,11 @@ struct WorkBoardMedium: View {
 struct WorkBoardLarge: View {
     let w: Work
     var body: some View {
-        let chats = Array(w.s.chats.prefix(2))
-        let reminderLimit = chats.isEmpty ? 4 : 3
+        // The Owner: no chats section — "To review" takes its place (owner, 2026-10-30); the Chats tile keeps the count.
+        let chats = w.isOwner ? [] : Array(w.s.chats.prefix(2))
+        let reviews = Array(w.s.reviewItems.prefix(3))
+        // Nothing new to review → the reminders take the room back (as with no unread chats).
+        let reminderLimit = w.isOwner ? (reviews.isEmpty ? 4 : 2) : (chats.isEmpty ? 4 : 3)
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 BrandMark(size: 28)
@@ -746,11 +826,15 @@ struct WorkBoardLarge: View {
                         .foregroundColor(.kMute)
                 }
                 Spacer(minLength: 4)
-                PunchPill(w: w)
+                if !w.isOwner { PunchPill(w: w) }
             }
             HStack(spacing: 6) {
                 StatTile(symbol: "bell.fill", tone: .purple, value: w.todo, label: "Reminders", url: remindersURL)
-                StatTile(symbol: "exclamationmark.circle.fill", tone: .danger, value: w.late, label: "Late", url: remindersURL, alert: true)
+                if w.isOwner {
+                    StatTile(symbol: "eye.fill", tone: .warn, value: w.review, label: "Review", url: reviewURL, alert: true)
+                } else {
+                    StatTile(symbol: "exclamationmark.circle.fill", tone: .danger, value: w.late, label: "Late", url: remindersURL, alert: true)
+                }
                 StatTile(symbol: "checkmark.seal.fill", tone: .primary, value: w.s.approvals, label: "Approvals", url: approvalsURL)
                 StatTile(symbol: "bubble.left.fill", tone: .green, value: w.s.unreadChats, label: "Chats", url: homeURL)
             }
@@ -764,12 +848,25 @@ struct WorkBoardLarge: View {
                     }
                 }
             }
-            SectionLabel(title: "Unread chats", trailing: w.s.unreadMessages > 0 ? "\(w.s.unreadMessages) \(w.s.unreadMessages == 1 ? "message" : "messages")" : "")
-            if chats.isEmpty {
-                Text("All chats read").font(.system(size: 11.5)).foregroundColor(.kMute)
+            if w.isOwner {
+                SectionLabel(title: "To review", trailing: w.review > 0 ? "\(w.review) new" : "")
+                if reviews.isEmpty {
+                    Text("Nothing new from the Director").font(.system(size: 11.5)).foregroundColor(.kMute)
+                } else {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(reviews) { r in
+                            Link(destination: reviewURL) { ReviewRow(r: r, now: w.now) }
+                        }
+                    }
+                }
             } else {
-                VStack(spacing: 7) {
-                    ForEach(chats) { c in ChatRow(c: c, now: w.now) }
+                SectionLabel(title: "Unread chats", trailing: w.s.unreadMessages > 0 ? "\(w.s.unreadMessages) \(w.s.unreadMessages == 1 ? "message" : "messages")" : "")
+                if chats.isEmpty {
+                    Text("All chats read").font(.system(size: 11.5)).foregroundColor(.kMute)
+                } else {
+                    VStack(spacing: 7) {
+                        ForEach(chats) { c in ChatRow(c: c, now: w.now) }
+                    }
                 }
             }
             Spacer(minLength: 0)

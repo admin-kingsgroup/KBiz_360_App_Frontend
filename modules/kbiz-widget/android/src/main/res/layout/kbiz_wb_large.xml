@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Work Board, large: greeting + punch pill, four stats, the next reminders and the newest unread
-     chats. Rows are added from code, as many as the widget's height has room for. -->
+     chats. Rows are added from code, as many as the widget's height has room for. The Owner's board
+     (2026-10-30) hides the punch pill and shows "To review" in place of the unread chats. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
   android:id="@android:id/background"
   android:layout_width="match_parent"
@@ -127,6 +128,47 @@
     android:text="No reminders waiting for you"
     android:textSize="11.5sp"
     android:visibility="gone" />
+
+  <LinearLayout
+    android:id="@+id/kbiz_wb_review_section"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:visibility="gone">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="9dp"
+      android:orientation="horizontal">
+
+      <TextView
+        style="@style/KbizWb.Text.Section"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:text="TO REVIEW" />
+
+      <TextView
+        android:id="@+id/kbiz_wb_review_count"
+        style="@style/KbizWb.Text.Semi.Mute"
+        android:textSize="9.5sp" />
+    </LinearLayout>
+
+    <LinearLayout
+      android:id="@+id/kbiz_wb_reviews"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="6dp"
+      android:orientation="vertical" />
+
+    <TextView
+      android:id="@+id/kbiz_wb_reviews_empty"
+      style="@style/KbizWb.Text.Mute"
+      android:layout_marginTop="6dp"
+      android:text="Nothing new from the Director"
+      android:textSize="11.5sp"
+      android:visibility="gone" />
+  </LinearLayout>
 
   <LinearLayout
     android:id="@+id/kbiz_wb_chats_section"

@@ -10,15 +10,18 @@ import {
 } from '../../api/erp';
 import {
   ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, money, nextErpAction, ownerSignsPast,
-  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, branchOptions, pendingEntries, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
+  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, awaitingApproval, branchOptions, pendingEntries, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
   type ErpChain, type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
   RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, tabTotals, waitingLabel,
 } from '../../logic/erpPayables';
-import { creditAccount, creditApproveAsk, creditAsked, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
+import { creditAccount, creditApproveAsk, creditAsked, creditBoxRows, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
 import { useApprovalBadgeStore } from '../../store/approvalBadgeStore';
+import { reviewNewCount, useOwnerReviewStore } from '../../store/ownerReviewStore';
+import { REVIEW_DAYS, decidedAgo, decisionAmount, decisionTitle, isNewDecision, seenFrom, sortDecisions } from '../../logic/ownerReview';
+import type { ErpDirectorDecision } from '../../api/erp';
 import { useUiStore } from '../../store/uiStore';
 import { colors } from '../../theme';
 
@@ -33,8 +36,10 @@ import { colors } from '../../theme';
 //   Requests  sub-tabs Payables (first) · HR · Other, as on the ERP (Receivables removed, owner 2026-10-30: "of no use")
 // Month Close left the app (it was view-only here; the ERP signs it on its own screen).
 
-type Tab = 'entries' | 'cfm' | 'requests';
+export type Tab = 'entries' | 'cfm' | 'requests' | 'review';
 const TABS: Array<{ key: Tab; label: string }> = [{ key: 'entries', label: 'Entries' }, { key: 'cfm', label: 'CFM' }, { key: 'requests', label: 'Requests' }];
+// The Owner's fourth tab (owner, 2026-10-30): what the Director approved — read only. The widget's Review tile opens it.
+const REVIEW_TAB: { key: Tab; label: string } = { key: 'review', label: 'Review' };
 type Sub = 'payables' | 'hr' | 'other';
 const SUBS: Array<{ key: Sub; label: string }> = [
   { key: 'payables', label: 'Payables' }, { key: 'hr', label: 'HR' }, { key: 'other', label: 'Other' },
@@ -61,11 +66,15 @@ const ageOf = (s?: string): string => {
 interface Loaded<T> { rows: T; refused?: boolean; error?: string }
 interface Asking { title: string; cta: string; tone?: 'primary' | 'danger'; placeholder?: string; run: (reason: string) => Promise<unknown>; done?: string }
 
-export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) {
+export function ErpApprovalsView({ me, chain, openTab }: { me: ErpMe; chain: ErpChain; openTab?: Tab }) {
   const showToast = useUiStore((s) => s.showToast);
   const options = useMemo(() => branchOptions(me), [me]);
   const [branch, setBranch] = useState<string>(options[0] ?? ALL_BRANCHES);
-  const [tab, setTab] = useState<Tab>('entries');
+  const owner = isOwnerRole(me.role);
+  const tabs = owner ? [...TABS, REVIEW_TAB] : TABS;
+  const [tab, setTab] = useState<Tab>(openTab === 'review' && owner ? 'review' : 'entries');
+  // A link that names a tab (the widget's Review tile) opens it, also when this screen is already mounted.
+  useEffect(() => { if (openTab && (openTab !== 'review' || owner)) setTab(openTab); }, [openTab, owner]);
   const [sub, setSub] = useState<Sub>('payables');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,22 +107,36 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
       // HR and Credit are read for every branch and split here, so each branch chip can show its count.
       settle(erpApi.leaveApplications(), [], setLeave),
       settle(erpApi.creditRequests(), [], setCredit),
+      // The Owner's Review reads its own list (store) — pulled with the rest.
+      owner ? useOwnerReviewStore.getState().refresh() : Promise.resolve(),
     ]);
     setLoading(false);
     setRefreshing(false);
-  }, [scoped]);
+  }, [scoped, owner]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
+  // REVIEW (owner, 2026-10-30): opening the tab marks everything listed as seen — the count and the widget go back to 0 —
+  // while this visit still marks what was new when it opened.
+  const review = useOwnerReviewStore();
+  const reviewRows = useMemo(() => sortDecisions(review.rows), [review.rows]);
+  const [reviewFrom, setReviewFrom] = useState<number | null>(null);
+  useEffect(() => {
+    if (tab !== 'review') { setReviewFrom(null); return; }
+    if (!review.loaded || reviewFrom != null) return;
+    setReviewFrom(seenFrom(useOwnerReviewStore.getState().lastSeen, Date.now()));
+    useOwnerReviewStore.getState().markSeen();
+  }, [tab, review.loaded, reviewFrom]);
+
   // The ERP's split: Below GP reviews sit in Entries; Other leaves out HR's types and payment requests.
-  const allEntries = useMemo(() => pendingEntries(pw.rows), [pw.rows]);
+  // Only the entries waiting for Approve (owner, 2026-10-29) — Check is done on the laptop.
+  const allEntries = useMemo(() => awaitingApproval(pendingEntries(pw.rows)), [pw.rows]);
   const lists = useMemo(() => ({ crs: crs.rows, leave: leave.rows, credit: credit.rows, entries: allEntries }), [crs.rows, leave.rows, credit.rows, allEntries]);
   const here = useMemo(() => approvalsAt(lists, branch), [lists, branch]);
   const { entries, margin, payables, requests, hrRequests, leave: leaveRows, credit: creditRows } = here;
-  const stages = useMemo(() => stageCounts(entries), [entries]);
   const stuckPay = useMemo(() => atFocus(approvedPay.rows.filter((r) => isPaymentRequest(r) && isStuck(r)), branch), [approvedPay.rows, branch]);
   const screen = tabCounts(here);
   const totals = tabTotals(screen);
-  const counts: Record<Tab, number> = { entries: totals.entries, cfm: totals.cfm, requests: totals.requests };
+  const counts: Record<Tab, number> = { entries: totals.entries, cfm: totals.cfm, requests: totals.requests, review: reviewNewCount(review) };
   const subCounts: Record<Sub, number | null> = { payables: screen.payables, hr: screen.hr, other: screen.requests };
   // Each branch chip carries the sum of the badges that branch would show.
   const chipCounts = useMemo(() => branchCounts(lists, options), [lists, options]);
@@ -234,7 +257,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
     <View style={{ flex: 1 }}>
       {/* Branch focus — the ERP's branch selector, each chip with what waits there. ALL only for an all-branch login. */}
       {options.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.barRow} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 6 }}>
           {options.map((b) => {
             const on = b === branch;
             const label = b === ALL_BRANCHES ? 'All branches' : b;
@@ -255,8 +278,8 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
       ) : null}
 
       {/* The tabs, each with its pending count — as on the ERP. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: colors.coolDivider }} contentContainerStyle={{ paddingHorizontal: 12, gap: 4 }}>
-        {TABS.map((t) => {
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[st.barRow, { borderBottomWidth: 1, borderBottomColor: colors.coolDivider }]} contentContainerStyle={{ paddingHorizontal: 12, gap: 4 }}>
+        {tabs.map((t) => {
           const on = t.key === tab;
           const n = counts[t.key];
           return (
@@ -270,7 +293,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
 
       {/* Requests' sub-tabs, Payables first (owner, 2026-10-29) — as on the ERP. */}
       {tab === 'requests' ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, gap: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.barRow} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 2, gap: 6 }}>
           {SUBS.map((s) => {
             const on = s.key === sub;
             const n = loading ? null : subCounts[s.key];
@@ -298,8 +321,8 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
         {!loading && tab === 'entries' ? (
           <>
             <View style={st.strip}>
-              <Text style={st.stripTitle}>PENDING BY STAGE · {branch === ALL_BRANCHES ? 'All branches' : branch} · {stages.total} pending</Text>
-              <Text style={st.stripLine}>Check {stages.check}{stages.verify ? `  ·  Verify ${stages.verify}` : ''}  ·  Approve {stages.approve}</Text>
+              <Text style={st.stripTitle}>WAITING FOR APPROVAL · {branch === ALL_BRANCHES ? 'All branches' : branch}</Text>
+              <Text style={st.stripLine}>{entries.length} entr{entries.length === 1 ? 'y' : 'ies'} to approve — Check is done in the ERP</Text>
             </View>
             {pw.refused ? refusedNote('Entries') : errorNote(pw.error)}
             {entries.length === 0 && !pw.refused && !pw.error ? <Text style={st.empty}>No entry is waiting for approval here.</Text> : null}
@@ -333,7 +356,7 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
 
         {!loading && tab === 'requests' && sub === 'payables' ? (
           <>
-            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard — signed FM → Director → Owner; the supplier is paid only after the Owner signs.</Text>
+            <Text style={st.note}>Supplier payment requests raised from the Financial Planning Dashboard. Each card shows who signs and whose turn it is; the supplier is paid only after the last signature.</Text>
             {crs.refused ? refusedNote('Payables') : errorNote(crs.error)}
             {payables.length === 0 && !crs.refused && !crs.error ? <Text style={st.empty}>No payment request is waiting.</Text> : null}
             {payables.map((cr) => <PaymentCard key={cr._id} cr={cr} me={me} busy={busy === cr._id} anyBusy={!!busy} onAct={(a) => actOnPayment(cr, a)} />)}
@@ -461,6 +484,16 @@ export function ErpApprovalsView({ me, chain }: { me: ErpMe; chain: ErpChain }) 
           </>
         ) : null}
 
+        {tab === 'review' ? (
+          <>
+            <Text style={st.note}>Approved by the Director — payments, HR, salary, Hub FX, settings and leave whose chain ends with him, so they never came to you. Read only · all branches · last {REVIEW_DAYS} days; what is new since you last opened Review is marked.</Text>
+            {!review.loaded ? <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View> : null}
+            {review.loaded && review.error && reviewRows.length === 0 ? errorNote(review.error) : null}
+            {review.loaded && !review.error && reviewRows.length === 0 ? <Text style={st.empty}>The Director approved nothing in the last {REVIEW_DAYS} days.</Text> : null}
+            {reviewRows.map((r) => <ReviewCard key={r.key || r.id} r={r} fresh={reviewFrom != null && isNewDecision(r, reviewFrom)} />)}
+          </>
+        ) : null}
+
         {!loading && tab === 'cfm' ? (
           <>
             <Text style={st.note}>FM reviews → Director confirms → Owner approves — a senior may sign past a level that is not available; nothing reaches the books before the Owner.</Text>
@@ -538,6 +571,29 @@ function PaymentCard({ cr, me, busy, anyBusy, onAct }: { cr: ErpChangeRequest; m
   );
 }
 
+/* One decision the Director made, as the ERP's Owner Desk lists it: what, on whom, the branch and amount, when he signed,
+   who raised it and why. `fresh` = approved after the Owner last opened Review. Nothing to act on. */
+function ReviewCard({ r, fresh }: { r: ErpDirectorDecision; fresh: boolean }) {
+  const amount = decisionAmount(r);
+  const ago = decidedAgo(r, Date.now());
+  const why = erpText(r.why);
+  return (
+    <View style={[st.card, fresh && { borderColor: colors.orange }]}>
+      <View style={st.cardHead}>
+        <Text style={[st.rowRef, { flexShrink: 1 }]}>{decisionTitle(r)}</Text>
+        {fresh ? <View style={[st.tag, { backgroundColor: colors.orange + '22', borderColor: colors.orange }]}><Text style={[st.tagText, { color: colors.orange }]}>NEW</Text></View> : null}
+      </View>
+      <Text style={st.rowTitle}>
+        {[erpText(r.branch), amount].filter(Boolean).join(' · ')}
+        {ago ? <Text style={{ color: colors.coolText3 }}>{`${erpText(r.branch) || amount ? ' · ' : ''}approved by the Director ${ago}`}</Text> : null}
+      </Text>
+      {erpText(r.maker) ? <Text style={st.rowSub}>Raised by {erpText(r.maker)}</Text> : null}
+      {why ? <Text style={st.rowSub}>Why: <Text style={{ color: colors.ink }}>{why}</Text></Text> : null}
+      {erpText(r.where) ? <Text style={[st.rowSub, { color: colors.coolText3 }]}>In the ERP: {erpText(r.where)}</Text> : null}
+    </View>
+  );
+}
+
 /* One credit request, as the ERP's Approvals ▸ Credit row shows it: the party, what is asked against what stands, who
    raised it, the three steps — and the buttons the ERP would accept from this person, with its reason when Approve is off.
    An approved one whose change did not go through offers Re-run / Close to the Owner / Super Admin (the ERP's canRetry). */
@@ -555,7 +611,10 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
   const state = creditState(c);
   const b = creditButtons(c);
   const maker = typeof c.maker === 'string' ? c.maker : erpText(c.maker?.name) || erpText(c.maker?.userId);
-  const fields = c.details?.fields ?? [];
+  const fields = creditBoxRows(c);
+  // The details box, when it shows, holds the client — the lines above it would say the same twice (owner, 2026-10-30).
+  const boxShown = open && fields.length > 0;
+  const dial = (phone: string) => void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`);
   return (
     <View style={st.card}>
       <View style={st.cardHead}>
@@ -571,13 +630,14 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
         <Text style={{ fontWeight: '700' }}>{asked.to}</Text>
       </Text>
       {asked.warn ? <Text style={[st.rowSub, { color: colors.orange }]}>{asked.warn}</Text> : null}
-      {/* Who to call (ERP 2026-10-27): the Reference and the party, each phone a tap to dial; a blank one said in orange. */}
-      {contacts.map((l) => (
+      {/* Who to call (ERP 2026-10-27): the Reference and the party, each phone a tap to dial; a blank one said in orange.
+          Only while the details box is hidden — when it shows, these are in it (owner, 2026-10-30). */}
+      {!boxShown && contacts.map((l) => (
         <Text key={l.label} style={st.rowSub}>
           {l.label}{'  '}
           {l.value ? <Text style={{ color: colors.ink, fontWeight: '600' }}>{l.value}</Text> : null}
           {l.value && (l.phone || l.warn) ? ' · ' : null}
-          {l.phone ? <Text onPress={() => void Linking.openURL(`tel:${l.phone.replace(/[^\d+]/g, '')}`)} style={{ color: colors.primary, fontWeight: '700' }}>{l.phone}</Text> : null}
+          {l.phone ? <Text onPress={() => dial(l.phone)} style={{ color: colors.primary, fontWeight: '700' }}>{l.phone}</Text> : null}
           {l.warn ? <Text style={{ color: colors.orange, fontWeight: '600' }}>{l.warn}</Text> : null}
         </Text>
       ))}
@@ -603,11 +663,15 @@ function CreditCard({ c, busy, anyBusy, onAct, onRerun, onClose }: { c: ErpCredi
         by {maker || '—'}{c.source === 'crm' ? ' (salesperson, CRM)' : ''}{c.createdAt ? ` · ${ageOf(c.createdAt)}` : ''}
         {fields.length ? <Text onPress={() => setOpen(!open)} style={{ color: colors.orange, fontWeight: '700' }}>{`  ·  ${open ? `Hide ${word ? `${word.toLowerCase()} ` : ''}details` : word ? `${word} details` : 'Details'}`}</Text> : null}
       </Text>
-      {open && fields.length ? (
+      {boxShown ? (
         <View style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.coolMuted, gap: 3 }}>
           <Text style={[st.rowSub, { marginTop: 0, fontWeight: '800', color: colors.coolText }]}>{creditDetailsTitle(c)}</Text>
           {fields.map((f) => (
-            <Text key={f.key} style={[st.rowSub, { marginTop: 0 }]}>{erpText(f.label)}: <Text style={{ color: colors.ink, fontWeight: '600' }}>{erpText(f.value)}</Text></Text>
+            <Text key={f.key} style={[st.rowSub, { marginTop: 0 }]}>
+              {f.label}: {f.value ? <Text style={{ color: colors.ink, fontWeight: '600' }}>{f.value}</Text> : null}
+              {f.value && f.phone ? ' · ' : null}
+              {f.phone ? <Text onPress={() => dial(f.phone)} style={{ color: colors.primary, fontWeight: '700' }}>{f.phone}</Text> : null}
+            </Text>
           ))}
         </View>
       ) : null}
@@ -850,12 +914,15 @@ function MarginCard({ r, busy, anyBusy, onConfirm, onSendBack }: { r: ErpChangeR
 }
 
 const st = {
-  chip: { height: 32, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 },
+  // A horizontal row above the list: ScrollView shrinks by default (flexShrink 1), and a long list below squeezed these rows on
+  // Android, cutting the tabs' and chips' bottoms off (owner, 2026-10-30) — same fix as Email's filter row.
+  barRow: { flexGrow: 0, flexShrink: 0 },
+  chip: { minHeight: 32, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider, backgroundColor: colors.card, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6 },
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.ink, fontSize: 12.5, fontWeight: '600' as const },
   chipTextOn: { color: '#fff', fontWeight: '700' as const },
   // A branch with work waiting reads green; an empty one stays grey.
-  chipCount: { minWidth: 20, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
+  chipCount: { minWidth: 20, minHeight: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
   chipCountBusy: { backgroundColor: colors.primarySoft },
   chipCountOn: { backgroundColor: 'rgba(255,255,255,0.22)' },
   chipCountText: { color: colors.coolText3, fontSize: 11, fontWeight: '700' as const },
@@ -865,7 +932,7 @@ const st = {
   tabOn: { borderBottomColor: colors.orange },
   tabText: { color: colors.coolText, fontSize: 14, fontWeight: '600' as const },
   tabTextOn: { color: colors.ink, fontWeight: '800' as const },
-  count: { minWidth: 22, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
+  count: { minWidth: 22, minHeight: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: colors.coolMuted, alignItems: 'center' as const, justifyContent: 'center' as const },
   countOn: { backgroundColor: colors.orange + '33' },
   countText: { color: colors.coolText, fontSize: 11, fontWeight: '700' as const },
   countTextOn: { color: colors.ink },

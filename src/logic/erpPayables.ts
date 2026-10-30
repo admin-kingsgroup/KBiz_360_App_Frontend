@@ -105,8 +105,8 @@ export function outsideChainWhy(cr: ErpChangeRequest, me: Pick<ErpMe, 'role'> | 
   if (!me?.role) return '';
   const levels = levelsOf(cr);
   if (!levels.length || levels.some((l) => l.role === chainRoleOf(me.role))) return '';
-  const who = levels.map((l) => ({ FinanceManager: 'the FM', Director: 'the Director', Owner: 'the Owner' } as Record<string, string>)[l.role] || l.role);
-  return `Only ${who.length > 1 ? `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}` : who[0]} act on this request.`;
+  const who = levels.map((l) => ({ BranchManager: 'the BM', FinanceManager: 'the FM', Director: 'the Director', Owner: 'the Owner' } as Record<string, string>)[l.role] || l.role);
+  return `Only ${who.length > 1 ? `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]} act` : `${who[0]} acts`} on this request.`;
 }
 
 /** CRED-GATE-01: the maker never approves their own request — except the Owner, the last level. */

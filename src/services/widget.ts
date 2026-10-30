@@ -6,6 +6,8 @@ import { useReminderBadgeStore } from '../store/reminderBadgeStore';
 import { useAttendanceStore } from '../store/attendanceStore';
 import { useApprovalBadgeStore } from '../store/approvalBadgeStore';
 import { buildWidgetSnapshot, type WidgetSnapshot } from '../logic/widgetSnapshot';
+import { useOwnerReviewStore, reviewNewCount } from '../store/ownerReviewStore';
+import { seenFrom, widgetReviewItems } from '../logic/ownerReview';
 
 // Home-screen widget feed. Writes a JSON snapshot of the signed-in user's work (unread chats, my
 // reminders with due times, approvals waiting, today's punch) where the widgets can read it, then
@@ -46,13 +48,17 @@ function getStorage(): Storage | null {
 
 function buildSnapshot(): WidgetSnapshot {
   const { count, forMe, top } = useReminderBadgeStore.getState();
+  const now = Date.now();
+  const rv = useOwnerReviewStore.getState();
   return buildWidgetSnapshot({
     userName: useAuthStore.getState().user?.name ?? '',
     conversations: useMessagingStore.getState().conversations,
     reminders: { count, forMe, top },
     approvals: useApprovalBadgeStore.getState().count,
+    // The Owner's Review rides only for the Owner (owner, 2026-10-30) — everyone else's widget keeps Late.
+    review: rv.owner ? { count: reviewNewCount(rv, now), items: widgetReviewItems(rv.rows, seenFrom(rv.lastSeen, now)) } : null,
     att: useAttendanceStore.getState().att,
-    now: Date.now(),
+    now,
   });
 }
 
@@ -99,6 +105,7 @@ export function initWidgetSync(): () => void {
     useMessagingStore.subscribe((s, prev) => { if (s.conversations !== prev.conversations) schedule(); }),
     useReminderBadgeStore.subscribe(schedule),
     useApprovalBadgeStore.subscribe(schedule),
+    useOwnerReviewStore.subscribe((s, prev) => { if (s.rows !== prev.rows || s.lastSeen !== prev.lastSeen || s.owner !== prev.owner) schedule(); }),
     // Only the punch matters here — presence repaints on every GPS fix and must not rewrite the feed.
     useAttendanceStore.subscribe((s, prev) => { if (s.att !== prev.att) schedule(); }),
   ];

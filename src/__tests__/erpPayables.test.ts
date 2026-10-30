@@ -57,6 +57,9 @@ describe('what each person is offered — the ERP refuses the rest', () => {
   it('a role outside the chain gets no buttons, and is told who acts', () => {
     expect(outsideChainWhy(cr(), AE)).toBe('Only the FM, the Director and the Owner act on this request.');
     expect(outsideChainWhy(cr(), FM)).toBe('');
+    // One signer reads "acts" (owner's screenshot, 2026-10-30: "Only the FM act on this request").
+    expect(outsideChainWhy(cr({ chain: [{ order: 1, role: 'FinanceManager', label: 'Approve (FM)' }] } as Partial<ErpChangeRequest>), AE)).toBe('Only the FM acts on this request.');
+    expect(outsideChainWhy(cr({ chain: [{ order: 1, role: 'BranchManager', label: 'Review (BM)' }, { order: 2, role: 'FinanceManager', label: 'Review (FM)' }, { order: 3, role: 'Director', label: 'Approve (Director)' }] } as Partial<ErpChangeRequest>), AE)).toBe('Only the BM, the FM and the Director act on this request.');
   });
   it('the maker never approves their own — except the Owner', () => {
     const mine = cr({ maker: { userId: 'fm@kb.test', name: 'FM', role: 'FinanceManager' } });

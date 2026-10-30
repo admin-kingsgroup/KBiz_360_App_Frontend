@@ -53,11 +53,23 @@ describe('buildWidgetSnapshot', () => {
     }));
     expect(s).toMatchObject({
       signedIn: true, userName: 'Anubhav Maurya',
-      reminderCount: 8, reminderForMe: 7, approvals: 5,
+      // The widgets' Reminders number = the app's Reminders badge (owner, 2026-10-30), not "for me" alone.
+      reminderCount: 8, reminderForMe: 8, approvals: 5,
       attendanceInAt: inTime.getTime(), attendanceOutAt: null, attendanceOut: null,
     });
     expect(s.attendanceIn).toEqual(expect.any(String));
     expect(s.reminders[0].dueAt).toBe(123);
+    // Not the Owner: no review fields, so the widget keeps Late.
+    expect('review' in s).toBe(false);
+    expect('reviewItems' in s).toBe(false);
+  });
+
+  it('the Owner: Review count and rows ride along (owner, 2026-10-30)', () => {
+    const items = [{ id: 'cr:1', title: 'Payment · Dream Holidays · advance', branch: 'HFBM', amount: '$5,000', at: 1000 }];
+    const s = buildWidgetSnapshot(inputs({ review: { count: 3, items } }));
+    expect(s.review).toBe(3);
+    expect(s.reviewItems).toEqual(items);
+    expect(JSON.parse(JSON.stringify(buildWidgetSnapshot(inputs({ review: null }))))).not.toHaveProperty('review');
   });
 });
 
