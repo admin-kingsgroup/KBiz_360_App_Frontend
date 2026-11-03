@@ -34,10 +34,13 @@ class WidgetDataTest {
     outAt: Long? = null,
     review: Int? = null,
     reviewItems: List<ReviewItem> = emptyList(),
+    unreadChats: Int = 0,
+    unreadGroups: Int = 0,
   ) = Snapshot(
-    signedIn = true, userName = "Anubhav Maurya", unreadChats = 0, unreadMessages = 0, chats = emptyList(),
+    signedIn = true, userName = "Anubhav Maurya", unreadChats = unreadChats, unreadMessages = 0, chats = emptyList(),
     reminderCount = count, reminderForMe = forMe, reminderReview = 0, reminders = reminders, approvals = 0,
     attendanceInAt = inAt, attendanceOutAt = outAt, updatedAt = null, review = review, reviewItems = reviewItems,
+    unreadGroups = unreadGroups,
   )
 
   @Test
@@ -67,6 +70,7 @@ class WidgetDataTest {
     assertEquals(0, s.approvals)
     assertNull(s.reminders.single().dueAt)
     assertEquals(3, Work(s, at(10), ist).todo)
+    assertEquals(0, s.unreadGroups)
     // no review fields: not the Owner, the board stays as it was
     assertNull(s.review)
     assertTrue(s.reviewItems.isEmpty())
@@ -173,57 +177,45 @@ class WidgetDataTest {
     val w = Work(s, at(10), ist)
     assertTrue(w.isOwner)
     assertEquals(5, w.review)
-    assertEquals(3, w.reviewItems.size)
 
     // the Owner with nothing new is still the Owner; a null review is not
     assertTrue(Work(parseSnapshot("""{"signedIn":true,"review":0}""")!!, at(10), ist).isOwner)
     assertFalse(Work(parseSnapshot("""{"signedIn":true,"review":null,"reviewItems":[]}""")!!, at(10), ist).isOwner)
     assertEquals(0, Work(snapshot(), at(10), ist).review)
-
-    // the board never shows more than the app's cap
-    val many = (1..6).map { ReviewItem("k$it", "t", "", "", null) }
-    assertEquals(MAX_REVIEW_ROWS, Work(snapshot(review = 6, reviewItems = many), at(10), ist).reviewItems.size)
   }
 
   @Test
-  fun `a review row's second line and how long ago the Director signed`() {
-    assertEquals("HFBM · ${'$'}5,000", ReviewItem("k", "t", "HFBM", "${'$'}5,000", null).detail)
-    assertEquals("₹1,20,000", ReviewItem("k", "t", "", "₹1,20,000", null).detail)
-    assertEquals("HFBM", ReviewItem("k", "t", "HFBM", "", null).detail)
-    assertEquals("", ReviewItem("k", "t", "", "", null).detail)
+  fun `reads how many unread chats are groups, and the Owner's tile notes`() {
+    assertEquals(3, parseSnapshot("""{"signedIn":true,"unreadChats":8,"unreadGroups":3,"review":0}""")!!.unreadGroups)
+    assertEquals(0, parseSnapshot("""{"signedIn":true,"unreadGroups":null}""")!!.unreadGroups)
 
     val now = at(14)
-    assertEquals("just now", reviewAgo(now, now))
-    assertEquals("just now", reviewAgo(at(13, 1), now))
-    assertEquals("just now", reviewAgo(now + 5 * 60_000L, now)) // a clock a little ahead
-    assertEquals("1h ago", reviewAgo(at(13), now))
-    assertEquals("3h ago", reviewAgo(at(11), now))
-    assertEquals("47h ago", reviewAgo(at(15, dayOffset = -2), now))
-    assertEquals("2d ago", reviewAgo(at(14, dayOffset = -2), now))
-    assertEquals("9d ago", reviewAgo(at(14, dayOffset = -9), now))
+    val lateTwo = listOf(reminder("a", at(9)), reminder("b", at(13)), reminder("c", at(16)))
+    assertEquals("2 late", Work(snapshot(reminders = lateTwo, review = 0), now, ist).lateNote)
+    assertNull(Work(snapshot(reminders = listOf(reminder("c", at(16))), review = 0), now, ist).lateNote)
+
+    assertEquals("3 groups", Work(snapshot(unreadChats = 8, unreadGroups = 3, review = 0), now, ist).groupsNote)
+    assertEquals("1 group", Work(snapshot(unreadChats = 2, unreadGroups = 1, review = 0), now, ist).groupsNote)
+    assertNull(Work(snapshot(unreadChats = 2, unreadGroups = 0, review = 0), now, ist).groupsNote)
+    assertNull(Work(snapshot(unreadChats = 0, unreadGroups = 2, review = 0), now, ist).groupsNote) // stale groups, nothing unread
   }
 
   @Test
-  fun `the Owner's large board budgets reminders and review rows by height`() {
-    // the iOS board: 2 reminders + 3 review rows
-    assertEquals(OwnerLargePlan(2, 3, true), ownerLargePlan(370f, 1f, reminders = 7, reviews = 4))
-    assertEquals(OwnerLargePlan(2, 3, true), ownerLargePlan(400f, 1f, reminders = 7, reviews = 4))
-    // taller: the 4th review row first, then more reminders, up to the caps
-    assertEquals(OwnerLargePlan(2, 4, true), ownerLargePlan(407f, 1f, reminders = 7, reviews = 4))
-    assertEquals(OwnerLargePlan(3, 4, true), ownerLargePlan(444f, 1f, reminders = 7, reviews = 4))
-    assertEquals(OwnerLargePlan(5, 4, true), ownerLargePlan(520f, 1f, reminders = 7, reviews = 4))
-    assertEquals(OwnerLargePlan(MAX_REMINDER_ROWS, MAX_REVIEW_ROWS, true), ownerLargePlan(700f, 1f, reminders = 9, reviews = 9))
-    assertEquals(OwnerLargePlan(1, 2, true), ownerLargePlan(700f, 1f, reminders = 1, reviews = 2))
-    // nothing to review: "Nothing new from the Director" and the reminders get the room back (4, as with no unread chat)
-    assertEquals(OwnerLargePlan(4, 0, true), ownerLargePlan(360f, 1f, reminders = 7, reviews = 0))
-    assertEquals(OwnerLargePlan(5, 0, true), ownerLargePlan(400f, 1f, reminders = 7, reviews = 0))
-    // no reminders: the review rows still fill
-    assertEquals(OwnerLargePlan(0, 4, true), ownerLargePlan(400f, 1f, reminders = 0, reviews = 4))
-    // short: the section shows only once its first row fits
-    assertEquals(OwnerLargePlan(2, 0, false), ownerLargePlan(280f, 1f, reminders = 7, reviews = 4))
-    assertEquals(OwnerLargePlan(2, 1, true), ownerLargePlan(300f, 1f, reminders = 7, reviews = 4))
-    // bigger text, fewer rows
-    val big = ownerLargePlan(420f, 1.3f, reminders = 7, reviews = 4)
-    assertEquals(OwnerLargePlan(2, 2, true), big)
+  fun `the Owner's large board is tiles then reminders, as many as fit`() {
+    // padding 32 + tiles 80 + 10, then 30dp rows with 7dp gaps
+    assertEquals(3, ownerLargeRows(240f, 1f, reminders = 7)) // the smallest large board
+    assertEquals(7, ownerLargeRows(380f, 1f, reminders = 9))
+    assertEquals(7, ownerLargeRows(400f, 1f, reminders = 9))
+    assertEquals(8, ownerLargeRows(420f, 1f, reminders = 9))
+    assertEquals(10, ownerLargeRows(520f, 1f, reminders = 40)) // the tallest layout step
+    assertEquals(MAX_OWNER_REMINDER_ROWS, ownerLargeRows(900f, 1f, reminders = 40))
+    // never more than there are
+    assertEquals(4, ownerLargeRows(520f, 1f, reminders = 4))
+    assertEquals(0, ownerLargeRows(520f, 1f, reminders = 0))
+    // more than the old board's 2 (4 with nothing to review) at the same height
+    assertTrue(ownerLargeRows(370f, 1f, reminders = 7) >= 6)
+    // bigger text, fewer rows; too short for one row, none
+    assertEquals(5, ownerLargeRows(380f, 1.3f, reminders = 9))
+    assertEquals(0, ownerLargeRows(140f, 1f, reminders = 9))
   }
 }

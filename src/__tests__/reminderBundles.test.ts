@@ -1,5 +1,5 @@
 import type { ReminderRecord } from '../data/reminders';
-import { bundleReminders, bundlePeopleLine, canEditBundle, completableMembers, countReminders, myTaskSection, objectIdSeconds, bundleStatus } from '../logic/reminderBundles';
+import { bundleReminders, bundlePeopleLine, canEditBundle, completableMembers, isBundleCreator, countReminders, myTaskSection, objectIdSeconds, bundleStatus } from '../logic/reminderBundles';
 import { buildReminderPdf, pdfFileName, pdfSafe, reminderPdfSpec, sectionOf, wrapText } from '../logic/reminderPdf';
 
 // ObjectId whose first 4 bytes are `secs` (the creation time) followed by a unique tail.
@@ -135,6 +135,21 @@ describe('bundle actions', () => {
     expect(completableMembers(b, 'me').map((m) => m.forId)).toEqual(['me']);
     expect(canEditBundle(b, 'me')).toBe(true);
     expect(canEditBundle(b, 'u-abc')).toBe(false);
+  });
+
+  it('a manager edits a reminder someone wrote for them; staff do not; the people stay the creator\'s', () => {
+    // Owner 2026-11-03: "Warehouse discussion" from Shehzad, for the Owner.
+    const [b] = bundleReminders([rec({ id: oid(T0, 1), byId: 'shehzad', byName: 'Shehzad', forId: 'me' })]);
+    expect(canEditBundle(b, 'me', true)).toBe(true);
+    expect(canEditBundle(b, 'me', false)).toBe(false);
+    expect(canEditBundle(b, 'u-other', true)).toBe(false); // not for them — no pencil, even for a manager
+    expect(isBundleCreator(b, 'me')).toBe(false);
+    expect(isBundleCreator(b, 'shehzad')).toBe(true);
+  });
+
+  it('nothing pending, nothing to edit', () => {
+    const [b] = bundleReminders([rec({ id: oid(T0, 1), byId: 'shehzad', forId: 'me', state: 'review' })]);
+    expect(canEditBundle(b, 'me', true)).toBe(false);
   });
 });
 

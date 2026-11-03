@@ -40,13 +40,13 @@ export default function NewReminder() {
   const meId = useMessagingStore((s) => s.myUserId) ?? '';
   const me = useAccessStore((s) => s.user);
 
-  // Edit mode (creator only — the card only offers it to the creator, and the server enforces it):
+  // Edit mode (the creator, or a manager on a reminder that is for them — owner 2026-11-03; the server enforces it):
   // the same composer opens prefilled. The Reminders screen edits a whole reminder at once:
   // `editMembers` carries every per-assignee copy (JSON: id, forId, forName, groupId) and `editImage`
   // the picture on it. Owner 2026-10-18: the edit shows WHO it is for and the picture, and both can be
   // changed — ticking a person adds their copy, unticking removes it (see logic/reminderEdit).
   // `editIds` (comma list) + `editSelfId`, and `editId` + `editForId`, are the older forms; without
-  // the copies' people the For row stays hidden there.
+  // the copies' people the For row stays hidden there — the form a manager gets on someone else's reminder.
   const { editId, editIds, editText, editDueAt, editForId, editSelfId, editMembers, editImage } = useLocalSearchParams<{ editId?: string; editIds?: string; editText?: string; editDueAt?: string; editForId?: string; editSelfId?: string; editMembers?: string; editImage?: string }>();
   const members = useMemo<EditMember[]>(() => {
     const list = decodeEditMembers(editMembers);
@@ -248,8 +248,9 @@ export default function NewReminder() {
         showToast(serverBehind ? 'Saved — clearing the date, the picture or new people need the latest server update'
           : `Reminder updated${plan?.peopleChanged ? ` for ${forLabel}` : ''}${label ? ` · ${label}` : ''}`);
         router.back();
-      } catch {
-        showToast('Could not update reminder');
+      } catch (e) {
+        // A server from before 2026-11-03 lets only the creator edit (a manager editing a reminder for them gets 403).
+        showToast(e instanceof ApiError && e.status === 403 ? 'Only the creator can edit this one until the server update is live' : 'Could not update reminder');
         savingRef.current = false;
         setSaving(false);
       }

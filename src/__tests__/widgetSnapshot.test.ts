@@ -44,6 +44,20 @@ describe('buildWidgetSnapshot', () => {
     expect(s.unreadChats).toBe(7);
   });
 
+  it('says how many of the unread chats are groups — muted and read ones left out (owner, 2026-11-03)', () => {
+    const s = buildWidgetSnapshot(inputs({
+      conversations: [
+        conv({ id: 'g1', type: 'group', unread: 3 }),
+        conv({ id: 'g2', type: 'group', unread: 1, archived: true }),
+        conv({ id: 'g3', type: 'group', unread: 5, muted: true }),
+        conv({ id: 'g4', type: 'group', unread: 0 }),
+        conv({ id: 'd1', unread: 2 }),
+      ],
+    }));
+    expect(s.unreadChats).toBe(3);
+    expect(s.unreadGroups).toBe(2);
+  });
+
   it('passes reminders, approvals and the punch through, with epoch times for the widget clock', () => {
     const inTime = new Date('2026-10-29T03:42:00.000Z');
     const s = buildWidgetSnapshot(inputs({
