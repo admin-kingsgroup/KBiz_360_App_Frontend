@@ -29,6 +29,15 @@ export function atFocus<T extends { branch?: string }>(rows: T[] | null | undefi
  *  Below GP, Other requests, HR and CFM keep a branch's own rows, the group-wide ones only under ALL; an entry counts in
  *  the branch it is booked in and in the branch its next step is given in (pendingEntries' rule). Month Close is not in
  *  the app any more (owner, 2026-10-29: "in mobile app show Entries, CFM and Request"). */
+/** The entries a branch focus shows: ALL → every one; a branch → those booked there and those whose next step is given
+ *  there (pendingEntries' rule). Used for the Approve list and for the view-only Check list alike. */
+export function entriesAtFocus<E extends { branch?: string; actionBranch?: string }>(entries: E[] | null | undefined, focus: string): E[] {
+  const f = String(focus || '').trim().toUpperCase();
+  const list = Array.isArray(entries) ? entries : [];
+  if (!f || f === 'ALL') return list;
+  return list.filter((e) => String(e.branch || '').toUpperCase() === f || String(e.actionBranch || '').toUpperCase() === f);
+}
+
 export function approvalsAt<L extends { branch?: string }, C extends { branch?: string }, E extends { branch?: string; actionBranch?: string }>(
   lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[]; entries?: E[] }, focus: string,
 ) {
@@ -36,7 +45,7 @@ export function approvalsAt<L extends { branch?: string }, C extends { branch?: 
   const all = !f || f === 'ALL';
   const at = (b?: string) => all || String(b || '').toUpperCase() === f;
   return {
-    entries: (lists.entries ?? []).filter((e) => all || String(e.branch || '').toUpperCase() === f || String(e.actionBranch || '').toUpperCase() === f),
+    entries: entriesAtFocus(lists.entries, f),
     margin: lists.crs.filter((r) => isMarginReview(r) && at(r.branch)),
     payables: atFocus(lists.crs.filter(isPaymentRequest), f),
     requests: lists.crs.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && !isMarginReview(r) && at(r.branch)),

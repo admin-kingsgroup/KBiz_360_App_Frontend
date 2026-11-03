@@ -10,11 +10,11 @@ import {
 } from '../../api/erp';
 import {
   ALL_BRANCHES, STAGE_LABEL, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeave, money, nextErpAction, ownerSignsPast,
-  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, awaitingApproval, branchOptions, pendingEntries, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
+  ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON, awaitingApproval, awaitingCheck, branchOptions, CHECK_IN_ERP_NOTE, isCheckStage, pendingEntries, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail,
   type ErpChain, type LeaveTagTone,
 } from '../../logic/erpApprovals';
 import {
-  RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
+  RECENT_DAYS, allBranchesTotal, approvalsAt, atFocus, branchCounts, entriesAtFocus, chainSteps, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentAfterOf, paymentDetailRows, paymentState, paymentSubject, recentSubject, REAPPLY_REASON, signPastLevels, signedWhy, tabCounts, tabTotals, waitingLabel,
 } from '../../logic/erpPayables';
 import { creditAccount, creditApproveAsk, creditAsked, creditBoxRows, creditButtons, creditContactLines, creditDetailsTitle, creditDoneText, creditMissing, creditOpLabel, creditPartyWord, creditState, creditSteps, isoDay } from '../../logic/erpCredit';
@@ -128,8 +128,12 @@ export function ErpApprovalsView({ me, chain, openTab }: { me: ErpMe; chain: Erp
   }, [tab, review.loaded, reviewFrom]);
 
   // The ERP's split: Below GP reviews sit in Entries; Other leaves out HR's types and payment requests.
-  // Only the entries waiting for Approve (owner, 2026-10-29) — Check is done on the laptop.
-  const allEntries = useMemo(() => awaitingApproval(pendingEntries(pw.rows)), [pw.rows]);
+  // Only the entries waiting for Approve are listed for action (owner, 2026-10-29) — Check is done on the laptop. The ones
+  // waiting for Check are shown too, view-only and off every badge (owner, 2026-11-03).
+  const allPending = useMemo(() => pendingEntries(pw.rows), [pw.rows]);
+  const allEntries = useMemo(() => awaitingApproval(allPending), [allPending]);
+  const checkAll = useMemo(() => awaitingCheck(allPending), [allPending]);
+  const checkHere = useMemo(() => entriesAtFocus(checkAll, branch), [checkAll, branch]);
   const lists = useMemo(() => ({ crs: crs.rows, leave: leave.rows, credit: credit.rows, entries: allEntries }), [crs.rows, leave.rows, credit.rows, allEntries]);
   const here = useMemo(() => approvalsAt(lists, branch), [lists, branch]);
   const { entries, margin, payables, requests, hrRequests, leave: leaveRows, credit: creditRows } = here;
@@ -322,35 +326,23 @@ export function ErpApprovalsView({ me, chain, openTab }: { me: ErpMe; chain: Erp
           <>
             <View style={st.strip}>
               <Text style={st.stripTitle}>WAITING FOR APPROVAL · {branch === ALL_BRANCHES ? 'All branches' : branch}</Text>
-              <Text style={st.stripLine}>{entries.length} entr{entries.length === 1 ? 'y' : 'ies'} to approve — Check is done in the ERP</Text>
+              <Text style={st.stripLine}>{entries.length} entr{entries.length === 1 ? 'y' : 'ies'} to approve — Check is done in the ERP{checkHere.length ? ` · ${checkHere.length} waiting for Check` : ''}</Text>
             </View>
             {pw.refused ? refusedNote('Entries') : errorNote(pw.error)}
             {entries.length === 0 && !pw.refused && !pw.error ? <Text style={st.empty}>No entry is waiting for approval here.</Text> : null}
-            {entries.map((e) => {
-              const mine = actsHere(e, me);
-              return (
-                <Pressable key={e.id} onPress={() => setOpen(e)} style={st.row} accessibilityRole="button" accessibilityLabel={`Open ${e.ref || e.type}`}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={st.rowRef} numberOfLines={1}>{e.ref || e.type}</Text>
-                    <Text style={st.rowTitle} numberOfLines={1}>{erpText(e.title)}</Text>
-                    <Text style={st.rowSub} numberOfLines={1}>{[erpText(e.sub), e.branch, e.days ? `${e.days}d waiting` : ''].filter(Boolean).join(' · ')}</Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 5 }}>
-                    {e.amount != null ? <Text style={st.amount}>{money(e.amount, e.currency)}</Text> : null}
-                    {mine
-                      ? <View style={st.stage}><Text style={st.stageText}>{STAGE_LABEL[e.stage] || 'Approve'}</Text></View>
-                      : <Text style={st.withText}>⏳ With {e.actionBranch}</Text>}
-                  </View>
-                  <ChevronRight size={16} color={colors.coolText3} />
-                </Pressable>
-              );
-            })}
+            {entries.map((e) => <EntryRow key={e.id} e={e} mine={actsHere(e, me)} onOpen={() => setOpen(e)} />)}
 
             {/* BELOW GP LINE — the minimum-GP reviews of posted bookings, as on the ERP's Entries (owner, 2026-10-29). */}
             {margin.length || crs.error ? <Text style={st.section}>BELOW GP LINE ({margin.length})</Text> : null}
             {margin.length ? <Text style={st.note}>Already in the books, reviewed after: the BM gives the reason, then FM → Director → Owner confirm. Not accepted → send it back to the BM.</Text> : null}
             {errorNote(crs.error)}
             {margin.map((r) => <MarginCard key={r._id} r={r} busy={busy === r._id} anyBusy={!!busy} onConfirm={() => confirmMargin(r)} onSendBack={() => sendBackMargin(r)} />)}
+
+            {/* WAITING FOR CHECK — shown, never actioned here (owner, 2026-11-03): the branch Checks it in the ERP, then it
+                moves up to the list above for the Finance Manager. Last, because nothing in it is the viewer's to do. */}
+            {checkHere.length ? <Text style={st.section}>WAITING FOR CHECK IN THE ERP ({checkHere.length})</Text> : null}
+            {checkHere.length ? <Text style={st.note}>{CHECK_IN_ERP_NOTE}</Text> : null}
+            {checkHere.map((e) => <EntryRow key={e.id} e={e} checkOnly onOpen={() => setOpen(e)} />)}
           </>
         ) : null}
 
@@ -775,6 +767,30 @@ const TAG_TONE: Record<LeaveTagTone, { bg: string; fg: string; edge: string }> =
   swap: { bg: '#F1EBFD', fg: colors.swap, edge: '#DCCDF8' },
 };
 
+/* One pending entry in the Entries list. `checkOnly` — a row waiting for the branch's Check in the ERP, shown greyed with
+   where it waits; it still opens (journal, who stamped it) but the sheet offers nothing on it. */
+function EntryRow({ e, mine = false, checkOnly = false, onOpen }: { e: ErpPendingEntry; mine?: boolean; checkOnly?: boolean; onOpen: () => void }) {
+  return (
+    <Pressable onPress={onOpen} style={[st.row, checkOnly && { opacity: 0.72 }]} accessibilityRole="button"
+      accessibilityLabel={checkOnly ? `Open ${e.ref || e.type}, waiting for Check in ${e.actionBranch || e.branch}, view only` : `Open ${e.ref || e.type}`}>
+      <View style={{ flex: 1 }}>
+        <Text style={st.rowRef} numberOfLines={1}>{e.ref || e.type}</Text>
+        <Text style={st.rowTitle} numberOfLines={1}>{erpText(e.title)}</Text>
+        <Text style={st.rowSub} numberOfLines={1}>{[erpText(e.sub), e.branch, e.days ? `${e.days}d waiting` : ''].filter(Boolean).join(' · ')}</Text>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 5 }}>
+        {e.amount != null ? <Text style={st.amount}>{money(e.amount, e.currency)}</Text> : null}
+        {checkOnly
+          ? <Text style={st.withText}>⏳ Check in {e.actionBranch || e.branch}</Text>
+          : mine
+            ? <View style={st.stage}><Text style={st.stageText}>{STAGE_LABEL[e.stage] || 'Approve'}</Text></View>
+            : <Text style={st.withText}>⏳ With {e.actionBranch}</Text>}
+      </View>
+      <ChevronRight size={16} color={colors.coolText3} />
+    </Pressable>
+  );
+}
+
 /* One pending entry opened (owner, 2026-10-29 — Entries is back in the app): the voucher or SO/PO/GP file, its journal,
    who has stamped it, and the ONE step the viewer may give it now — the ERP's own rule (nextErpAction mirrors Books
    core/approvalChain.jsx nextActionFor). Reject asks why. The ERP decides; its refusal is shown here, in the sheet. */
@@ -799,7 +815,10 @@ function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEn
   }, [entry.kind, entry.id]);
 
   const mine = actsHere(entry, me);
-  const action = detail ? nextErpAction(detail, me, chain) : null;
+  // A Check-stage entry is view-only in the app (owner, 2026-11-03) — what the ERP says NOW wins over the list it was
+  // opened from, so one sent back to Check while it was open gets no button either.
+  const checkOnly = isCheckStage((detail && detail.reviewStage) || entry.stage);
+  const action = detail && !checkOnly ? nextErpAction(detail, me, chain) : null;
   const fxBlocked = !!detail?.approvalNeedsFx && action?.action === 'approve';
   const actingBranch = entry.actionBranch || entry.branch;
 
@@ -862,15 +881,16 @@ function EntrySheet({ entry, me, chain, onClose, onDone }: { entry: ErpPendingEn
                     </View>
                   </View>
                 ) : null}
-                {!mine ? <Text style={[st.note, { marginHorizontal: 0 }]}>⏳ Its next step is given in {actingBranch}, outside your branch access.</Text> : null}
-                {mine && me.viewOnly ? <Text style={[st.note, { marginHorizontal: 0 }]}>Your ERP login is view-only.</Text> : null}
+                {checkOnly ? <Text style={[st.note, { marginHorizontal: 0 }]}>⏳ Waiting for Check in {actingBranch}. {CHECK_IN_ERP_NOTE}</Text> : null}
+                {!mine && !checkOnly ? <Text style={[st.note, { marginHorizontal: 0 }]}>⏳ Its next step is given in {actingBranch}, outside your branch access.</Text> : null}
+                {mine && !checkOnly && me.viewOnly ? <Text style={[st.note, { marginHorizontal: 0 }]}>Your ERP login is view-only.</Text> : null}
                 {mine && action && !action.allowed ? <Text style={[st.note, { marginHorizontal: 0 }]}>{action.hint}</Text> : null}
                 {mine && fxBlocked ? <Text style={[st.note, { marginHorizontal: 0 }]}>Approving this needs an exchange rate — approve it in the ERP.</Text> : null}
                 {actionError ? <View style={[st.error, { marginHorizontal: 0 }]}><Text style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}>{actionError}</Text></View> : null}
               </>
             ) : null}
           </ScrollView>
-          {detail && mine && !me.viewOnly ? (
+          {detail && mine && !me.viewOnly && !checkOnly ? (
             <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 8 }}>
               <View style={{ flex: 1 }}><ActionButton label="Reject" tone="danger" disabled={busy} onPress={() => setRejecting(true)} /></View>
               {action ? <View style={{ flex: 2 }}><ActionButton label={action.label} busy={busy} disabled={busy || !action.allowed || fxBlocked} onPress={doAction} /></View> : null}
