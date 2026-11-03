@@ -101,9 +101,16 @@ export function bundlePeopleLine(b: ReminderBundle): string {
 export const completableMembers = (b: ReminderBundle, meId: string): ReminderRecord[] =>
   b.members.filter((m) => m.forId === meId && m.state === 'pending');
 
-/** Only the creator may edit (server rule); editing a bundle edits every copy. */
-export const canEditBundle = (b: ReminderBundle, meId: string): boolean =>
-  !!meId && b.byId === meId && b.members.some((m) => m.state === 'pending');
+/** Who may edit (server rule): the creator, or a manager (super admin / company manager) — the people
+ *  who may delete it. The app offers a manager the pencil only on reminders that are FOR them (owner
+ *  2026-11-03: "Warehouse discussion" from Shehzad could not be edited to add to it). Editing a bundle
+ *  edits every copy; only the creator changes who it is for (see isBundleCreator). */
+export const canEditBundle = (b: ReminderBundle, meId: string, isManager = false): boolean =>
+  !!meId && b.members.some((m) => m.state === 'pending')
+  && (b.byId === meId || (isManager && b.members.some((m) => m.forId === meId)));
+
+/** The creator's edit also shows For (add / remove people); anyone else edits the words, date and picture. */
+export const isBundleCreator = (b: ReminderBundle, meId: string): boolean => !!meId && b.byId === meId;
 
 /** How many REMINDERS a list of copies holds: each reminder once, however many people it is for.
  *  Owner 2026-10-18: User Wise and Branch Wise count like All — "Abc → Xyz, Efg" is 1, not 2.

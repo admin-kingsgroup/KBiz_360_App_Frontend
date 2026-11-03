@@ -15,7 +15,7 @@ import { ReminderScreenshot } from './ReminderScreenshot';
 import { ReminderText } from './ReminderText';
 import { reminderMentionNames } from '../../logic/reminderMentions';
 import { buildBranchRefMap, canUseAllEndpoint, deduplicateReminders, groupByBranch, groupByUser, isOverdueReminder, isTodayReminder, resolveUserBranches, sortReminders } from '../../logic/reminderDashboard';
-import { bundlePeopleLine, bundleReminders, canEditBundle, completableMembers, countReminders, myTaskSection, type ReminderBundle } from '../../logic/reminderBundles';
+import { bundlePeopleLine, bundleReminders, canEditBundle, completableMembers, countReminders, isBundleCreator, myTaskSection, type ReminderBundle } from '../../logic/reminderBundles';
 import { reminderPdfSpec, sectionOf, type PdfSection } from '../../logic/reminderPdf';
 import { encodeEditMembers } from '../../logic/reminderEdit';
 import { dueText } from '../../logic/reminderTime';
@@ -42,10 +42,10 @@ const MY_SECTIONS: Array<{ key: 'self' | 'forme' | 'team'; title: string; empty:
 
 type Actions = { onComplete: (b: ReminderBundle) => void; onDelete: (b: ReminderBundle) => void; onEdit: (b: ReminderBundle) => void };
 
-function BundleLine({ b, meId, branchLabel, mentionNames, actions }: { b: ReminderBundle; meId: string; branchLabel?: string; mentionNames: string[]; actions: Actions }) {
+function BundleLine({ b, meId, isManager, branchLabel, mentionNames, actions }: { b: ReminderBundle; meId: string; isManager: boolean; branchLabel?: string; mentionNames: string[]; actions: Actions }) {
   const names = useMemo(() => [...new Set(b.members.flatMap((m) => reminderMentionNames(m, mentionNames)))], [b, mentionNames]);
   const canComplete = completableMembers(b, meId).length > 0;
-  const canEdit = canEditBundle(b, meId);
+  const canEdit = canEditBundle(b, meId, isManager);
   const title = b.text || 'Untitled reminder';
   return (
     <View style={styles.line}>
@@ -117,6 +117,7 @@ export default function ReminderDashboard() {
   const showToast = useUiStore((s) => s.showToast);
   const insets = useSafeAreaInsets();
   const meId = authUser?.id ?? ''; const isSuper = !!access?.isSuper || authUser?.role === 'SUPER_ADMIN';
+  const isManager = isSuper || !!access?.canManage;
   const [tab, setTab] = useState<Tab>('myself'); const [records, setRecords] = useState<ReminderRecord[]>([]); const [users, setUsers] = useState<DirectoryUser[]>([]); const [branches, setBranches] = useState<DirectoryBranch[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState('');
   const [exporting, setExporting] = useState<string | null>(null);
   const load = useCallback(async () => { setError(''); try { const base = await Promise.all(['forme', 'iset', 'review', 'archive'].map((tabName) => listReminders(tabName as 'forme' | 'iset' | 'review' | 'archive'))); let all = base.flatMap((r) => r.visible); if (canUseAllEndpoint(isSuper)) { try { all = [...all, ...(await listReminders('all')).visible]; } catch (e) { if (!(e instanceof ApiError) || e.status !== 403) throw e; } } const [directoryUsers, directoryBranches] = await Promise.all([listUsers(), listBranches()]); setRecords(deduplicateReminders(all)); setUsers(directoryUsers); setBranches(directoryBranches); } catch (e) { if (e instanceof ApiError && e.status === 403) setError('Some dashboard data is not available for your role.'); else setError('Could not load reminders. Pull down to retry.'); } finally { setLoading(false); setRefreshing(false); } }, [isSuper]);
@@ -179,9 +180,12 @@ export default function ReminderDashboard() {
   };
   // Edit opens the composer prefilled — text, date, picture and the people it is for — and saving
   // updates every copy (one per assignee), adding or removing copies when people change.
+  // A manager editing someone else's reminder (owner 2026-11-03) gets no For row: without
+  // `editMembers` the composer edits the words, date and picture of every copy and leaves the people.
   const edit = (b: ReminderBundle) => {
     const selfCopy = b.members.find((m) => m.forId === meId);
-    router.push({ pathname: '/reminder/new', params: { editIds: b.members.map((m) => m.id).join(','), editMembers: encodeEditMembers(b.members), editText: b.text, editDueAt: b.dueAt ?? '', editImage: b.image ?? '', editSelfId: selfCopy?.id ?? '' } });
+    const people = isBundleCreator(b, meId) ? { editMembers: encodeEditMembers(b.members) } : {};
+    router.push({ pathname: '/reminder/new', params: { editIds: b.members.map((m) => m.id).join(','), ...people, editText: b.text, editDueAt: b.dueAt ?? '', editImage: b.image ?? '', editSelfId: selfCopy?.id ?? '' } });
   };
   const actions: Actions = { onComplete: (b) => void complete(b), onDelete: remove, onEdit: edit };
 
@@ -194,7 +198,7 @@ export default function ReminderDashboard() {
   };
   const busy = (title: string) => exporting === title;
 
-  const lines = (list: ReminderBundle[], prefix = '') => list.map((b) => <BundleLine key={`${prefix}${b.key}`} b={b} meId={meId} branchLabel={branchLabelFor(b)} mentionNames={directoryNames} actions={actions} />);
+  const lines = (list: ReminderBundle[], prefix = '') => list.map((b) => <BundleLine key={`${prefix}${b.key}`} b={b} meId={meId} isManager={isManager} branchLabel={branchLabelFor(b)} mentionNames={directoryNames} actions={actions} />);
   const empty = (message: string) => <Text style={styles.empty}>{message}</Text>;
   const branchTitle = (g: { branchName: string; branchCode: string }) => `${g.branchName}${g.branchCode && g.branchCode.toUpperCase() !== g.branchName.toUpperCase() ? ` · ${g.branchCode}` : ''}`;
   const userSections = (): PdfSection[] => userGroups.map((g) => sectionOf(g.userName, g.bundles));
