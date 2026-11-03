@@ -1,12 +1,14 @@
 import { Modal, Pressable, View, Text, StyleSheet, Alert } from 'react-native';
-import { BellOff, Bell, Pin, PinOff, Archive, ArchiveRestore, CheckCheck, Trash2 } from 'lucide-react-native';
+import { BellOff, Bell, Pin, PinOff, Archive, ArchiveRestore, CheckCheck, Trash2, MessageSquareX } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { useMessagingStore } from '../../store/messagingStore';
+import { useUiStore } from '../../store/uiStore';
 import type { ChatConversation } from '../../api/chat';
 
 // Long-press a chat row → the WhatsApp action sheet: mute (for a while or always), pin to the top,
-// archive, mark read, clear stored messages. Everything here is personal to the signed-in user —
-// muting a group mutes it for you, not for the group.
+// archive, mark read, clear stored messages, delete a one-to-one chat. Everything here is personal to
+// the signed-in user — muting a group mutes it for you, not for the group; deleting a chat deletes it
+// for you, not for the other person. (Groups: Leave / Delete group live in Group info.)
 
 const MUTE_CHOICES: { label: string; hours: number | null }[] = [
   { label: '8 hours', hours: 8 },
@@ -40,11 +42,24 @@ export function ChatActionsSheet({ conv, onClose }: { conv: ChatConversation | n
     ]);
   };
 
+  const deleteChat = (): void => {
+    Alert.alert(`Delete chat with ${conv.name}?`, `The chat and its messages go from your chats on every device. ${conv.name} keeps their copy.`, [
+      { text: 'Cancel', style: 'cancel', onPress: onClose },
+      {
+        text: 'Delete chat', style: 'destructive',
+        onPress: () => act(() => void store().deleteChat(conv.id).then((ok) => {
+          useUiStore.getState().showToast(ok ? 'Chat deleted' : 'Could not delete the chat — check your connection');
+        })),
+      },
+    ]);
+  };
+
   const rows = [
     { key: 'mute', label: muted ? 'Unmute notifications' : 'Mute notifications', Icon: muted ? Bell : BellOff, onPress: toggleMute },
     { key: 'pin', label: pinned ? 'Unpin chat' : 'Pin chat', Icon: pinned ? PinOff : Pin, onPress: () => act(() => void store().setConversationSettings(conv.id, { pinned: !pinned })) },
     ...(conv.unread ? [{ key: 'read', label: 'Mark as read', Icon: CheckCheck, onPress: () => act(() => void store().markRead(conv.id)) }] : []),
     { key: 'archive', label: conv.archived ? 'Unarchive chat' : 'Archive chat', Icon: conv.archived ? ArchiveRestore : Archive, onPress: () => act(() => void store().setConversationSettings(conv.id, { archived: !conv.archived })) },
+    ...(conv.type === 'direct' ? [{ key: 'delete', label: 'Delete chat', Icon: MessageSquareX, danger: true, onPress: deleteChat }] : []),
     { key: 'clear', label: 'Clear from this phone', Icon: Trash2, danger: true, onPress: clearStored },
   ];
 
