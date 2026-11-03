@@ -1,5 +1,6 @@
 import type { ErpChangeRequest } from '../api/erp';
 import {
+  entriesAtFocus,
   allBranchesTotal, approvalsAt, atFocus, branchCounts, chainRoleOf, chainSteps, isHrRequest, isPaymentRequest, isStuck, lastSigner, mayReapply, outsideChainWhy, ownRequestWhy,
   paymentDetailRows, paymentState, paymentSubject, recentSubject, signPastLevels, signedWhy, tabCounts, tabTotals, waitingLabel,
 } from '../logic/erpPayables';
@@ -181,5 +182,19 @@ describe('branch chip counts (owner, 2026-10-10; Entries · CFM · Requests 2026
     expect(allBranchesTotal(lists)).toBe(14);
     expect(allBranchesTotal(lists)).toBe(branchCounts(lists, ['ALL']).ALL);
     expect(allBranchesTotal({ crs: [], leave: [], credit: [] })).toBe(0);
+  });
+});
+
+describe('entriesAtFocus — the branch split the Approve and the view-only Check lists share', () => {
+  const rows = [
+    { id: 'a', branch: 'AMD', actionBranch: 'AMD' },
+    { id: 'b', branch: 'AMD', actionBranch: 'MHUB' },
+    { id: 'c', branch: 'BOM', actionBranch: 'BOM' },
+  ];
+  it('ALL keeps every entry; a branch keeps what is booked there or acted there', () => {
+    expect(entriesAtFocus(rows, 'ALL').map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(entriesAtFocus(rows, 'amd').map((e) => e.id)).toEqual(['a', 'b']);
+    expect(entriesAtFocus(rows, 'MHUB').map((e) => e.id)).toEqual(['b']);
+    expect(entriesAtFocus(null, 'BOM')).toEqual([]);
   });
 });
