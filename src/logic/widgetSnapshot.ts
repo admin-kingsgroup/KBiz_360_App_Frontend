@@ -24,6 +24,8 @@ export interface WidgetSnapshot {
   userName: string;
   unreadChats: number;
   unreadMessages: number;
+  /** How many of the unread chats are groups — the Owner's Chats tile reads "3 groups" (owner, 2026-11-03). */
+  unreadGroups: number;
   chats: WidgetChat[];
   reminderCount: number;
   reminderForMe: number;
@@ -89,6 +91,7 @@ export function buildWidgetSnapshot(i: WidgetInputs): WidgetSnapshot {
     userName: i.userName,
     unreadChats: unread.length,
     unreadMessages: unread.reduce((n, c) => n + (c.unread || 0), 0),
+    unreadGroups: unread.filter((c) => c.type === 'group').length,
     chats,
     reminderCount: i.reminders.count,
     // The widgets read reminderForMe first. It carries the Reminders tab badge's number (owner, 2026-10-30: "the reminder

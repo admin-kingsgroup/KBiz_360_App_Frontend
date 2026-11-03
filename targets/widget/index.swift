@@ -115,6 +115,8 @@ struct Snapshot: Codable {
     // The Owner's Review (2026-10-30). Present only for the Owner; absent = everyone else (Late, as before).
     var review: Int?
     var reviewItems: [ReviewItem]
+    // How many of the unread chats are groups (2026-11-03) — the Owner's Chats tile says "3 groups".
+    var unreadGroups: Int?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -134,6 +136,7 @@ struct Snapshot: Codable {
         attendanceOutAt = try c.decodeIfPresent(Double.self, forKey: .attendanceOutAt)
         review = try c.decodeIfPresent(Int.self, forKey: .review)
         reviewItems = try c.decodeIfPresent([ReviewItem].self, forKey: .reviewItems) ?? []
+        unreadGroups = try c.decodeIfPresent(Int.self, forKey: .unreadGroups)
     }
 }
 
@@ -452,42 +455,6 @@ struct ReminderRow: View {
     }
 }
 
-/// What the Director approved, for the Owner: the title, then branch · amount, and how long ago he signed.
-struct ReviewRow: View {
-    let r: ReviewItem
-    let now: Date
-    var body: some View {
-        HStack(spacing: 8) {
-            Capsule().fill(Tone.warn.solid).frame(width: 3.5, height: 26)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(r.title.isEmpty ? "Approved by the Director" : r.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(.kMain)
-                    .lineLimit(1)
-                    .privacySensitive()
-                Text(r.line)
-                    .font(.system(size: 10))
-                    .foregroundColor(.kMute)
-                    .lineLimit(1)
-                    .privacySensitive()
-            }
-            Spacer(minLength: 6)
-            if let at = msDate(r.at) {
-                Text(reviewAgo(at, now: now))
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundColor(Tone.warn.text)
-                    .lineLimit(1)
-            }
-        }
-    }
-}
-
-/// "just now" · "3h ago" · "2d ago" — the same words as the app's Review list.
-func reviewAgo(_ d: Date, now: Date) -> String {
-    let h = max(0, Int(now.timeIntervalSince(d) / 3600))
-    return h < 1 ? "just now" : h < 48 ? "\(h)h ago" : "\(h / 24)d ago"
-}
-
 struct Avatar: View {
     let name: String
     let group: Bool
@@ -712,19 +679,31 @@ struct StatTile: View {
     let label: String
     let url: URL
     var alert = false
+    /// A short coloured line under the label — the Owner's "6 late" (red) and "3 groups" (2026-11-03).
+    /// "" keeps the line's room empty, so every number in a row of tiles sits at the same height; nil = no line.
+    var note: String? = nil
+    var noteTone: Tone = .danger
+    var height: CGFloat = 66
     var body: some View {
         Link(destination: url) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundColor(tone.solid)
+                    .frame(height: 12)
                 Spacer(minLength: 0)
                 Text("\(value)")
                     .font(.system(size: 21, weight: .bold, design: .rounded))
                     .foregroundColor(alert && value > 0 ? tone.solid : .kMain)
+                // Fixed line heights: a long label shrinks to fit, and must not lift its number above the others.
                 Text(label).font(.system(size: 9.5, weight: .semibold)).foregroundColor(.kMute).lineLimit(1).minimumScaleFactor(0.8)
+                    .frame(height: 12, alignment: .leading)
+                if let note {
+                    Text(note.isEmpty ? " " : note).font(.system(size: 9.5, weight: .bold)).foregroundColor(noteTone.solid).lineLimit(1).minimumScaleFactor(0.75)
+                        .frame(height: 12, alignment: .leading)
+                }
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 66)
+            .frame(height: height)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.kTile))
         }
     }
@@ -808,14 +787,59 @@ struct WorkBoardMedium: View {
     }
 }
 
+/// The Owner's large board (owner, 2026-11-03 voice note on his widget): no greeting / date / punch row — the
+/// four tiles sit at the top. Reminders carries its late count in red, Review stands where Late was, Chats says
+/// how many chats wait and in how many groups. No chats or review list: every row under the tiles is a reminder,
+/// as many as the widget has room for.
+struct OwnerBoardLarge: View {
+    let w: Work
+    private let rowHeight: CGFloat = 28
+    private let rowGap: CGFloat = 6
+
+    private var groupsNote: String {
+        guard let g = w.s.unreadGroups, g > 0, w.s.unreadChats > 0 else { return "" }
+        return g == 1 ? "1 group" : "\(g) groups"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                StatTile(symbol: "bell.fill", tone: .purple, value: w.todo, label: "Reminders", url: remindersURL,
+                         note: w.late > 0 ? "\(w.late) late" : "", noteTone: .danger, height: 78)
+                StatTile(symbol: "eye.fill", tone: .warn, value: w.review, label: "Review", url: reviewURL, alert: true, note: "", height: 78)
+                StatTile(symbol: "checkmark.seal.fill", tone: .primary, value: w.s.approvals, label: "Approvals", url: approvalsURL, note: "", height: 78)
+                StatTile(symbol: "bubble.left.fill", tone: .green, value: w.s.unreadChats, label: "Chats", url: homeURL,
+                         note: groupsNote, noteTone: .green, height: 78)
+            }
+            if w.items.isEmpty {
+                Text("No reminders waiting for you").font(.system(size: 11.5)).foregroundColor(.kMute)
+                Spacer(minLength: 0)
+            } else {
+                GeometryReader { geo in
+                    let fit = max(1, Int((geo.size.height + rowGap) / (rowHeight + rowGap)))
+                    VStack(alignment: .leading, spacing: rowGap) {
+                        ForEach(w.items.prefix(fit)) { r in
+                            Link(destination: remindersURL) { ReminderRow(r: r, now: w.now).frame(height: rowHeight) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct WorkBoardLarge: View {
     let w: Work
     var body: some View {
-        // The Owner: no chats section — "To review" takes its place (owner, 2026-10-30); the Chats tile keeps the count.
-        let chats = w.isOwner ? [] : Array(w.s.chats.prefix(2))
-        let reviews = Array(w.s.reviewItems.prefix(3))
-        // Nothing new to review → the reminders take the room back (as with no unread chats).
-        let reminderLimit = w.isOwner ? (reviews.isEmpty ? 4 : 2) : (chats.isEmpty ? 4 : 3)
+        if w.isOwner { OwnerBoardLarge(w: w) } else { StaffBoardLarge(w: w) }
+    }
+}
+
+struct StaffBoardLarge: View {
+    let w: Work
+    var body: some View {
+        let chats = Array(w.s.chats.prefix(2))
+        let reminderLimit = chats.isEmpty ? 4 : 3
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 BrandMark(size: 28)
@@ -826,15 +850,11 @@ struct WorkBoardLarge: View {
                         .foregroundColor(.kMute)
                 }
                 Spacer(minLength: 4)
-                if !w.isOwner { PunchPill(w: w) }
+                PunchPill(w: w)
             }
             HStack(spacing: 6) {
                 StatTile(symbol: "bell.fill", tone: .purple, value: w.todo, label: "Reminders", url: remindersURL)
-                if w.isOwner {
-                    StatTile(symbol: "eye.fill", tone: .warn, value: w.review, label: "Review", url: reviewURL, alert: true)
-                } else {
-                    StatTile(symbol: "exclamationmark.circle.fill", tone: .danger, value: w.late, label: "Late", url: remindersURL, alert: true)
-                }
+                StatTile(symbol: "exclamationmark.circle.fill", tone: .danger, value: w.late, label: "Late", url: remindersURL, alert: true)
                 StatTile(symbol: "checkmark.seal.fill", tone: .primary, value: w.s.approvals, label: "Approvals", url: approvalsURL)
                 StatTile(symbol: "bubble.left.fill", tone: .green, value: w.s.unreadChats, label: "Chats", url: homeURL)
             }
@@ -848,25 +868,12 @@ struct WorkBoardLarge: View {
                     }
                 }
             }
-            if w.isOwner {
-                SectionLabel(title: "To review", trailing: w.review > 0 ? "\(w.review) new" : "")
-                if reviews.isEmpty {
-                    Text("Nothing new from the Director").font(.system(size: 11.5)).foregroundColor(.kMute)
-                } else {
-                    VStack(alignment: .leading, spacing: 7) {
-                        ForEach(reviews) { r in
-                            Link(destination: reviewURL) { ReviewRow(r: r, now: w.now) }
-                        }
-                    }
-                }
+            SectionLabel(title: "Unread chats", trailing: w.s.unreadMessages > 0 ? "\(w.s.unreadMessages) \(w.s.unreadMessages == 1 ? "message" : "messages")" : "")
+            if chats.isEmpty {
+                Text("All chats read").font(.system(size: 11.5)).foregroundColor(.kMute)
             } else {
-                SectionLabel(title: "Unread chats", trailing: w.s.unreadMessages > 0 ? "\(w.s.unreadMessages) \(w.s.unreadMessages == 1 ? "message" : "messages")" : "")
-                if chats.isEmpty {
-                    Text("All chats read").font(.system(size: 11.5)).foregroundColor(.kMute)
-                } else {
-                    VStack(spacing: 7) {
-                        ForEach(chats) { c in ChatRow(c: c, now: w.now) }
-                    }
+                VStack(spacing: 7) {
+                    ForEach(chats) { c in ChatRow(c: c, now: w.now) }
                 }
             }
             Spacer(minLength: 0)
