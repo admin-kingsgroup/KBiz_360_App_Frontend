@@ -55,6 +55,8 @@ export const useOwnerReviewStore = create<OwnerReviewState>((set, get) => ({
       const access = await loadErpAccess(userId);
       const owner = access.state === 'ready' && isOwnerRole(access.me.role);
       if (!owner) { set({ owner: false, rows: [], loaded: true, error: '' }); return; }
+      // The Owner is the Owner even when the list below fails — his widget keeps its own layout (2026-11-03).
+      if (!get().owner) set({ owner: true });
       const rows = await erpApi.directorDecided(REVIEW_DAYS);
       set({ owner: true, rows, loaded: true, error: '' });
     } catch (e) {
