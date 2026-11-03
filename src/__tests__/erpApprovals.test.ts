@@ -1,5 +1,5 @@
 import type { ErpPendingWork } from '../api/erp';
-import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, awaitingApproval, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON } from '../logic/erpApprovals';
+import { ALL_BRANCHES, actsHere, erpText, leaveChainSteps, leaveKindLabel, leaveTags, leaveTurnNote, mayApproveLeaveNow, branchOptions, maySelfApprove, money, nextErpAction, pendingEntries, awaitingApproval, awaitingCheck, isCheckStage, CHECK_IN_ERP_NOTE, stageCounts, swapAwaitingPartner, swapCardLines, swapHoldNote, toEntryDetail, type ErpChain, mayApproveLeave, ownerSignsPast, ownerApproveText, isOwnerRole, OWNER_ALL_LEVELS_REASON } from '../logic/erpApprovals';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, ref: `REF/${id}`, title: 'Party', stage: 'check', kind: 'voucher', type: 'PMT', branch: 'BOM', actionBranch: 'BOM', days: 1, ...over });
 const pw: ErpPendingWork = {
@@ -56,13 +56,39 @@ describe('awaitingApproval — the app lists only entries waiting for Approve', 
   });
 });
 
+// Owner, 2026-11-03: "also show the Check entries in the app" — view-only, beside (not inside) the Approve list.
+describe('awaitingCheck — the Check entries the app shows view-only', () => {
+  it('keeps only Check; Approve, Verify, sign-offs and stageless rows are not in it', () => {
+    const rows = [entry('k'), entry('v', { stage: 'verify' }), entry('a1', { stage: 'approve' }), entry('o1', { stage: 'owner' }), entry('n1', { stage: '' })];
+    expect(awaitingCheck(rows).map((e) => e.id)).toEqual(['k']);
+  });
+  it('on the Pending Work feed: the one at Check, and it never overlaps the Approve list', () => {
+    const all = pendingEntries(pw);
+    expect(awaitingCheck(all).map((e) => e.id)).toEqual(['a']);
+    const approve = new Set(awaitingApproval(all).map((e) => e.id));
+    expect(awaitingCheck(all).some((e) => approve.has(e.id))).toBe(false);
+  });
+  it('isCheckStage', () => {
+    expect(isCheckStage('check')).toBe(true);
+    expect(isCheckStage('approve')).toBe(false);
+    expect(isCheckStage(undefined)).toBe(false);
+  });
+});
+
 describe('nextErpAction — mirrors the ERP button rule', () => {
   const chain: ErpChain = { verify: ['sughra@travkings.com'], approve: ['faiz@travkings.com'], director: [], owner: [] };
   const me = (email: string, role = 'Accounts Executive', name = '') => ({ email, role, name, id: 'u1' });
   const d = (over: Record<string, unknown>) => toEntryDetail('voucher', { id: 'v1', vno: 'PMT/BOM/26/0001', type: 'PMT', branch: 'BOM', status: 'pending', ...over });
 
-  it('Check is open to anyone in the branch', () => {
-    expect(nextErpAction(d({ reviewStage: 'check' }), me('clerk@travkings.com', 'Branch Accountant'), chain)).toMatchObject({ action: 'check', allowed: true });
+  // Owner, 2026-11-03: "don't give the option to Check from the app" — not to the branch, the FM or a Super Admin.
+  it('Check is never offered in the app, to anyone', () => {
+    for (const who of [me('clerk@travkings.com', 'Branch Accountant'), me('faiz@travkings.com', 'Finance Manager'), me('boss@travkings.com', 'Super Admin')]) {
+      expect(nextErpAction(d({ reviewStage: 'check' }), who, chain)).toMatchObject({ action: 'check', allowed: false, hint: CHECK_IN_ERP_NOTE });
+    }
+  });
+  it('once the ERP has Checked it (Verify off → Approve), the FM gets Approve & Post', () => {
+    expect(nextErpAction(d({ reviewStage: 'approve', checkedBy: 'clerk@travkings.com', submittedBy: 'crm:lamiya@travkings.com' }), me('faiz@travkings.com', 'Finance Manager'), chain))
+      .toMatchObject({ action: 'approve', label: 'Approve & Post', allowed: true });
   });
   it('Verify: the verify or approve list, or a Super Admin', () => {
     expect(nextErpAction(d({ reviewStage: 'verify' }), me('sughra@travkings.com'), chain).allowed).toBe(true);
