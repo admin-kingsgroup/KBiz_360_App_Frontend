@@ -18,8 +18,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// Draws the Work Board as RemoteViews. The layout follows WorkBoardMedium / WorkBoardLarge in
-// targets/widget/index.swift: the same tiles, words, colours and tap targets.
+// Draws the Work Board as RemoteViews. The layout follows WorkBoardMedium / StaffBoardLarge /
+// OwnerBoardLarge in targets/widget/index.swift: the same tiles, words, colours and tap targets.
 
 internal object Links {
   const val HOME = "kbiz360://"
@@ -195,21 +195,21 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
 
   // ---- Large --------------------------------------------------------------------------------
 
-  fun large(heightDp: Float): RemoteViews {
+  /** The Owner has his own large board (2026-11-03); everyone else's is as before. */
+  fun large(heightDp: Float): RemoteViews = if (w.isOwner) ownerLarge(heightDp) else staffLarge(heightDp)
+
+  private fun staffLarge(heightDp: Float): RemoteViews {
     val v = RemoteViews(pkg, R.layout.kbiz_wb_large)
     v.setTextViewText(R.id.kbiz_wb_greeting, w.greetingLine)
     v.setTextViewText(R.id.kbiz_wb_date, formats.longDate(w.now))
     v.setOnClickPendingIntent(android.R.id.background, Links.open(ctx, Links.HOME))
-    val owner = w.isOwner
     punchPill(v)
-    // The Owner has no punch pill (excused from attendance, as on iOS). Set both ways: the launcher reapplies.
-    v.setViewVisibility(R.id.kbiz_wb_punch, if (owner) View.GONE else View.VISIBLE)
+    v.setViewVisibility(R.id.kbiz_wb_punch, View.VISIBLE)
 
     v.removeAllViews(R.id.kbiz_wb_stats)
     val stats = listOf(
       statTile(R.drawable.kbiz_wb_ic_bell, Tone.PURPLE, w.todo, "Reminders", Links.REMINDERS),
-      if (owner) statTile(R.drawable.kbiz_wb_ic_eye, Tone.WARN, w.review, "Review", Links.REVIEW, alert = true)
-      else statTile(R.drawable.kbiz_wb_ic_error, Tone.DANGER, w.late, "Late", Links.REMINDERS, alert = true),
+      statTile(R.drawable.kbiz_wb_ic_error, Tone.DANGER, w.late, "Late", Links.REMINDERS, alert = true),
       statTile(R.drawable.kbiz_wb_ic_seal, Tone.PRIMARY, w.s.approvals, "Approvals", Links.APPROVALS),
       statTile(R.drawable.kbiz_wb_ic_chat, Tone.GREEN, w.s.unreadChats, "Chats", Links.HOME),
     )
@@ -218,28 +218,12 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
       v.addView(R.id.kbiz_wb_stats, tile)
     }
 
-    // The Owner: "To review" in place of the unread chats (the Chats tile keeps the count).
-    val reviews = w.reviewItems
-    val ownerPlan = if (owner) ownerLargePlan(heightDp, fontScale, w.items.size, reviews.size) else null
     val chats = w.s.chats.take(MAX_CHAT_ROWS)
     val plan = largePlan(heightDp, fontScale, w.items.size, chats.size)
 
     v.setTextViewText(R.id.kbiz_wb_next_count, if (w.todo > 0) "${w.todo} open" else "")
-    v.removeAllViews(R.id.kbiz_wb_reminders)
-    v.setViewVisibility(R.id.kbiz_wb_reminders_empty, if (w.items.isEmpty()) View.VISIBLE else View.GONE)
-    if (w.items.isNotEmpty()) {
-      w.items.take(ownerPlan?.reminderRows ?: plan.reminderRows).forEachIndexed { i, r ->
-        if (i > 0) v.addView(R.id.kbiz_wb_reminders, RemoteViews(pkg, R.layout.kbiz_wb_gap_v))
-        v.addView(R.id.kbiz_wb_reminders, reminderRow(r))
-      }
-    }
+    reminderRows(v, plan.reminderRows)
 
-    if (ownerPlan != null) {
-      v.setViewVisibility(R.id.kbiz_wb_chats_section, View.GONE)
-      reviewSection(v, reviews, ownerPlan)
-      return v
-    }
-    v.setViewVisibility(R.id.kbiz_wb_review_section, View.GONE)
     v.setViewVisibility(R.id.kbiz_wb_chats_section, if (plan.showChats) View.VISIBLE else View.GONE)
     if (!plan.showChats) return v
     val messages = w.s.unreadMessages
@@ -256,17 +240,37 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
   }
 
   /**
-   * The Owner's "To review": what the Director approved since he last opened Review, newest first.
-   * Like the pill, every state sets every part (the launcher reapplies onto the views it shows).
+   * The Owner's large board (owner, 2026-11-03): no greeting / date / punch row — the four tiles at the
+   * top. Reminders carries its late count in red, Review stands where Late was, Chats says in how many
+   * groups chats wait. No chats or review list: every row under the tiles is a reminder.
    */
-  private fun reviewSection(v: RemoteViews, reviews: List<ReviewItem>, plan: OwnerLargePlan) {
-    v.setViewVisibility(R.id.kbiz_wb_review_section, if (plan.showReview) View.VISIBLE else View.GONE)
-    v.setTextViewText(R.id.kbiz_wb_review_count, if (w.review > 0) "${w.review} new" else "")
-    v.removeAllViews(R.id.kbiz_wb_reviews)
-    v.setViewVisibility(R.id.kbiz_wb_reviews_empty, if (reviews.isEmpty()) View.VISIBLE else View.GONE)
-    reviews.take(plan.reviewRows).forEachIndexed { i, r ->
-      if (i > 0) v.addView(R.id.kbiz_wb_reviews, RemoteViews(pkg, R.layout.kbiz_wb_gap_v))
-      v.addView(R.id.kbiz_wb_reviews, reviewRow(r))
+  private fun ownerLarge(heightDp: Float): RemoteViews {
+    val v = RemoteViews(pkg, R.layout.kbiz_wb_large_owner)
+    v.setOnClickPendingIntent(android.R.id.background, Links.open(ctx, Links.HOME))
+
+    v.removeAllViews(R.id.kbiz_wb_stats)
+    val stats = listOf(
+      statTile(R.drawable.kbiz_wb_ic_bell, Tone.PURPLE, w.todo, "Reminders", Links.REMINDERS, note = w.lateNote, noteTone = Tone.DANGER, noteRow = true),
+      statTile(R.drawable.kbiz_wb_ic_eye, Tone.WARN, w.review, "Review", Links.REVIEW, alert = true, noteRow = true),
+      statTile(R.drawable.kbiz_wb_ic_seal, Tone.PRIMARY, w.s.approvals, "Approvals", Links.APPROVALS, noteRow = true),
+      statTile(R.drawable.kbiz_wb_ic_chat, Tone.GREEN, w.s.unreadChats, "Chats", Links.HOME, note = w.groupsNote, noteTone = Tone.GREEN, noteRow = true),
+    )
+    stats.forEachIndexed { i, tile ->
+      if (i > 0) v.addView(R.id.kbiz_wb_stats, RemoteViews(pkg, R.layout.kbiz_wb_gap_h))
+      v.addView(R.id.kbiz_wb_stats, tile)
+    }
+
+    reminderRows(v, ownerLargeRows(heightDp, fontScale, w.items.size))
+    return v
+  }
+
+  /** The reminder rows of either large board, or its "No reminders" line. Sets both, as the launcher reapplies. */
+  private fun reminderRows(v: RemoteViews, rows: Int) {
+    v.removeAllViews(R.id.kbiz_wb_reminders)
+    v.setViewVisibility(R.id.kbiz_wb_reminders_empty, if (w.items.isEmpty()) View.VISIBLE else View.GONE)
+    w.items.take(rows).forEachIndexed { i, r ->
+      if (i > 0) v.addView(R.id.kbiz_wb_reminders, RemoteViews(pkg, R.layout.kbiz_wb_gap_v))
+      v.addView(R.id.kbiz_wb_reminders, reminderRow(r))
     }
   }
 
@@ -298,13 +302,30 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
     palette.text(v, R.id.kbiz_wb_punch_text, if (p is Punch.Done) R.color.kbiz_wb_warn_text else R.color.kbiz_wb_mute)
   }
 
-  private fun statTile(icon: Int, tone: Tone, value: Int, label: String, url: String, alert: Boolean = false): RemoteViews {
+  /**
+   * [note]: a coloured line under the label — the Owner's "6 late" (red) and "3 groups" (green), 2026-11-03.
+   * [noteRow]: keep that line's room when there is no note, so the four numbers sit on one line.
+   */
+  private fun statTile(
+    icon: Int,
+    tone: Tone,
+    value: Int,
+    label: String,
+    url: String,
+    alert: Boolean = false,
+    note: String? = null,
+    noteTone: Tone = Tone.DANGER,
+    noteRow: Boolean = false,
+  ): RemoteViews {
     val t = RemoteViews(pkg, R.layout.kbiz_wb_stat_tile)
     t.setImageViewResource(R.id.kbiz_wb_stat_icon, icon)
     palette.tint(t, R.id.kbiz_wb_stat_icon, tone.solid)
     t.setTextViewText(R.id.kbiz_wb_stat_value, "$value")
-    if (alert && value > 0) palette.text(t, R.id.kbiz_wb_stat_value, tone.solid)
+    palette.text(t, R.id.kbiz_wb_stat_value, if (alert && value > 0) tone.solid else R.color.kbiz_wb_main)
     t.setTextViewText(R.id.kbiz_wb_stat_label, label)
+    t.setViewVisibility(R.id.kbiz_wb_stat_note, if (note != null) View.VISIBLE else if (noteRow) View.INVISIBLE else View.GONE)
+    t.setTextViewText(R.id.kbiz_wb_stat_note, note.orEmpty())
+    palette.text(t, R.id.kbiz_wb_stat_note, noteTone.solid)
     t.setOnClickPendingIntent(R.id.kbiz_wb_stat, Links.open(ctx, url))
     return t
   }
@@ -318,19 +339,6 @@ internal class WorkBoardViews(private val ctx: Context, private val w: Work) {
     row.setTextViewText(R.id.kbiz_wb_rem_due, due.text)
     palette.text(row, R.id.kbiz_wb_rem_due, due.tone.text)
     row.setOnClickPendingIntent(R.id.kbiz_wb_rem, Links.open(ctx, Links.REMINDERS))
-    return row
-  }
-
-  /** A review row wears the reminder row's layout: amber bar, title, "HFBM · $5,000", how long ago the Director signed. */
-  private fun reviewRow(r: ReviewItem): RemoteViews {
-    val row = RemoteViews(pkg, R.layout.kbiz_wb_reminder_row)
-    row.setInt(R.id.kbiz_wb_rem_bar, "setBackgroundResource", Tone.WARN.bar)
-    row.setTextViewText(R.id.kbiz_wb_rem_text, r.title.ifEmpty { "Approved by the Director" })
-    row.setTextViewText(R.id.kbiz_wb_rem_by, r.detail.ifEmpty { "Approved by the Director" })
-    row.setViewVisibility(R.id.kbiz_wb_rem_due, if (r.at != null) View.VISIBLE else View.GONE)
-    row.setTextViewText(R.id.kbiz_wb_rem_due, if (r.at != null) reviewAgo(r.at, w.now) else "")
-    palette.text(row, R.id.kbiz_wb_rem_due, Tone.WARN.text)
-    row.setOnClickPendingIntent(R.id.kbiz_wb_rem, Links.open(ctx, Links.REVIEW))
     return row
   }
 
