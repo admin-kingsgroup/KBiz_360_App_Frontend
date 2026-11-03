@@ -46,10 +46,7 @@ data class ReviewItem(
   val amount: String,
   /** The Director's signature, epoch ms. */
   val at: Long?,
-) {
-  /** The row's second line: "HFBM · $5,000", leaving out whichever part is empty. */
-  val detail: String get() = listOf(branch, amount).filter { it.isNotEmpty() }.joinToString(" · ")
-}
+)
 
 data class Snapshot(
   val signedIn: Boolean,
@@ -70,8 +67,10 @@ data class Snapshot(
    * writes it only for the Owner, so null means everyone else (and every older snapshot).
    */
   val review: Int? = null,
-  /** Newest first, at most [MAX_REVIEW_ROWS]. Only the Owner's snapshot has any. */
+  /** Newest first. Only the Owner's snapshot has any; the board no longer lists them (2026-11-03). */
   val reviewItems: List<ReviewItem> = emptyList(),
+  /** How many of the unread chats are groups — the Owner's Chats tile says "3 groups" (2026-11-03). */
+  val unreadGroups: Int = 0,
 )
 
 private fun JSONObject.longOrNull(key: String): Long? =
@@ -136,6 +135,7 @@ fun parseSnapshot(json: String?): Snapshot? {
           at = r.longOrNull("at"),
         )
       },
+      unreadGroups = o.intOr("unreadGroups", 0),
     )
   } catch (e: Exception) {
     null
@@ -225,16 +225,6 @@ fun ago(ms: Long, now: Long, f: Formats): String {
   }
 }
 
-/** "just now" (under an hour), "3h ago" (under two days), "2d ago": the app's Review list words, as on iOS. */
-fun reviewAgo(at: Long, now: Long): String {
-  val h = max(0L, (now - at) / 3_600_000L)
-  return when {
-    h < 1 -> "just now"
-    h < 48 -> "${h}h ago"
-    else -> "${h / 24}d ago"
-  }
-}
-
 /** "MHUB - Branch Accounts" → "MB": first letters of words that start with a letter or digit. */
 fun initials(name: String): String {
   val s = name.split(' ')
@@ -276,16 +266,25 @@ class Work(val s: Snapshot, val now: Long, val zone: TimeZone = TimeZone.getDefa
   val greetingLine: String get() = if (firstName.isEmpty()) greeting else "$greeting, $firstName"
 
   /**
-   * The Owner's board (2026-10-30): Review where everyone else sees Late, a "To review" list in place
-   * of unread chats, and no punch (he is excused from attendance). Only his snapshot carries `review`.
+   * The Owner's board: Review where everyone else sees Late, and no punch (he is excused from
+   * attendance) — 2026-10-30. Since 2026-11-03 his large board has no header and no list but
+   * reminders (see [ownerLargeRows]). Only his snapshot carries `review`.
    */
   val isOwner: Boolean get() = s.review != null
 
   /** Director approvals new since the Owner last looked; 0 for everyone else. */
   val review: Int get() = s.review ?: 0
 
-  /** The review rows the board can show, newest first. */
-  val reviewItems: List<ReviewItem> get() = s.reviewItems.take(MAX_REVIEW_ROWS)
+  /** The Owner's Reminders tile: "6 late" in red under the label (2026-11-03); null when nothing is late. */
+  val lateNote: String? get() = if (late > 0) "$late late" else null
+
+  /** The Owner's Chats tile: how many of the unread chats are groups — "3 groups", "1 group"; null for none. */
+  val groupsNote: String?
+    get() {
+      val g = s.unreadGroups
+      if (g <= 0 || s.unreadChats <= 0) return null
+      return if (g == 1) "1 group" else "$g groups"
+    }
 
   /** Today's punch. A punch from an earlier day (app not opened since) counts as not checked in. */
   val punch: Punch
@@ -321,13 +320,8 @@ fun nextRedraw(now: Long, snapshot: Snapshot?, zone: TimeZone): Long {
 
 data class LargePlan(val reminderRows: Int, val chatRows: Int, val showChats: Boolean)
 
-/** The Owner's large board: reminders, then "To review" (no chats section). */
-data class OwnerLargePlan(val reminderRows: Int, val reviewRows: Int, val showReview: Boolean)
-
 const val MAX_REMINDER_ROWS = 6
 const val MAX_CHAT_ROWS = 4
-/** The app sends at most 4 review rows (REVIEW_WIDGET_CAP in src/logic/ownerReview.ts). */
-const val MAX_REVIEW_ROWS = 4
 
 /**
  * Rows for a large board [heightDp] tall. First the iOS large board: reminders (up to 3, or 4 when
@@ -341,31 +335,32 @@ fun largePlan(heightDp: Float, fontScale: Float, reminders: Int, chats: Int): La
     heightDp, fontScale,
     reminders = reminders, reminderBase = if (chats == 0) 4 else 3,
     below = chats, belowBase = 2, belowMax = MAX_CHAT_ROWS, belowRowDp = 31f,
-    spareBelowFirst = false,
   )
   return LargePlan(f.reminders, f.below, f.showBelow)
 }
 
+/** The Owner's tiles row, dp (kbiz_wb_large_owner): taller than everyone else's 66 — it carries a note line. */
+const val OWNER_STATS_DP = 80f
+/** The app sends up to 40 reminders; a 520dp board fits 10 rows, so this only guards a giant widget. */
+const val MAX_OWNER_REMINDER_ROWS = 12
+
 /**
- * The Owner's large board, budgeted the same way: first the iOS board — up to 2 reminders (4 when
- * there is nothing to review, as when no chat is unread), then the "To review" section (up to 3) if at
- * least its first row fits. Leftover room goes to the last review row first (the app sends at most
- * [MAX_REVIEW_ROWS]; these are what the Owner put the board up for), then to more reminders. Review
- * rows use the reminder row's layout, so they are as tall.
+ * The Owner's large board (owner, 2026-11-03 voice note on his widget): no greeting / date / punch row and
+ * no chats or review list — the four tiles sit at the top and every row under them is a reminder, as many
+ * as [heightDp] has room for. Same row height and gap as everyone else's board, grown with the font size.
  */
-fun ownerLargePlan(heightDp: Float, fontScale: Float, reminders: Int, reviews: Int): OwnerLargePlan {
-  val f = fitLarge(
-    heightDp, fontScale,
-    reminders = reminders, reminderBase = if (reviews == 0) 4 else 2,
-    below = reviews, belowBase = 3, belowMax = MAX_REVIEW_ROWS, belowRowDp = 30f,
-    spareBelowFirst = true,
-  )
-  return OwnerLargePlan(f.reminders, f.below, f.showBelow)
+fun ownerLargeRows(heightDp: Float, fontScale: Float, reminders: Int): Int {
+  val row = 30f * max(1f, fontScale)
+  val gap = 7f
+  // padding 32 + the tiles + the 10dp under them
+  val budget = heightDp - 32f - OWNER_STATS_DP - 10f
+  val fit = if (budget < row) 0 else ((budget + gap) / (row + gap)).toInt()
+  return min(min(reminders, MAX_OWNER_REMINDER_ROWS), fit)
 }
 
 private data class LargeFit(val reminders: Int, val below: Int, val showBelow: Boolean)
 
-/** Reminders under "Next up", then one section below them (unread chats, or the Owner's review). */
+/** Reminders under "Next up", then the unread-chats section below them. */
 private fun fitLarge(
   heightDp: Float,
   fontScale: Float,
@@ -375,7 +370,6 @@ private fun fitLarge(
   belowBase: Int,
   belowMax: Int,
   belowRowDp: Float,
-  spareBelowFirst: Boolean,
 ): LargeFit {
   val fs = max(1f, fontScale)
   val label = 9f + 13f * fs + 6f
@@ -422,13 +416,8 @@ private fun fitLarge(
         bel++
       }
     }
-    if (spareBelowFirst) {
-      moreBelow()
-      moreReminders()
-    } else {
-      moreReminders()
-      moreBelow()
-    }
+    moreReminders()
+    moreBelow()
   }
   return LargeFit(rem, bel, true)
 }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One large-board stat: icon on top, big number, label. -->
+<!-- One large-board stat: icon on top, big number, label, and on the Owner's board a coloured note
+     ("6 late" red, "3 groups" green — 2026-11-03), shown from code. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
   android:id="@+id/kbiz_wb_stat"
   android:layout_width="0dp"
@@ -30,4 +31,12 @@
     style="@style/KbizWb.Text.Semi.Mute"
     android:layout_marginTop="1dp"
     android:textSize="9.5sp" />
+
+  <TextView
+    android:id="@+id/kbiz_wb_stat_note"
+    style="@style/KbizWb.Text.Bold"
+    android:layout_marginTop="1dp"
+    android:textColor="@color/kbiz_wb_danger"
+    android:textSize="9.5sp"
+    android:visibility="gone" />
 </LinearLayout>
