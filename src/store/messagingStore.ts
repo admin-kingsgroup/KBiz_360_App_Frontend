@@ -68,6 +68,8 @@ interface MessagingState {
   updatePrivacy: (patch: { readReceipts?: boolean; lastSeen?: 'everyone' | 'nobody' }) => Promise<void>;
   setBlocked: (userId: string, blocked: boolean) => Promise<void>;
   clearLocalThread: (conversationId: string) => Promise<void>;
+  /** "Delete chat" (one-to-one): false when the server could not be reached — nothing changes then. */
+  deleteChat: (conversationId: string) => Promise<boolean>;
   loadOlderMessages: (conversationId: string) => Promise<number>;
   openDirect: (otherUserId: string) => Promise<string>;
   setActive: (conversationId: string | null) => void;
@@ -99,6 +101,7 @@ interface MessagingState {
   _upsert: (conversationId: string, msg: StoredMessage) => void;
   _ingest: (conversationId: string, msgs: StoredMessage[]) => void;
   _prune: (conversationId: string, page: StoredMessage[]) => void;
+  _dropBefore: (conversationId: string, clearedAt: string) => Promise<void>;
   _persistIds: (conversationId: string, ids: string[]) => void;
   _flush: (clientId: string) => Promise<void>;
 }
@@ -211,6 +214,10 @@ export const useMessagingStore = create<MessagingState>()(
         set({ loadingConversations: true });
         try {
           const fresh = sortConvs(await chatApi.listConversations());
+          // "Delete chat" used on another of my devices: drop what THIS device stored from before it.
+          // Once per deletion — the copy we hold carries the clearedAt it was last applied for.
+          const heldCleared = new Map(get().conversations.map((c) => [c.id, c.clearedAt ?? null]));
+          for (const c of fresh) if (c.clearedAt && heldCleared.get(c.id) !== c.clearedAt) void get()._dropBefore(c.id, c.clearedAt);
           // Never let a refetch re-raise the badge for the chat the user is currently viewing
           // (avoids a race where loadConversations on socket-connect clobbers a just-marked-read 0).
           const active = get().activeConversationId;
@@ -420,6 +427,20 @@ export const useMessagingStore = create<MessagingState>()(
       clearLocalThread: async (conversationId) => {
         set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] ?? []).filter((m) => m.pending || m.failed) } }));
         await chatDb.clearConversation(conversationId);
+      },
+
+      // "Delete chat" (one-to-one, owner 2026-11-03). The server first — it hides the chat on my other
+      // devices and keeps the other person's copy — then this device forgets the chat, its stored
+      // messages, its draft and anything still waiting to send in it. Offline: nothing changes.
+      deleteChat: async (conversationId) => {
+        try { await chatApi.deleteChat(conversationId); } catch { return false; }
+        set((s) => {
+          const drafts = { ...s.drafts };
+          delete drafts[conversationId];
+          return { drafts, outbox: s.outbox.filter((o) => o.conversationId !== conversationId) };
+        });
+        await get().forgetConversation(conversationId);
+        return true;
       },
 
       // Scrollback. Reads the previous page out of local storage — which is where history the device
@@ -726,6 +747,15 @@ export const useMessagingStore = create<MessagingState>()(
       // signal there is. Strictly bounded to the page's own range: anything that landed after the
       // page was built (a socket arrival) sits beyond its last id and is never touched, and
       // optimistic sends — which have no server id yet — are skipped outright.
+      // Keep only what was said after `clearedAt` (plus my unsent rows), in memory and on disk.
+      _dropBefore: async (conversationId, clearedAt) => {
+        const cut = new Date(clearedAt).getTime();
+        const after = (m: StoredMessage): boolean => m.pending || m.failed || new Date(m.createdAt).getTime() > cut;
+        set((s) => (s.messages[conversationId] ? { messages: { ...s.messages, [conversationId]: s.messages[conversationId].filter(after) } } : s));
+        await chatDb.clearConversation(conversationId);
+        const kept = (get().messages[conversationId] ?? []).filter((m) => !m.pending && !m.failed);
+        if (kept.length) await chatDb.upsert(conversationId, kept);
+      },
       _prune: (conversationId, page) => {
         if (page.length < 2) return; // a one-message range can only contain itself
         const first = page[0].id;

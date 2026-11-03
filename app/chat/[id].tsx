@@ -5,7 +5,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Search as SearchIcon, BellOff, Bell, Ban, Timer, Palette, Share2, ArrowDown, MapPin, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile, CalendarDays } from 'lucide-react-native';
+import { ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Search as SearchIcon, BellOff, Bell, Ban, Timer, Palette, Share2, ArrowDown, MapPin, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile, CalendarDays, MessageSquareX } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -736,6 +736,24 @@ export default function ChatDetail() {
     ]);
   };
 
+  // "Delete chat" — this one-to-one chat goes from MY chats on every device; the other person keeps it.
+  const confirmDeleteChat = (): void => {
+    setMenuOpen(false);
+    const name = conv?.name ?? 'this contact';
+    Alert.alert(`Delete chat with ${name}?`, `The chat and its messages go from your chats on every device. ${name} keeps their copy.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete chat', style: 'destructive',
+        onPress: () => void useMessagingStore.getState().deleteChat(convId).then((ok) => {
+          if (!ok) { showToast('Could not delete the chat — check your connection'); return; }
+          dropDraft(); // half-typed text must not be filed back under the deleted chat on the way out
+          showToast('Chat deleted');
+          if (router.canGoBack()) router.back(); else router.replace('/(tabs)');
+        }),
+      },
+    ]);
+  };
+
   const chooseDisappearing = (): void => {
     setMenuOpen(false);
     const cur = conv?.disappearAfterSec ?? null;
@@ -1144,6 +1162,7 @@ export default function ChatDetail() {
               { key: 'theme', label: 'Theme', Icon: Palette, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/theme', params: { conv: convId } }); } },
               { key: 'export', label: 'Export chat', Icon: Share2, onPress: () => void exportChat() },
               ...(isGroup ? [] : [{ key: 'block', label: isBlocked ? 'Unblock' : 'Block', Icon: Ban, danger: !isBlocked, onPress: toggleBlock }]),
+              ...(isGroup ? [] : [{ key: 'delete', label: 'Delete chat', Icon: MessageSquareX, danger: true, onPress: confirmDeleteChat }]),
             ].map((r, i) => (
               <Pressable key={r.key} onPress={r.onPress} android_ripple={{ color: colors.coolMuted }}
                 className="flex-row items-center gap-3.5 px-5" style={{ paddingVertical: 13, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: colors.coolDivider }}>

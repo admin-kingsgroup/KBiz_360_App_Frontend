@@ -15,6 +15,8 @@ export interface ChatConversation {
   mutedUntil?: string | null; // ISO; null with muted ⇒ muted forever ("Always")
   archived: boolean;
   pinned?: boolean;
+  // When I last used "Delete chat" on it (ISO) — another device of mine drops what it stored before then.
+  clearedAt?: string | null;
   disappearAfterSec?: number | null;
   lastMessage: LastMessage | null;
   lastActivityAt: string;
@@ -120,6 +122,8 @@ export const getPinned = (conversationId: string): Promise<ChatMessage[]> => api
 export const sendMessage = (input: { conversationId: string; text?: string; type?: ChatMessage['type']; attachments?: ChatAttachment[]; replyToId?: string; clientId?: string; mentions?: string[] }): Promise<ChatMessage> =>
   apiFetch('/api/messages', { method: 'POST', body: input });
 export const editMessage = (id: string, text: string): Promise<ChatMessage> => apiFetch(`/api/messages/${id}`, { method: 'PUT', body: { text } });
+// "Delete chat" — a one-to-one chat goes from MY chats on every device; the other person keeps theirs.
+export const deleteChat = (id: string): Promise<{ ok: boolean; clearedAt?: string }> => apiFetch(`/api/conversations/${id}`, { method: 'DELETE' });
 export const deleteMessage = (id: string, scope: 'me' | 'everyone'): Promise<{ ok: boolean }> => apiFetch(`/api/messages/${id}?scope=${scope}`, { method: 'DELETE' });
 export const reactMessage = (id: string, emoji: string): Promise<{ ok: boolean }> => apiFetch(`/api/messages/${id}/reaction`, { method: 'POST', body: { emoji } });
 export const starMessage = (id: string): Promise<{ starred: boolean }> => apiFetch(`/api/messages/${id}/star`, { method: 'POST' });
