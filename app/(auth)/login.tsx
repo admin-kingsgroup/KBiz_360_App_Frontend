@@ -12,6 +12,7 @@ import { KBLogo } from '../../src/components/ui';
 import { colors } from '../../src/theme';
 import { authApi, ApiError } from '../../src/api';
 import { useSplashStore } from '../../src/store/splashStore';
+import { useSideStripStore } from '../../src/store/sideStripStore';
 
 // Real authentication against the backend (CRM users via /api/auth/login). On success the auth
 // store flips to signed-in and the root gate routes to permissions/app. SSO/forgot are not wired.
@@ -81,6 +82,12 @@ export default function Login() {
     spin.value = withRepeat(withTiming(1, { duration: 14000, easing: Easing.linear }), -1, false);
     breathe.value = withRepeat(withTiming(1, { duration: 2800, easing: Easing.inOut(Easing.ease) }), -1, true);
   }, [spin, breathe]);
+
+  // iPhone Duo (closed): the status bar sits in a side strip — dark here, under the light status bar.
+  useEffect(() => {
+    useSideStripStore.getState().setColor(colors.ink);
+    return () => useSideStripStore.getState().setColor(null);
+  }, []);
 
   const logoStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value * 360}deg` }] }));
   const haloStyle = useAnimatedStyle(() => ({ opacity: 0.5 + breathe.value * 0.4, transform: [{ scale: 0.92 + breathe.value * 0.16 }] }));

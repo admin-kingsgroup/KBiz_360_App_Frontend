@@ -29,17 +29,20 @@ const DIVIDER_INSET = 20 + 48 + 12;
 // Two physical pixels on every screen: a one-pixel hairline all but vanished on a 3x phone.
 const DIVIDER_HEIGHT = 2 / PixelRatio.get();
 
-function ChatListItemBase({ chat, onPress, onLongPress }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void }) {
+// `selected`: the chat open beside the list in the two-pane view (iPhone Duo opened) — the row sits on
+// the search field's colour, as WhatsApp marks the open chat in its wide layouts.
+function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void; selected?: boolean }) {
   const unread = !!chat.unread;
   // Painted from the global chat theme, so the list matches the conversations it opens. Read rows sit
   // on a light tint, unread rows on the full theme colour, and a WhatsApp hairline closes every row.
   const p = useChatListPalette();
-  const ground = unread ? p.rowUnread : p.list;
+  const ground = selected ? p.field : unread ? p.rowUnread : p.list;
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
       android_ripple={{ color: p.line }}
+      accessibilityState={selected ? { selected: true } : undefined}
       style={{
         flexDirection: 'row', alignItems: 'center', gap: 12,
         minHeight: 72, paddingVertical: 12, paddingHorizontal: 20,

@@ -1,7 +1,7 @@
-import { memo, useState, useCallback, useMemo } from 'react';
+import { memo, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { View, Text, Pressable, ScrollView, FlatList, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useIsFocused } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
@@ -17,6 +17,11 @@ import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
 import { withSender } from '../../src/logic/groupsStrip';
 import { relTime } from '../../src/utils/time';
+import { TwoPane } from '../../src/components/layout/TwoPane';
+import { useWideLayout } from '../../src/hooks/useWideLayout';
+import { useChatPaneStore } from '../../src/store/chatPaneStore';
+import { useSideStripStore } from '../../src/store/sideStripStore';
+import { ChatThread } from '../chat/[id]';
 
 // Media types whose preview gets the small image glyph in the approved row.
 const PICTORIAL = new Set(['image', 'video']);
@@ -60,14 +65,14 @@ function convToItem(
 // One chat row. Memoised on the conversation object and a handful of primitives: the store keeps a
 // conversation's identity until that conversation actually changes, so a message landing in one chat
 // (or someone coming online) repaints one row instead of the whole list.
-const ChatRow = memo(function ChatRow({ conv, online, myUserId, branchCode, companyCode, draft, sender, onOpen, onActions }: {
+const ChatRow = memo(function ChatRow({ conv, online, myUserId, branchCode, companyCode, draft, sender, selected, onOpen, onActions }: {
   conv: ChatConversation; online: boolean; myUserId: string | null; branchCode: string | null; companyCode: string | null;
-  draft?: string; sender: string | null; onOpen: (id: string) => void; onActions: (id: string) => void;
+  draft?: string; sender: string | null; selected: boolean; onOpen: (id: string) => void; onActions: (id: string) => void;
 }) {
   const id = conv.id;
   const press = useCallback(() => onOpen(id), [onOpen, id]);
   const longPress = useCallback(() => onActions(id), [onActions, id]);
-  return <ChatListItem chat={convToItem(conv, online, myUserId, branchCode, companyCode, draft, sender)} onPress={press} onLongPress={longPress} />;
+  return <ChatListItem chat={convToItem(conv, online, myUserId, branchCode, companyCode, draft, sender)} onPress={press} onLongPress={longPress} selected={selected} />;
 });
 
 const convKey = (c: ChatConversation): string => c.id;
@@ -89,10 +94,31 @@ export default function Home() {
   const p = useChatListPalette();
   // A dark theme (Midnight) needs light status-bar content while this tab is in front; hand the
   // app default back on blur so the other tabs are unaffected.
+  // iPhone Duo (closed): the status bar lives in a strip down the side — paint it in this list's bar
+  // colour, so a light (dark-theme) clock is still readable there.
   useFocusEffect(useCallback(() => {
     setStatusBarStyle(p.dark ? 'light' : 'dark');
-    return () => setStatusBarStyle('dark');
-  }, [p.dark]));
+    useSideStripStore.getState().setColor(p.bar);
+    return () => { setStatusBarStyle('dark'); useSideStripStore.getState().setColor(null); };
+  }, [p.dark, p.bar]));
+
+  // Wide window (iPhone Duo opened): the list and the open chat side by side, split on the fold.
+  // A tap opens the chat in the right pane instead of pushing its own screen.
+  const wide = useWideLayout();
+  const paneId = useChatPaneStore((s) => s.openId);
+  const paneMessageId = useChatPaneStore((s) => s.messageId);
+  const focused = useIsFocused();
+  // Folding the phone shuts the right pane — carry the open chat over as its own screen, so the
+  // conversation the user was in is still in front of them on the small screen.
+  const wasWide = useRef(wide);
+  useEffect(() => {
+    if (wasWide.current && !wide) {
+      const { openId, messageId } = useChatPaneStore.getState();
+      useChatPaneStore.getState().close();
+      if (openId && focused) router.push({ pathname: '/chat/[id]', params: messageId ? { id: openId, messageId } : { id: openId } });
+    }
+    wasWide.current = wide;
+  }, [wide, focused, router]);
 
   // Real conversations from the messaging store. Refetch every time Home gains focus so the list is
   // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
@@ -147,7 +173,10 @@ export default function Home() {
   void realUser;
 
   // Stable row handlers (rows are memoised — a fresh closure per render would repaint every row).
-  const openChat = useCallback((id: string) => router.push({ pathname: '/chat/[id]', params: { id } }), [router]);
+  const openChat = useCallback((id: string) => {
+    if (wide) useChatPaneStore.getState().open(id);
+    else router.push({ pathname: '/chat/[id]', params: { id } });
+  }, [router, wide]);
   const openActions = useCallback((id: string) => setActionsFor(useMessagingStore.getState().conversations.find((c) => c.id === id) ?? null), []);
   const renderChat: ListRenderItem<ChatConversation> = useCallback(({ item: c }) => {
     // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
@@ -162,11 +191,11 @@ export default function Home() {
       <ChatRow conv={c} online={online} myUserId={myUserId}
         branchCode={(c.branchId && codes.branch.get(c.branchId)) || null}
         companyCode={(c.companyId && codes.company.get(c.companyId)) || null}
-        draft={drafts[c.id]} sender={sender} onOpen={openChat} onActions={openActions} />
+        draft={drafts[c.id]} sender={sender} selected={wide && c.id === paneId} onOpen={openChat} onActions={openActions} />
     );
-  }, [presence, myUserId, codes, drafts, userNames, openChat, openActions]);
+  }, [presence, myUserId, codes, drafts, userNames, openChat, openActions, wide, paneId]);
 
-  return (
+  const listColumn = (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
       <HomeHeader title="Chats" palette={p} />
 
@@ -256,6 +285,31 @@ export default function Home() {
       <ChatActionsSheet conv={actionsFor} onClose={() => setActionsFor(null)} />
 
       {/* Toast is mounted app-wide in app/_layout.tsx (GlobalToast) — not here. */}
+    </SafeAreaView>
+  );
+
+  if (!wide) return listColumn;
+  // The open chat is mounted only while this tab is in front: it marks the chat read and holds it
+  // as "active" (no notification for it) for as long as it is mounted, which must not outlive the
+  // user looking at it. Keyed on the id — each chat reads its draft/unread state once, at mount.
+  return (
+    <TwoPane background={p.bar} divider={p.line} left={listColumn} right={
+      paneId && focused
+        ? <ChatThread key={paneId} id={paneId} messageId={paneMessageId} embedded onClose={() => useChatPaneStore.getState().close()} />
+        : <PaneEmpty p={p} />
+    } />
+  );
+}
+
+// The right pane before a chat is picked (WhatsApp's wide-layout welcome panel).
+function PaneEmpty({ p }: { p: ChatListPalette }) {
+  return (
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: p.list, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
+      <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>
+        <MessageCircle size={44} color={p.accent} />
+      </View>
+      <Text style={{ color: p.text, fontSize: 18, fontWeight: '700', marginTop: 18, textAlign: 'center' }}>Pick a chat</Text>
+      <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>It opens here, beside your list.</Text>
     </SafeAreaView>
   );
 }

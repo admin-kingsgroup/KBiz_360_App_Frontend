@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, useWindowDimensions, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, useWindowDimensions, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
+import { Modal } from '../../src/components/ui/Modal';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -83,14 +84,38 @@ function lastSeenLabel(ts: number): string {
   return `last seen ${d.getDate()}/${d.getMonth() + 1} at ${time}`;
 }
 
+// The route: a chat as its own screen (phone-width windows).
 export default function ChatDetail() {
+  return <ChatThread />;
+}
+
+export interface ChatThreadProps {
+  /** Conversation to show. Omitted on the route, which reads it from the URL. */
+  id?: string;
+  messageId?: string | null;
+  /**
+   * Shown inside the Chats tab's right-hand pane (two-pane layout on a wide window — the iPhone Duo
+   * opened): no back arrow (the list is right there), no bottom inset under the composer (the tab
+   * bar sits below), and leaving the chat (Delete chat) closes the pane instead of navigating back.
+   */
+  embedded?: boolean;
+  onClose?: () => void;
+}
+
+// One conversation. Mounted per conversation (callers key it on the id): its state — draft, unread
+// divider, scroll — is read once at mount for that chat.
+export function ChatThread({ id: idProp, messageId: messageProp, embedded = false, onClose }: ChatThreadProps = {}) {
   const router = useRouter();
   // `messageId` arrives from surfaces that found a specific message elsewhere (global search,
   // starred) — the thread opens and then lands on it instead of the bottom.
-  const { id, messageId: jumpParam } = useLocalSearchParams<{ id: string; messageId?: string }>();
+  const params = useLocalSearchParams<{ id: string; messageId?: string }>();
+  const id = idProp ?? params.id;
+  const jumpParam = messageProp ?? params.messageId;
   const convId = id ?? '';
   const showToast = useUiStore((s) => s.showToast);
   const insets = useSafeAreaInsets();
+  // In the Chats pane the tab bar sits under the composer and owns the home-indicator inset.
+  const bottomInset = embedded ? 0 : insets.bottom;
   const keyboardVisible = useKeyboardState((s) => s.isVisible);
 
   const rawMessages = useMessagingStore((s) => s.messages[convId]);
@@ -748,7 +773,8 @@ export default function ChatDetail() {
           if (!ok) { showToast('Could not delete the chat — check your connection'); return; }
           dropDraft(); // half-typed text must not be filed back under the deleted chat on the way out
           showToast('Chat deleted');
-          if (router.canGoBack()) router.back(); else router.replace('/(tabs)');
+          if (embedded) onClose?.();
+          else if (router.canGoBack()) router.back(); else router.replace('/(tabs)');
         }),
       },
     ]);
@@ -940,7 +966,8 @@ export default function ChatDetail() {
         </View>
       ) : (
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: theme.bar, height: 60, borderBottomColor: theme.line, borderBottomWidth: 1 }}>
-        <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.chromeText} /></Pressable>
+        {/* In the two-pane view the list is beside the chat — no way "back" to show. */}
+        {embedded ? <View style={{ width: 6 }} /> : <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.chromeText} /></Pressable>}
         <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
           <View style={{ position: 'relative' }}>
             <ChatTile name={title} size={40} radius={12}
@@ -1077,12 +1104,12 @@ export default function ChatDetail() {
 
         {/* Blocked: the composer is replaced by the way out, exactly like WhatsApp. */}
         {isBlocked ? (
-          <Pressable onPress={toggleBlock} style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 18, paddingBottom: insets.bottom + 18, alignItems: 'center' }}>
+          <Pressable onPress={toggleBlock} style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 18, paddingBottom: bottomInset + 18, alignItems: 'center' }}>
             <Text style={{ color: colors.coolText, fontSize: 13.5 }}>You blocked this contact.</Text>
             <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
           </Pressable>
         ) : (
-        <View className="flex-row items-end gap-2" style={{ backgroundColor: chatCanvas(theme), paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
+        <View className="flex-row items-end gap-2" style={{ backgroundColor: chatCanvas(theme), paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : bottomInset + 10 }}>
           {/* Cancel sits outside only while recording, where the pill is replaced by the timer.
               Attach (+) lives inside the pill — see below. */}
           {isRecording ? (
