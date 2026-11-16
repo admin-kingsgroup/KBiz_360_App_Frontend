@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
-import { Building2, CalendarDays, ChevronLeft, Eye, EyeOff, FileText, Hourglass, MessageSquare, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
+import { Building2, CalendarDays, ChevronLeft, ExternalLink, Eye, EyeOff, FileText, Hourglass, MessageSquare, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { addTaskAttachment, ensureTaskChat, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
 import { ApiError } from '../../src/api/client';
@@ -241,6 +241,15 @@ export default function TaskDetail() {
             <Text style={{ color: overdue ? colors.danger : colors.ink, fontSize: 14.5, fontWeight: '600' }}>{dueLabel(task)}{overdue ? ' · overdue' : ''}</Text>
           </Row>
           {biz ? <Row Icon={Building2} label="BUSINESS / BRANCH"><Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{biz}</Text></Row> : null}
+          {/* A task given from the ERP's right-click menu (owner, 2026-11-16) points back at the screen it is about. */}
+          {task.link ? (
+            <Row Icon={ExternalLink} label={task.source === 'erp' ? 'FROM KBIZ BOOKS' : 'LINK'}>
+              <Pressable onPress={() => void Linking.openURL(task.link!.url).catch(() => undefined)} hitSlop={6} accessibilityRole="link">
+                <Text numberOfLines={2} style={{ color: colors.primary, fontSize: 14.5, fontWeight: '700' }}>{task.link.label}</Text>
+                <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>Opens the screen in KBiz Books</Text>
+              </Pressable>
+            </Row>
+          ) : null}
           {task.repeat && task.repeat.kind !== 'none' ? <Row Icon={Repeat} label="REPEATS"><Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{repeatLabel(task.repeat)}</Text></Row> : null}
           <Row Icon={Users} label="WATCHERS">
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
