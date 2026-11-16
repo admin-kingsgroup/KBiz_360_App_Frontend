@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { X } from 'lucide-react-native';
 import { mediaUrl } from '../../api/media';
 import { colors } from '../../theme';

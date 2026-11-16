@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Modal, Alert, type ListRenderItem } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, RefreshControl, ScrollView, Alert, type ListRenderItem } from 'react-native';
+import { Modal } from '../../src/components/ui/Modal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, PenSquare, Inbox as InboxIcon, MailX, Mail, Folder as FolderIcon, FolderPlus, ChevronDown, Check } from 'lucide-react-native';

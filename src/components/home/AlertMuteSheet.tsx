@@ -1,4 +1,5 @@
-import { Modal, Pressable, View, Text, StyleSheet } from 'react-native';
+import { Pressable, View, Text, StyleSheet } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, BellOff } from 'lucide-react-native';
 import { colors } from '../../theme';

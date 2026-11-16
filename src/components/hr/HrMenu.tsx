@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
-import { View, Text, Pressable, Modal } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Menu, LayoutGrid, Clock, Palmtree, CalendarDays, ReceiptIndianRupee, Check, HouseWifi, ArrowLeftRight, type LucideIcon } from 'lucide-react-native';

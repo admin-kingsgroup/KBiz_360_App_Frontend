@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TextInput, Pressable, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { FolderPlus, Pencil, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { useEmailStore } from '../../store/emailStore';

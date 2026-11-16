@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Modal, FlatList, Image } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, FlatList, Image } from 'react-native';
+import { Modal } from '../../src/components/ui/Modal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';

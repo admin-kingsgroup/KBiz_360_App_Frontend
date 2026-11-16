@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, Modal, TextInput, KeyboardAvoidingView, Platform, StyleSheet, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Switch, TextInput, KeyboardAvoidingView, Platform, StyleSheet, Alert } from 'react-native';
+import { Modal } from '../../src/components/ui/Modal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { User as UserIcon, Edit3, ChevronLeft, LogOut, BriefcaseBusiness, Bell, X, Trash2 } from 'lucide-react-native';

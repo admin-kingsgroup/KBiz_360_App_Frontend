@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { View, Text, Pressable, Modal, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Pressable, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronRight, X } from 'lucide-react-native';
 import { colors } from '../../theme';
