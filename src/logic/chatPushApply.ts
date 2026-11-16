@@ -69,7 +69,8 @@ export function pushedMessage(data: ChatPushData): Record<string, unknown> | nul
 export function chatPushLine(data: ChatPushData): string {
   const preview = data.preview ?? '';
   if (data.mention === '1' && data.senderName) return `${data.senderName} mentioned you: ${preview}`;
-  return data.convType === 'group' && data.senderName ? `${data.senderName}: ${preview}` : preview;
+  // Task chats (2026-11-16) read like groups: many members, so the line says who wrote it.
+  return (data.convType === 'group' || data.convType === 'task') && data.senderName ? `${data.senderName}: ${preview}` : preview;
 }
 
 export interface ApplyResult {
@@ -101,7 +102,7 @@ export function applyChatPush(conversations: ChatConversation[], data: ChatPushD
     return { conversations, changed: false, unreadChats: countUnreadChats(conversations) };
   }
 
-  const isGroup = data.convType === 'group';
+  const isGroup = data.convType === 'group' || data.convType === 'task'; // a task chat stubs like a group (named after the task)
   const updated: ChatConversation[] = existing
     ? conversations.map((c) => (c.id === convId ? { ...c, unread: (c.unread || 0) + 1, lastMessage, lastActivityAt: at } : c))
     : [
@@ -109,7 +110,7 @@ export function applyChatPush(conversations: ChatConversation[], data: ChatPushD
         // shows immediately on cold open; the next loadConversations() fills in the real metadata.
         {
           id: convId,
-          type: (isGroup ? 'group' : 'direct') as ChatConversation['type'],
+          type: (data.convType === 'task' ? 'task' : isGroup ? 'group' : 'direct') as ChatConversation['type'],
           name: (isGroup ? data.convName : data.senderName) || data.senderName || 'New message',
           image: null,
           ...(isGroup ? {} : { otherUserId: data.senderId || undefined }),

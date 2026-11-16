@@ -4,6 +4,8 @@ import { getAccessToken } from '../api/tokens';
 import type { ChatMessage } from '../api/chat';
 import { useMessagingStore } from '../store/messagingStore';
 import { useReminderBadgeStore } from '../store/reminderBadgeStore';
+import { useTasksStore } from '../store/tasksStore';
+import { useAuthStore } from '../store/authStore';
 import { usePulseStore } from '../store/pulseStore';
 import { useApprovalBadgeStore } from '../store/approvalBadgeStore';
 import { useOwnerReviewStore } from '../store/ownerReviewStore';
@@ -21,7 +23,7 @@ export function connectChatSocket(): void {
   const store = useMessagingStore.getState;
 
   socket.on('connect', () => {
-    void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void usePulseStore.getState().refresh(); void useApprovalBadgeStore.getState().refresh(); void useOwnerReviewStore.getState().refresh();
+    void store().loadConversations(); void store().flushOutbox(); void useReminderBadgeStore.getState().refresh(); void useTasksStore.getState().refreshBadge(useAuthStore.getState().user?.id); void useTasksStore.getState().refreshNotifications(); void usePulseStore.getState().refresh(); void useApprovalBadgeStore.getState().refresh(); void useOwnerReviewStore.getState().refresh();
     // Catch-up: one request for everything that changed anywhere while this device was away — new
     // messages, edits, deletions, reactions, ticks. This is what keeps the local database current, so
     // opening a chat needs no request of its own.
@@ -73,6 +75,14 @@ export function connectChatSocket(): void {
   // Reminders: refresh the tab badge when one is assigned to me / sent back for my review.
   socket.on('reminder:new', () => void useReminderBadgeStore.getState().refresh());
   socket.on('reminder:update', () => void useReminderBadgeStore.getState().refresh());
+  // Tasks: 'task:update' { taskId } reaches everyone on a task when it changes — refresh the tab badge
+  // (and the widget list) and tell any open screen showing that task to refetch. 'task:notification'
+  // goes to the one person it is for — refresh the in-app list's unread count.
+  socket.on('task:update', (p?: { taskId?: string }) => {
+    useTasksStore.getState().markTouched(p?.taskId);
+    void useTasksStore.getState().refreshBadge(useAuthStore.getState().user?.id);
+  });
+  socket.on('task:notification', () => void useTasksStore.getState().refreshNotifications());
 
   // System alerts: the broadcast carries only a channelId — refetch the access-filtered feed.
   socket.on('alert:new', () => void usePulseStore.getState().refresh());
