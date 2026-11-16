@@ -236,7 +236,7 @@ export default function Home() {
                 </View>
               ) : null}
             </Pressable>
-          ) : null}
+          ) : undefined}
           ListEmptyComponent={(
             <View className="items-center justify-center" style={{ flex: 1, paddingHorizontal: 32, paddingVertical: 48 }}>
               <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>

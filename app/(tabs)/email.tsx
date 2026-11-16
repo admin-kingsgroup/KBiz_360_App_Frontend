@@ -235,7 +235,7 @@ export default function EmailScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void useEmailStore.getState().loadFolder()} tintColor={colors.primary} />}
         onEndReachedThreshold={0.4}
         onEndReached={() => { if (!search.trim()) void useEmailStore.getState().loadMore(); }}
-        ListFooterComponent={loadingMore || searching ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 18 }} /> : null}
+        ListFooterComponent={loadingMore || searching ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 18 }} /> : undefined}
         ListEmptyComponent={
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60, paddingHorizontal: 32 }}>
             <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>

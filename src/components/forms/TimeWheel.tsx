@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, type NativeSyntheticEvent, type NativeScrollEvent, type AccessibilityActionEvent } from 'react-native';
+import { View, Text, Pressable, ScrollView, type ScrollViewInstance, type NativeSyntheticEvent, type NativeScrollEvent, type AccessibilityActionEvent } from 'react-native';
 import { colors } from '../../theme';
 import { to12h, type Meridiem } from '../../logic/timeWheel';
 
@@ -22,7 +22,7 @@ interface WheelProps {
 }
 
 function Wheel({ items, index, label, onChange }: WheelProps) {
-  const ref = useRef<ScrollView>(null);
+  const ref = useRef<ScrollViewInstance>(null);
   const seeded = useRef(false);
   const [centered, setCentered] = useState(index);
   const clamp = (i: number): number => Math.max(0, Math.min(items.length - 1, i));

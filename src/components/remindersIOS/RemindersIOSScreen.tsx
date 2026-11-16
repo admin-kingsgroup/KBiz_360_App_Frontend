@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Keyboard, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, type ScrollViewInstance, Keyboard, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import type { SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -111,7 +111,7 @@ export default function RemindersIOSScreen() {
   const [loaded, setLoaded] = useState(false);
   // Device-local flags — the reminders API has no flag field, so flagging is a personal, on-device mark.
   const [flagged, setFlagged] = useState<Set<string>>(new Set());
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const openRow = useRef<SwipeableMethods | null>(null);
 
   const loadData = useCallback(async () => {

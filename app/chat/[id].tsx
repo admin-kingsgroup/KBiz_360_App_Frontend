@@ -918,7 +918,7 @@ export default function ChatDetail() {
       // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
       // Held back until the first sync settles: a brand-new chat shouldn't flash "no messages"
       // at someone whose thread is a few milliseconds from landing.
-      ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View> : null}
+      ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View> : undefined}
       onScrollToIndexFailed={onScrollFailed}
       renderItem={renderMessage}
     />
