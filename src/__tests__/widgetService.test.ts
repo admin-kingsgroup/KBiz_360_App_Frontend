@@ -17,8 +17,9 @@ jest.mock('../store/messagingStore', () => ({
     conversations: [{ id: 'c1', type: 'group', name: 'MHUB - Branch Accounts', unread: 3, muted: false, archived: false, lastMessage: null, lastActivityAt: '2026-10-29T06:00:00.000Z' }],
   }),
 }));
-jest.mock('../store/reminderBadgeStore', () => ({
-  useReminderBadgeStore: mockStore({ count: 8, forMe: 7, top: [{ id: 'r1', text: 'Send snapshot', when: '', dueAt: 123, by: '' }] }),
+// Tasks replaced reminders (2026-11-16): the widget's reminder fields now carry my tasks.
+jest.mock('../store/tasksStore', () => ({
+  useTasksStore: mockStore({ badge: 8, mineOpen: 7, top: [{ id: 'r1', text: 'Send snapshot', when: '', dueAt: 123, by: '' }] }),
 }));
 jest.mock('../store/approvalBadgeStore', () => ({ useApprovalBadgeStore: mockStore({ count: 5 }) }));
 jest.mock('../store/ownerReviewStore', () => ({ useOwnerReviewStore: mockStore({ owner: false, rows: [], lastSeen: null }), reviewNewCount: () => 0 }));

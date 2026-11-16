@@ -3,7 +3,10 @@ import { apiFetch } from './client';
 export interface LastMessage { messageId: string | null; text: string; type: string; senderId: string; at: string; id?: string | null; status?: 'sent' | 'delivered' | 'read' | null }
 export interface ChatConversation {
   id: string;
-  type: 'direct' | 'group';
+  // 'task' (2026-11-16): one chat per task, named after the task; members = assigner, assignee, watchers.
+  // The task service manages it — it never locks (decision 4), it files under Closed task chats once
+  // the task is closed or cancelled.
+  type: 'direct' | 'group' | 'task';
   name: string;
   image: string | null;
   otherUserId?: string;
@@ -26,6 +29,8 @@ export interface ChatConversation {
   members?: { userId: string; role: 'admin' | 'member' }[];
   companyId?: string | null; // the business this group belongs to
   branchId?: string | null; // the branch this group belongs to (member picker scopes to it)
+  taskId?: string | null; // task chats: the task this chat belongs to
+  taskStatus?: string | null; // task chats: the task's status, when the server sends it (else the tasks store knows)
 }
 export interface ChatReaction { userId: string; emoji: string }
 export interface ChatReplyTo { messageId: string; senderId: string; preview: string; type: string }
