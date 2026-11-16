@@ -1,4 +1,5 @@
-// iOS Reminders-style redesign (design handoff, Sep 2026), wired to REAL data: reminders from the
-// reminders API and businesses/branches from the CRM directory. The previous list-style screen is
-// this file's committed version; restore it with `git restore "app/(tabs)/reminders.tsx"`.
-export { default } from '../../src/components/reminders/ReminderDashboard';
+// The Tasks tab (spec 2026-11-16: tasks replace reminders). The route keeps its old name, `reminders`,
+// on purpose: the home-screen widgets in the store builds open kbiz360://reminders, and reminder
+// pushes already on phones route to /(tabs)/reminders — both now land on Tasks. The old Reminders
+// screen (src/components/reminders/ReminderDashboard) is no longer reachable from the app.
+export { default } from '../../src/components/tasks/TasksScreen';

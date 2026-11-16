@@ -101,7 +101,8 @@ export async function displayChatNotification(data: ChatPushData, lines: string[
   const { notifee, AndroidImportance, AndroidStyle } = mod;
   try {
     await ensureMessagesChannel(notifee, AndroidImportance);
-    const isGroup = data.convType === 'group';
+    // A task chat is titled by its task, like a group by its name (2026-11-16).
+    const isGroup = data.convType === 'group' || data.convType === 'task';
     const title = (isGroup ? data.convName : data.senderName) || data.senderName || 'New message';
     const body = lines[lines.length - 1] ?? data.preview ?? '';
     await notifee.displayNotification({

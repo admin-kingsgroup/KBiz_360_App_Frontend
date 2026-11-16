@@ -40,6 +40,7 @@ import { useVoiceRecorder } from '../../src/hooks/useVoiceRecorder';
 import { useEventCallback } from '../../src/hooks/useEventCallback';
 import { joinConversation, leaveConversation, emitTyping, emitStopTyping, emitRead } from '../../src/realtime/chatSocket';
 import { daySeparator, isDifferentDay, dateStamp } from '../../src/utils/time';
+import { TaskChatCard } from '../../src/components/tasks/TaskChatCard';
 
 // Chat-screen redesign palette (kbiz360_chat_screen_redesign mockup): teal accent, white message
 // cards with hairline borders on a cool grey canvas. Shadows the app theme LOCALLY so the rest of
@@ -284,6 +285,13 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   }, [users, convType, convName]);
 
   const isGroup = conv?.type === 'group';
+  // A task's chat (2026-11-16) is a many-member chat like a group — sender names, @mentions, no Block
+  // or Delete chat — but the task service owns its members, so there is no Group info; the header and
+  // the menu open the task instead, and a task card with its quick actions is pinned under the header.
+  const isTask = conv?.type === 'task';
+  const isMulti = isGroup || isTask;
+  const taskId = isTask ? conv?.taskId ?? null : null;
+  const openTask = useCallback((id: string) => router.push({ pathname: '/task/[id]', params: { id } }), [router]);
   const title = conv?.name ?? 'Chat';
   // Just this person's presence — the whole map changes whenever anyone in the company comes or goes.
   const otherUserId = conv?.otherUserId;
@@ -301,7 +309,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
 
   // The other person's job title (if set) — its own header line above presence, so a long title
   // can never truncate the "last seen …" text away.
-  const otherPosition = !isGroup ? (users.find((u) => u.id === conv?.otherUserId)?.position ?? null) : null;
+  const otherPosition = !isMulti ? (users.find((u) => u.id === conv?.otherUserId)?.position ?? null) : null;
   // Live presence always beats the conversation's stale online/lastSeen snapshot — the snapshot is
   // only the fallback when no live entry has arrived at all.
   const convLastSeen = toEpochMs(conv?.lastSeen);
@@ -312,8 +320,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
         : otherPresence.status === 'online' ? 'Online'
           : offlineAt ? lastSeenLabel(offlineAt) : 'last seen recently'
       : conv?.online ? 'Online' : convLastSeen ? lastSeenLabel(convLastSeen) : 'last seen recently';
-  const otherOnline = !isGroup && (otherPresence ? otherPresence.status === 'online' : !!conv?.online);
-  const subtitle = isGroup ? `${conv?.memberCount ?? 0} members` : presenceLabel;
+  const otherOnline = !isMulti && (otherPresence ? otherPresence.status === 'online' : !!conv?.online);
+  const subtitle = isTask ? `Task chat · ${conv?.memberCount ?? 0} ${conv?.memberCount === 1 ? 'member' : 'members'}` : isGroup ? `${conv?.memberCount ?? 0} members` : presenceLabel;
 
   // The draft reaches the store a beat after the typing stops (and on leaving the chat), not on every
   // keystroke: each store write re-rendered the chat list underneath and re-saved it to disk, which
@@ -357,11 +365,11 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   // Typing "@" opens the member list above the composer; picking someone writes "@Full Name " into
   // the text. At send time the text is re-scanned against the roster to build the mentions ids.
   const mentionPeople = useMemo<User[]>(() => {
-    if (conv?.type !== 'group') return [];
+    if (conv?.type !== 'group' && conv?.type !== 'task') return [];
     const byId = new Map(users.map((u) => [u.id, u]));
     return (conv.members ?? []).map((m) => byId.get(m.userId)).filter((u): u is User => !!u && u.id !== myUserId);
   }, [conv?.type, conv?.members, users, myUserId]);
-  const mention = isGroup && !editing ? activeMention(text, cursor) : null;
+  const mention = isMulti && !editing ? activeMention(text, cursor) : null;
   const mentionMatches = mention ? rankMentionMatches(mentionPeople, mention.query) : [];
   // "@everyone" notifies the whole group — admin-gated like WhatsApp (group admins, the creator,
   // and super-admins) so one member can't spam-ping everybody. Pure UI gate: expanding it to all
@@ -382,7 +390,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   // The same mention machinery for the image caption. Kept as its own set of derivations rather
   // than a shared hook because the two fields are visible at the same time in the tree (the
   // composer sits behind the preview modal) and must not share a caret.
-  const capMention = isGroup && pendingImage ? activeMention(caption, capCursor) : null;
+  const capMention = isMulti && pendingImage ? activeMention(caption, capCursor) : null;
   const capMatches = capMention ? rankMentionMatches(mentionPeople, capMention.query) : [];
   const capShowEveryone = !!capMention && canMentionEveryone && MENTION_EVERYONE.startsWith(capMention.query.trim().toLowerCase());
   const applyCaptionPick = (name: string): void => {
@@ -394,7 +402,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   };
   // Re-scan a finished draft against the roster — the wire format is ids, not names.
   const mentionsIn = (body: string): string[] | undefined => {
-    if (!isGroup) return undefined;
+    if (!isMulti) return undefined;
     if (canMentionEveryone && hasEveryoneMention(body)) return mentionPeople.map((p) => p.id);
     const ids = mentionIdsInText(body, mentionPeople);
     return ids.length ? ids : undefined;
@@ -903,9 +911,9 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
     return (
       <MessageRow m={m} showDay={showDay} unreadCount={dividerId === m.id ? dividerCount : 0}
         marked={selectedSet.has(m.id) || m.id === highlightId} selecting={selecting}
-        isGroup={isGroup} nameOf={nameOf} theme={theme} highlight={searchTerm} actions={rowActions} />
+        isGroup={isMulti} nameOf={nameOf} theme={theme} highlight={searchTerm} actions={rowActions} />
     );
-  }, [reversed, dividerId, dividerCount, selectedSet, highlightId, selecting, isGroup, nameOf, theme, searchTerm, rowActions]);
+  }, [reversed, dividerId, dividerCount, selectedSet, highlightId, selecting, isMulti, nameOf, theme, searchTerm, rowActions]);
 
   const onListEnd = useEventCallback((): void => void loadOlder());
   const onListScroll = useEventCallback((e: { nativeEvent: { contentOffset: { y: number } } }): void => setShowJumpLatest(e.nativeEvent.contentOffset.y > 400));
@@ -968,7 +976,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: theme.bar, height: 60, borderBottomColor: theme.line, borderBottomWidth: 1 }}>
         {/* In the two-pane view the list is beside the chat — no way "back" to show. */}
         {embedded ? <View style={{ width: 6 }} /> : <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.chromeText} /></Pressable>}
-        <Pressable disabled={!isGroup} onPress={() => router.push({ pathname: '/chat/group-info', params: { id: convId } })} className="flex-1 flex-row items-center gap-2.5">
+        <Pressable disabled={!isGroup && !taskId} onPress={() => (taskId ? openTask(taskId) : router.push({ pathname: '/chat/group-info', params: { id: convId } }))} className="flex-1 flex-row items-center gap-2.5">
+
           <View style={{ position: 'relative' }}>
             <ChatTile name={title} size={40} radius={12}
               branchCode={(conv?.branchId && dirBranches.find((b) => b.id === conv.branchId)?.code) || null}
@@ -981,7 +990,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
             {/* One subtitle line, mockup-style: "Finance Manager · Online" — the presence part goes
                 teal when live (online/typing), the position stays grey. */}
             <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: theme.mute }}>
-              {!isGroup && otherPosition ? `${otherPosition} · ` : ''}
+              {!isMulti && otherPosition ? `${otherPosition} · ` : ''}
               <Text style={{ color: typingUsers.length || otherOnline ? theme.accent : theme.mute, fontStyle: typingUsers.length ? 'italic' : 'normal' }}>{subtitle}</Text>
             </Text>
           </View>
@@ -990,6 +999,10 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
         <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={theme.chromeText} /></Pressable>
       </View>
       )}
+
+      {/* Task chats: the task card pinned under the header, with its quick actions. It refetches on every
+          new message — each status change posts a notice into this chat. */}
+      {taskId && !selecting ? <TaskChatCard taskId={taskId} refreshKey={conv?.lastMessage?.messageId ?? conv?.lastActivityAt ?? null} onOpenTask={openTask} /> : null}
 
       {/* In-chat search bar — replaces the pinned banner row while open, with ↑/↓ through the hits. */}
       {searchOpen ? (
@@ -1176,7 +1189,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 8, paddingBottom: insets.bottom + 20 }}>
             <View style={{ alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: colors.coolDivider, marginBottom: 10 }} />
             {[
-              ...(isGroup ? [{ key: 'info', label: 'Group info', Icon: Info, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/group-info', params: { id: convId } }); } }]
+              ...(isTask ? (taskId ? [{ key: 'task', label: 'Open task', Icon: ListChecks, onPress: () => { setMenuOpen(false); openTask(taskId); } }] : [])
+                : isGroup ? [{ key: 'info', label: 'Group info', Icon: Info, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/group-info', params: { id: convId } }); } }]
                 : [{ key: 'contact', label: 'Contact info', Icon: Info, onPress: () => { setMenuOpen(false); setContactOpen(true); } }]),
               { key: 'search', label: 'Search in chat', Icon: SearchIcon, onPress: openSearch },
               {
@@ -1185,11 +1199,12 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                 Icon: conv?.muted ? Bell : BellOff,
                 onPress: () => { setMenuOpen(false); void useMessagingStore.getState().setConversationSettings(convId, { muted: !conv?.muted, muteHours: conv?.muted ? null : 8 }); },
               },
-              { key: 'disappear', label: `Disappearing messages${conv?.disappearAfterSec ? ' · on' : ''}`, Icon: Timer, onPress: chooseDisappearing },
+              // Task chats are kept for the record — the server refuses disappearing messages there.
+              ...(isTask ? [] : [{ key: 'disappear', label: `Disappearing messages${conv?.disappearAfterSec ? ' · on' : ''}`, Icon: Timer, onPress: chooseDisappearing }]),
               { key: 'theme', label: 'Theme', Icon: Palette, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/theme', params: { conv: convId } }); } },
               { key: 'export', label: 'Export chat', Icon: Share2, onPress: () => void exportChat() },
-              ...(isGroup ? [] : [{ key: 'block', label: isBlocked ? 'Unblock' : 'Block', Icon: Ban, danger: !isBlocked, onPress: toggleBlock }]),
-              ...(isGroup ? [] : [{ key: 'delete', label: 'Delete chat', Icon: MessageSquareX, danger: true, onPress: confirmDeleteChat }]),
+              ...(isMulti ? [] : [{ key: 'block', label: isBlocked ? 'Unblock' : 'Block', Icon: Ban, danger: !isBlocked, onPress: toggleBlock }]),
+              ...(isMulti ? [] : [{ key: 'delete', label: 'Delete chat', Icon: MessageSquareX, danger: true, onPress: confirmDeleteChat }]),
             ].map((r, i) => (
               <Pressable key={r.key} onPress={r.onPress} android_ripple={{ color: colors.coolMuted }}
                 className="flex-row items-center gap-3.5 px-5" style={{ paddingVertical: 13, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: colors.coolDivider }}>
@@ -1268,7 +1283,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                 <TextInput value={caption} onChangeText={setCaption} multiline
                   selection={capSel}
                   onSelectionChange={(e) => { setCapCursor(e.nativeEvent.selection.start); if (capSel) setCapSel(undefined); }}
-                  placeholder={isGroup ? 'Add a caption — @ to mention' : 'Add a caption'} placeholderTextColor="#7C8894"
+                  placeholder={isMulti ? 'Add a caption — @ to mention' : 'Add a caption'} placeholderTextColor="#7C8894"
                   style={{ paddingVertical: 12, fontSize: 15, color: '#fff', maxHeight: 110 }} />
               </View>
               <Pressable onPress={() => void sendPendingImage()} accessibilityLabel="Send photo"

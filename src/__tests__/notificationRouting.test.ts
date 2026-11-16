@@ -13,6 +13,11 @@ describe('Notifications — tap routes to the right screen', () => {
   it('reminder → reminders tab', () => {
     expect(routeForData({ type: 'reminder', id: 'r1' })).toEqual({ pathname: '/(tabs)/reminders' });
   });
+  it('task → the task (its chat when only the chat is known, else the Tasks tab)', () => {
+    expect(routeForData({ type: 'task', taskId: 't1', chatId: 'c1' })).toEqual({ pathname: '/task/[id]', params: { id: 't1' } });
+    expect(routeForData({ type: 'task', chatId: 'c1' })).toEqual({ pathname: '/chat/[id]', params: { id: 'c1' } });
+    expect(routeForData({ type: 'task' })).toEqual({ pathname: '/(tabs)/reminders' });
+  });
   it('unknown/empty → home', () => {
     expect(routeForData({})).toEqual({ pathname: '/(tabs)' });
   });
