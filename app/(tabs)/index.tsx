@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, FlatList, type ListRenderItem } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
-import { Search, Plus, MessageCircle, Mic, Archive } from 'lucide-react-native';
+import { Search, Plus, MessageCircle, Mic, Archive, ListChecks } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors, useChatListPalette, type ChatListPalette } from '../../src/theme';
@@ -12,6 +12,8 @@ import { useAuthStore } from '../../src/store/authStore';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useDirectoryStore, refreshDirectoryUsers } from '../../src/store/directoryStore';
+import { useTasksStore } from '../../src/store/tasksStore';
+import { isClosedTaskChat } from '../../src/logic/taskGroups';
 import type { ChatConversation } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
@@ -38,7 +40,7 @@ function convToItem(
     id: c.id,
     name: c.name,
     initials: (c.name[0] ?? '?').toUpperCase(),
-    color: c.type === 'group' ? colors.purple : colors.blue,
+    color: c.type === 'group' ? colors.purple : c.type === 'task' ? colors.teal : colors.blue,
     // A group's preview is led by who wrote it ("Sana: …"), as WhatsApp lists groups.
     preview: last ? withSender(last.type === 'text' ? oneLine(last.text) : `[${last.type}]`, sender) : 'No messages yet',
     time: c.lastActivityAt ? relTime(c.lastActivityAt) : '',
@@ -77,7 +79,9 @@ const convKey = (c: ChatConversation): string => c.id;
 // Alerts); in All/Unread they simply ride the recency list.
 // The DM list is NOT access-filtered and not affected by View-As — faithful to source (see Phase 5
 // report); groups come from the same store, which the backend already membership-scopes.
-type ChatFilter = 'all' | 'unread' | 'groups';
+// Tasks (2026-11-16): the task chats — one per task, named after it. A closed or cancelled task's chat
+// leaves the active lists for "Closed task chats" (still open for messages, decision 4).
+type ChatFilter = 'all' | 'unread' | 'groups' | 'tasks';
 
 export default function Home() {
   const router = useRouter();
@@ -129,12 +133,19 @@ export default function Home() {
   // sending anything doesn't leave an empty conversation in the list); groups always show, even
   // before their first message (you were added to them — WhatsApp lists them immediately).
   // Archived chats live behind their own row (WhatsApp keeps them out of the main list entirely).
-  const { visible, archivedCount, hasArchived, unreadChats, unreadGroupChats } = useMemo(() => {
-    const active = conversations.filter((c) => !c.archived && (c.type === 'group' || !!c.lastMessage));
+  // Which task chats are closed: the conversation's own taskStatus, else the tasks loaded on this phone.
+  const taskStatuses = useTasksStore((s) => s.statusById);
+  // Learn which tasks are closed on every visit (throttled to once a minute; always when Tasks is picked),
+  // so a closed task's chat leaves All/Unread even when the server's chat list does not say it.
+  useFocusEffect(useCallback(() => { void useTasksStore.getState().loadClosedStatuses(filter === 'tasks'); }, [filter]));
+  const { visible, archivedCount, hasArchived, unreadChats, unreadGroupChats, unreadTaskChats, closedTaskChats } = useMemo(() => {
+    const live = conversations.filter((c) => !c.archived && (c.type === 'group' || c.type === 'task' || !!c.lastMessage));
+    const active = live.filter((c) => !isClosedTaskChat(c, taskStatuses));
+    const taskChats = active.filter((c) => c.type === 'task');
     // Pinned chats sit above everything else, in their own recency order — the list is already sorted
     // by activity, so a stable partition is all that is needed.
     // Groups renders GroupsPane instead of this list, so only All/Unread filter it.
-    const filtered = filter === 'unread' ? active.filter((c) => c.unread > 0) : active;
+    const filtered = filter === 'unread' ? active.filter((c) => c.unread > 0) : filter === 'tasks' ? taskChats : active;
     return {
       visible: [...filtered.filter((c) => c.pinned), ...filtered.filter((c) => !c.pinned)],
       archivedCount: conversations.filter((c) => c.archived && c.unread > 0).length,
@@ -142,8 +153,10 @@ export default function Home() {
       // Chip badges — number of CHATS with unread, not messages: the badge unit everywhere.
       unreadChats: active.filter((c) => c.unread > 0).length,
       unreadGroupChats: active.filter((c) => c.type === 'group' && c.unread > 0).length,
+      unreadTaskChats: taskChats.filter((c) => c.unread > 0).length,
+      closedTaskChats: live.filter((c) => isClosedTaskChat(c, taskStatuses)).length,
     };
-  }, [conversations, filter]);
+  }, [conversations, filter, taskStatuses]);
   void realUser;
 
   // Stable row handlers (rows are memoised — a fresh closure per render would repaint every row).
@@ -156,7 +169,7 @@ export default function Home() {
     const online = c.type === 'direct' ? (live ? live.status === 'online' : !!c.online) : false;
     // Who wrote a group's last message — not for my own (the ticks say that) nor a system line.
     const last = c.lastMessage;
-    const sender = c.type === 'group' && last && last.senderId !== myUserId && last.type !== 'system'
+    const sender = (c.type === 'group' || c.type === 'task') && last && last.senderId !== myUserId && last.type !== 'system'
       ? userNames.get(last.senderId) ?? null : null;
     return (
       <ChatRow conv={c} online={online} myUserId={myUserId}
@@ -189,7 +202,7 @@ export default function Home() {
           read as one jumble of filters. Fills the width, so each segment is a big target. */}
       <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
         <View className="flex-row" accessibilityRole="tablist" style={[segTrack, { backgroundColor: p.field }]}>
-          {([['all', 'All', 0], ['unread', 'Unread', unreadChats], ['groups', 'Groups', unreadGroupChats]] as const).map(([k, label, count]) => {
+          {([['all', 'All', 0], ['unread', 'Unread', unreadChats], ['groups', 'Groups', unreadGroupChats], ['tasks', 'Tasks', unreadTaskChats]] as const).map(([k, label, count]) => {
             const on = filter === k;
             return (
               <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center justify-center"
@@ -223,8 +236,16 @@ export default function Home() {
           initialNumToRender={10}
           maxToRenderPerBatch={8}
           windowSize={9}
-          /* Archived — one row into its own screen, with a count of what is still unread in there. */
-          ListHeaderComponent={hasArchived ? (
+          /* Archived — one row into its own screen, with a count of what is still unread in there.
+             Under Tasks the row is "Closed task chats" instead. */
+          ListHeaderComponent={filter === 'tasks' ? (
+            <Pressable onPress={() => router.push('/chat/closed-tasks')} android_ripple={{ color: p.line }}
+              className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
+              <ListChecks size={20} color={p.mute} />
+              <Text style={{ flex: 1, color: p.text, fontSize: 15, fontWeight: '600' }}>Closed task chats</Text>
+              {closedTaskChats ? <Text style={{ color: p.mute, fontSize: 13, fontWeight: '600' }}>{closedTaskChats}</Text> : null}
+            </Pressable>
+          ) : hasArchived ? (
             <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: p.line }}
               className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
               <Archive size={20} color={p.mute} />
@@ -242,8 +263,8 @@ export default function Home() {
               <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>
                 <MessageCircle size={50} color={p.accent} />
               </View>
-              <Text style={{ color: p.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : 'No conversations'}</Text>
-              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>Your conversations will appear here.</Text>
+              <Text style={{ color: p.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'tasks' ? 'No task chats' : 'No conversations'}</Text>
+              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'tasks' ? 'Every task has its own chat — it appears here when the task is given.' : 'Your conversations will appear here.'}</Text>
               <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: p.accent }}>
                 <Plus size={20} color={p.onAccent} />
                 <Text style={{ color: p.onAccent, fontSize: 15, fontWeight: '600' }}>Start new chat</Text>

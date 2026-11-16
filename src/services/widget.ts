@@ -2,7 +2,7 @@ import { Platform, AppState } from 'react-native';
 import { isRunningInExpoGo, requireOptionalNativeModule } from 'expo';
 import { useAuthStore } from '../store/authStore';
 import { useMessagingStore } from '../store/messagingStore';
-import { useReminderBadgeStore } from '../store/reminderBadgeStore';
+import { useTasksStore } from '../store/tasksStore';
 import { useAttendanceStore } from '../store/attendanceStore';
 import { useApprovalBadgeStore } from '../store/approvalBadgeStore';
 import { buildWidgetSnapshot, type WidgetSnapshot } from '../logic/widgetSnapshot';
@@ -47,7 +47,10 @@ function getStorage(): Storage | null {
 }
 
 function buildSnapshot(): WidgetSnapshot {
-  const { count, forMe, top } = useReminderBadgeStore.getState();
+  // Tasks replaced reminders (spec 2026-11-16). The JSON keeps its `reminders` fields so the native
+  // widgets in the store builds read tasks without a rebuild: count = tasks needing me (the tab badge),
+  // forMe = my open tasks, top = my open tasks soonest first (title as the text, due time, who gave it).
+  const { badge: count, mineOpen: forMe, top } = useTasksStore.getState();
   const now = Date.now();
   const rv = useOwnerReviewStore.getState();
   return buildWidgetSnapshot({
@@ -103,7 +106,7 @@ export function initWidgetSync(): () => void {
   const unsubs = [
     // Unread chats are all the widget shows from this store — skip typing/presence/message churn.
     useMessagingStore.subscribe((s, prev) => { if (s.conversations !== prev.conversations) schedule(); }),
-    useReminderBadgeStore.subscribe(schedule),
+    useTasksStore.subscribe((s, prev) => { if (s.top !== prev.top || s.badge !== prev.badge || s.mineOpen !== prev.mineOpen) schedule(); }),
     useApprovalBadgeStore.subscribe(schedule),
     useOwnerReviewStore.subscribe((s, prev) => { if (s.rows !== prev.rows || s.lastSeen !== prev.lastSeen || s.owner !== prev.owner) schedule(); }),
     // Only the punch matters here — presence repaints on every GPS fix and must not rewrite the feed.

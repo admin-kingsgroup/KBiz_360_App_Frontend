@@ -1,13 +1,13 @@
 import { Tabs } from 'expo-router';
 import { View, Text, Image, Pressable, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, BellRing, Bell, Mail, ClipboardCheck, RefreshCw, type LucideIcon } from 'lucide-react-native';
+import { MessageCircle, BellRing, ListChecks, Mail, ClipboardCheck, RefreshCw, type LucideIcon } from 'lucide-react-native';
 import { useOtaUpdate } from '../../src/hooks/useOtaUpdate';
 import { colors } from '../../src/theme';
 import { useAccessStore } from '../../src/store/accessStore';
 import { useEmailStore } from '../../src/store/emailStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
-import { useReminderBadgeStore } from '../../src/store/reminderBadgeStore';
+import { useTasksStore } from '../../src/store/tasksStore';
 import { useApprovalBadgeStore } from '../../src/store/approvalBadgeStore';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { isVisibleAlertChannel } from '../../src/data/pulse';
@@ -45,7 +45,9 @@ export default function TabsLayout() {
   // from the lists, so they don't count here either; nor do the alert channels the user muted.
   const chatsBadge = useMessagingStore((s) => s.conversations.reduce((n, c) => n + (!c.archived && (c.unread || 0) > 0 ? 1 : 0), 0));
   const alertsBadge = usePulseStore((s) => s.events.reduce((n, e) => n + (isVisibleAlertChannel(e.channelId) && countsTowardBadge(e, s.mutes) ? 1 : 0), 0));
-  const reminderBadge = useReminderBadgeStore((s) => s.count);
+  // Tasks = tasks that need ME: given to me and not yet accepted / sent back / overdue, or given by me
+  // and waiting for my check or asking me for a new date (logic/taskRules.needsMe).
+  const taskBadge = useTasksStore((s) => s.badge);
   const emailBadge = useEmailStore((s) => s.inboxUnread); // real Graph inbox unread count
   // Approvals = requests still awaiting a decision, counting BOTH the approval requests and the
   // attendance time corrections the tab merges — the same number its "Pending" segment shows.
@@ -80,7 +82,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: ({ color, focused }) => <TabPill Icon={MessageCircle} color={color} focused={focused} />, tabBarBadge: chatsBadge > 0 ? (chatsBadge > 9 ? '9+' : chatsBadge) : undefined }} />
       <Tabs.Screen name="alerts" options={{ title: 'Alerts', tabBarIcon: ({ color, focused }) => <TabPill Icon={BellRing} color={color} focused={focused} />, tabBarBadge: alertsBadge > 0 ? (alertsBadge > 9 ? '9+' : alertsBadge) : undefined }} />
-      <Tabs.Screen name="reminders" options={{ title: 'Reminders', tabBarIcon: ({ color, focused }) => <TabPill Icon={Bell} color={color} focused={focused} />, tabBarBadge: reminderBadge > 0 ? (reminderBadge > 9 ? '9+' : reminderBadge) : undefined }} />
+      <Tabs.Screen name="reminders" options={{ title: 'Tasks', tabBarIcon: ({ color, focused }) => <TabPill Icon={ListChecks} color={color} focused={focused} />, tabBarBadge: taskBadge > 0 ? (taskBadge > 9 ? '9+' : taskBadge) : undefined }} />
       <Tabs.Screen name="approvals" options={{ title: 'Approvals', tabBarIcon: ({ color, focused }) => <TabPill Icon={ClipboardCheck} color={color} focused={focused} />, tabBarBadge: approvalBadge > 0 ? (approvalBadge > 9 ? '9+' : approvalBadge) : undefined }} />
       <Tabs.Screen name="email" options={{ title: 'Email', tabBarIcon: ({ color, focused }) => <TabPill Icon={Mail} color={color} focused={focused} />, tabBarBadge: emailBadge > 0 ? (emailBadge > 9 ? '9+' : emailBadge) : undefined }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ focused }) => <ProfileTabIcon focused={focused} /> }} />
