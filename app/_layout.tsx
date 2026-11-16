@@ -177,7 +177,6 @@ function GateController() {
       <Stack.Screen name="task/list" />
       <Stack.Screen name="task/chat" />
       <Stack.Screen name="task/notifications" />
-      <Stack.Screen name="chat/closed-tasks" />
       <Stack.Screen name="reminder/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="reminder/archive" />
       <Stack.Screen name="email/[id]" options={{ presentation: 'card' }} />

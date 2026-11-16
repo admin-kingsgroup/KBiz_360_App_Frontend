@@ -21,7 +21,10 @@ import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
-import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
+import { useMessagingStore, toEpochMs, isTaskChatClosedError, TASK_CHAT_CLOSED_TOAST, type StoredMessage } from '../../src/store/messagingStore';
+import { useTasksStore } from '../../src/store/tasksStore';
+import { isFinished } from '../../src/logic/taskRules';
+import type { TaskStatus } from '../../src/api/tasks';
 import { attachmentKindOf, getConversation, getMessages, getPinned, getReceipts, searchMessages, type ChatConversation, type ChatAttachment, type ChatMessage, type MessageReceipts } from '../../src/api/chat';
 import { search as searchChatDb, firstOnOrAfter as dbFirstOnOrAfter } from '../../src/services/chatDb';
 import { mergeSearchHits } from '../../src/logic/searchHits';
@@ -245,7 +248,14 @@ export default function ChatDetail() {
     // but a notification deep-link opens this screen first — without this the tile would fall
     // back to initials and stop matching the row the user tapped.
     void useDirectoryStore.getState().load();
-    return () => { leaveConversation(convId); useMessagingStore.getState().setActive(null); };
+    return () => {
+      leaveConversation(convId);
+      const st = useMessagingStore.getState();
+      st.setActive(null);
+      // A task chat that closed while it was open here: its thread was kept only for this screen.
+      // It is off the list now (still readable from the task), so forget it like any chat that left.
+      if (st.readOnlyChats[convId] && !st.conversations.some((c) => c.id === convId)) void st.forgetConversation(convId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId]);
 
@@ -267,6 +277,15 @@ export default function ChatDetail() {
   const isMulti = isGroup || isTask;
   const taskId = isTask ? conv?.taskId ?? null : null;
   const openTask = useCallback((id: string) => router.push({ pathname: '/task/[id]', params: { id } }), [router]);
+  // Closed or cancelled task (owner, 2026-11-17): its chat is read-only — the server takes it off the
+  // list and refuses messages (423). Known from the task's status (the card above keeps it fresh), or
+  // from the server closing the chat while it is open here (conversationDeleted / a 423 on send).
+  const knownTaskStatus = useTasksStore((s) => (taskId ? s.statusById[taskId] : undefined));
+  const closedHere = useMessagingStore((s) => !!s.readOnlyChats[convId]);
+  const taskStatus = (knownTaskStatus ?? conv?.taskStatus ?? null) as TaskStatus | null;
+  // The server's own word (conversationDeleted / 423) counts even when this screen never learnt the
+  // chat's type — e.g. opened from an old notification after the chat left the list.
+  const taskClosed = closedHere || (isTask && !!taskStatus && isFinished(taskStatus));
   const title = conv?.name ?? 'Chat';
   // Just this person's presence — the whole map changes whenever anyone in the company comes or goes.
   const otherUserId = conv?.otherUserId;
@@ -344,7 +363,7 @@ export default function ChatDetail() {
     const byId = new Map(users.map((u) => [u.id, u]));
     return (conv.members ?? []).map((m) => byId.get(m.userId)).filter((u): u is User => !!u && u.id !== myUserId);
   }, [conv?.type, conv?.members, users, myUserId]);
-  const mention = isMulti && !editing ? activeMention(text, cursor) : null;
+  const mention = isMulti && !editing && !taskClosed ? activeMention(text, cursor) : null;
   const mentionMatches = mention ? rankMentionMatches(mentionPeople, mention.query) : [];
   // "@everyone" notifies the whole group — admin-gated like WhatsApp (group admins, the creator,
   // and super-admins) so one member can't spam-ping everybody. Pure UI gate: expanding it to all
@@ -563,8 +582,8 @@ export default function ChatDetail() {
     try {
       const res = await uploadFile(file, setUploading);
       await useMessagingStore.getState().sendMedia(convId, { type, attachments: [toAttachment(res, extra)], text, mentions });
-    } catch {
-      showToast('Upload failed — check your connection');
+    } catch (e) {
+      showToast(isTaskChatClosedError(e) ? TASK_CHAT_CLOSED_TOAST : 'Upload failed — check your connection');
     } finally {
       setUploading(null);
     }
@@ -1085,7 +1104,7 @@ export default function ChatDetail() {
 
         {/* Formatting strip — WhatsApp's selection menu (bold / italic / strikethrough / mono / lists /
             quote), shown while text is selected in the composer. */}
-        {selRange.end > selRange.start && selRange.end <= text.length && !isRecording && !isBlocked ? <FormatToolbar onApply={applyFormatting} /> : null}
+        {selRange.end > selRange.start && selRange.end <= text.length && !isRecording && !isBlocked && !taskClosed ? <FormatToolbar onApply={applyFormatting} /> : null}
 
         {/* Blocked: the composer is replaced by the way out, exactly like WhatsApp. */}
         {isBlocked ? (
@@ -1093,6 +1112,16 @@ export default function ChatDetail() {
             <Text style={{ color: colors.coolText, fontSize: 13.5 }}>You blocked this contact.</Text>
             <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
           </Pressable>
+        ) : taskClosed ? (
+          /* Closed or cancelled task: everything stays readable, nothing more can be sent. */
+          <View style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 14, paddingHorizontal: 16, paddingBottom: insets.bottom + 14, alignItems: 'center' }}>
+            <Text style={{ color: colors.coolText, fontSize: 13.5, textAlign: 'center' }}>This task is closed — the chat is read-only</Text>
+            {taskId ? (
+              <Pressable onPress={() => openTask(taskId)} hitSlop={8} style={{ marginTop: 4 }}>
+                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>Open task</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : (
         <View className="flex-row items-end gap-2" style={{ backgroundColor: chatCanvas(theme), paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : insets.bottom + 10 }}>
           {/* Cancel sits outside only while recording, where the pill is replaced by the timer.
@@ -1136,7 +1165,7 @@ export default function ChatDetail() {
         )}
 
         {/* Emoji panel — sits where the keyboard would be (smiley toggles it, focusing the input swaps back). */}
-        {emojiOpen && !isRecording && !isBlocked ? <EmojiPicker onPick={insertEmoji} onBackspace={emojiBackspace} /> : null}
+        {emojiOpen && !isRecording && !isBlocked && !taskClosed ? <EmojiPicker onPick={insertEmoji} onBackspace={emojiBackspace} /> : null}
       </KeyboardAvoidingView>
 
       {/* Jump to latest — appears once scrolled away from the newest message (inverted list, so

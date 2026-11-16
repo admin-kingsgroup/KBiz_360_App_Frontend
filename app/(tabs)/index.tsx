@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, FlatList, type ListRenderItem } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
-import { Search, Plus, MessageCircle, Archive, ListChecks } from 'lucide-react-native';
+import { Search, Plus, MessageCircle, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors, useChatListPalette, type ChatListPalette } from '../../src/theme';
@@ -79,8 +79,8 @@ const convKey = (c: ChatConversation): string => c.id;
 // Alerts); in All/Unread they simply ride the recency list.
 // The DM list is NOT access-filtered and not affected by View-As — faithful to source (see Phase 5
 // report); groups come from the same store, which the backend already membership-scopes.
-// Tasks (2026-11-16): the task chats — one per task, named after it. A closed or cancelled task's chat
-// leaves the active lists for "Closed task chats" (still open for messages, decision 4).
+// Tasks (2026-11-16): the task chats, named after their tasks. A closed or cancelled task's chat is
+// taken off the list by the server (owner, 2026-11-17) — it is read from the task.
 type ChatFilter = 'all' | 'unread' | 'groups' | 'tasks';
 
 export default function Home() {
@@ -133,12 +133,11 @@ export default function Home() {
   // sending anything doesn't leave an empty conversation in the list); groups always show, even
   // before their first message (you were added to them — WhatsApp lists them immediately).
   // Archived chats live behind their own row (WhatsApp keeps them out of the main list entirely).
-  // Which task chats are closed: the conversation's own taskStatus, else the tasks loaded on this phone.
+  // A closed or cancelled task's chat is taken off the list by the server (owner, 2026-11-17) — it is
+  // read from the task. As a safety net (a list fetched just before it closed), anything the
+  // conversation's taskStatus or the tasks seen on this phone mark as closed stays out too.
   const taskStatuses = useTasksStore((s) => s.statusById);
-  // Learn which tasks are closed on every visit (throttled to once a minute; always when Tasks is picked),
-  // so a closed task's chat leaves All/Unread even when the server's chat list does not say it.
-  useFocusEffect(useCallback(() => { void useTasksStore.getState().loadClosedStatuses(filter === 'tasks'); }, [filter]));
-  const { visible, archivedCount, hasArchived, unreadChats, unreadGroupChats, unreadTaskChats, closedTaskChats } = useMemo(() => {
+  const { visible, archivedCount, hasArchived, unreadChats, unreadGroupChats, unreadTaskChats } = useMemo(() => {
     const live = conversations.filter((c) => !c.archived && (c.type === 'group' || c.type === 'task' || !!c.lastMessage));
     const active = live.filter((c) => !isClosedTaskChat(c, taskStatuses));
     const taskChats = active.filter((c) => c.type === 'task');
@@ -154,7 +153,6 @@ export default function Home() {
       unreadChats: active.filter((c) => c.unread > 0).length,
       unreadGroupChats: active.filter((c) => c.type === 'group' && c.unread > 0).length,
       unreadTaskChats: taskChats.filter((c) => c.unread > 0).length,
-      closedTaskChats: live.filter((c) => isClosedTaskChat(c, taskStatuses)).length,
     };
   }, [conversations, filter, taskStatuses]);
   void realUser;
@@ -232,15 +230,8 @@ export default function Home() {
           maxToRenderPerBatch={8}
           windowSize={9}
           /* Archived — one row into its own screen, with a count of what is still unread in there.
-             Under Tasks the row is "Closed task chats" instead. */
-          ListHeaderComponent={filter === 'tasks' ? (
-            <Pressable onPress={() => router.push('/chat/closed-tasks')} android_ripple={{ color: p.line }}
-              className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
-              <ListChecks size={20} color={p.mute} />
-              <Text style={{ flex: 1, color: p.text, fontSize: 15, fontWeight: '600' }}>Closed task chats</Text>
-              {closedTaskChats ? <Text style={{ color: p.mute, fontSize: 13, fontWeight: '600' }}>{closedTaskChats}</Text> : null}
-            </Pressable>
-          ) : hasArchived ? (
+             Not under Tasks: task chats are never archived away — a closed task's chat simply leaves. */
+          ListHeaderComponent={filter !== 'tasks' && hasArchived ? (
             <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: p.line }}
               className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
               <Archive size={20} color={p.mute} />
@@ -259,7 +250,7 @@ export default function Home() {
                 <MessageCircle size={50} color={p.accent} />
               </View>
               <Text style={{ color: p.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'tasks' ? 'No task chats' : 'No conversations'}</Text>
-              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'tasks' ? 'Every task has its own chat — it appears here when the task is given.' : 'Your conversations will appear here.'}</Text>
+              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'tasks' ? 'A task chat appears here once the person who gave the task, or the one doing it, starts it from the task. It leaves when the task is closed.' : 'Your conversations will appear here.'}</Text>
               <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: p.accent }}>
                 <Plus size={20} color={p.onAccent} />
                 <Text style={{ color: p.onAccent, fontSize: 15, fontWeight: '600' }}>Start new chat</Text>

@@ -3,9 +3,10 @@ import { apiFetch } from './client';
 export interface LastMessage { messageId: string | null; text: string; type: string; senderId: string; at: string; id?: string | null; status?: 'sent' | 'delivered' | 'read' | null }
 export interface ChatConversation {
   id: string;
-  // 'task' (2026-11-16): one chat per task, named after the task; members = assigner, assignee, watchers.
-  // The task service manages it — it never locks (decision 4), it files under Closed task chats once
-  // the task is closed or cancelled.
+  // 'task' (2026-11-16): a task's chat, named after the task; members = assigner, assignee, watchers.
+  // The task service manages it. Started on demand by the assigner or the assignee (owner, 2026-11-17);
+  // when the task is closed or cancelled the server takes it off the list and refuses messages (423),
+  // and reopening the task brings it back.
   type: 'direct' | 'group' | 'task';
   name: string;
   image: string | null;
