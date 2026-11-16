@@ -14,7 +14,6 @@ import { compareTasks } from '../logic/taskGroups';
 // widgets need no rebuild.
 
 const listKey = (view: TaskView, state: TaskState): string => `${view}:${state}`;
-let closedLoadedAt = 0;
 const WIDGET_CAP = 40;
 
 interface TasksState {
@@ -35,8 +34,6 @@ interface TasksState {
   notifUnread: number;
   load: (view: TaskView, state?: TaskState) => Promise<Task[]>;
   markTouched: (taskId: string | null | undefined) => void;
-  /** Learn which tasks are closed/cancelled (so their chats file under Closed task chats). At most once a minute unless forced. */
-  loadClosedStatuses: (force?: boolean) => Promise<void>;
   refreshNotifications: () => Promise<void>;
   upsert: (task: Task) => void;
   refreshBadge: (meId: string | null | undefined) => Promise<void>;
@@ -68,12 +65,6 @@ export const useTasksStore = create<TasksState>((set, get) => ({
   touched: { taskId: null, at: 0 },
   notifUnread: 0,
   markTouched: (taskId) => set({ touched: { taskId: taskId ?? null, at: Date.now() } }),
-  loadClosedStatuses: async (force = false) => {
-    const now = Date.now();
-    if (!force && now - closedLoadedAt < 60_000) return;
-    closedLoadedAt = now;
-    await get().load('all', 'closed');
-  },
   refreshNotifications: async () => {
     try {
       const list = await listTaskNotifications();
@@ -123,7 +114,7 @@ export const useTasksStore = create<TasksState>((set, get) => ({
       /* offline / older server without /api/tasks — keep the last value */
     }
   },
-  reset: () => { closedLoadedAt = 0; set({ lists: {}, loading: {}, errors: {}, statusById: {}, badge: 0, mineOpen: 0, top: [], touched: { taskId: null, at: 0 }, notifUnread: 0 }); },
+  reset: () => set({ lists: {}, loading: {}, errors: {}, statusById: {}, badge: 0, mineOpen: 0, top: [], touched: { taskId: null, at: 0 }, notifUnread: 0 }),
 }));
 
 export { listKey };

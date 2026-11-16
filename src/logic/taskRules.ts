@@ -39,7 +39,7 @@ export const ALL_STATUSES: TaskStatus[] = [...OPEN_STATUSES, 'done', 'closed', '
 
 /** Still being worked on (not finished, closed or cancelled). */
 export const isOpenStatus = (s: TaskStatus): boolean => OPEN_STATUSES.includes(s);
-/** Closed or cancelled — the task is over. Its chat stays open (decision 4) but files under Closed task chats. */
+/** Closed or cancelled — the task is over. Its chat (if one was started) leaves the chat list and is read-only. */
 export const isFinished = (s: TaskStatus): boolean => s === 'closed' || s === 'cancelled';
 
 /** These four need a comment: the server refuses them without one. */
@@ -86,6 +86,28 @@ export function commentPrompt(to: TaskStatus): string {
     case 'cancelled': return 'Why is it no longer needed?';
     default: return 'Add a comment (optional)';
   }
+}
+
+// ── the task's chat (owner, 2026-11-17) ──
+// No chat comes with a task any more. The person who gave it, or the one doing it, starts one from the
+// task while it is open. It stays open through "Done – to close"; when the task is closed or cancelled
+// the server takes it off everyone's chat list and it can only be read (from the task). Reopening the
+// task puts it back. Watchers join a chat once it exists; a manager above the assignee reads it.
+export type TaskChatButtonKind = 'start' | 'open' | 'read' | 'none';
+export interface TaskChatButton { kind: TaskChatButtonKind; label: string; sub: string }
+
+export function taskChatButton(t: Pick<Task, 'chatId' | 'status' | 'myRole'> & { watchers?: Task['watchers'] }): TaskChatButton {
+  const finished = isFinished(t.status);
+  const party = t.myRole === 'assigner' || t.myRole === 'assignee' || t.myRole === 'both';
+  if (!t.chatId) {
+    // A personal to-do with nobody watching: a chat would hold only you — nothing to start.
+    if (t.myRole === 'both' && !(t.watchers?.length)) return { kind: 'none', label: 'No chat', sub: 'A personal to-do has no chat — add a watcher to talk it through.' };
+    if (!finished && party) return { kind: 'start', label: 'Start chat', sub: 'Talk it through here — every status change is posted in it' };
+    return { kind: 'none', label: 'No chat yet', sub: finished ? 'No chat was started for this task.' : 'The person who gave the task, or the one doing it, can start one.' };
+  }
+  if (finished) return { kind: 'read', label: 'View chat (read-only)', sub: 'The task is closed — its chat can be read, not written to' };
+  if (t.myRole === 'viewer') return { kind: 'read', label: 'Read chat', sub: 'Read-only until you watch the task' };
+  return { kind: 'open', label: 'Open chat', sub: 'Discuss the task — every status change is posted here' };
 }
 
 /** Destructive-looking buttons (drawn in red). */

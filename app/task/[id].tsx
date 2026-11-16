@@ -15,7 +15,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL } from '../../src/logic/taskRules';
+import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL, taskChatButton } from '../../src/logic/taskRules';
 import { OverdueFlag, PriorityPill, StatusPill, UnreadBadge } from '../../src/components/tasks/TaskPills';
 import { StatusActions } from '../../src/components/tasks/StatusActions';
 import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
@@ -82,18 +82,24 @@ export default function TaskDetail() {
   const amWatcher = !!task && task.watchers.some((w) => w.id === meId);
   const isParty = !!task && (task.assignedTo.id === meId || task.assignedBy.id === meId);
 
+  // The task's chat (owner, 2026-11-17): none comes with the task. The assigner or the assignee starts
+  // it while the task is open; closed or cancelled, it can only be read (from here); watchers and the
+  // managers above see "No chat yet" until one of the two starts it. See logic/taskRules.taskChatButton.
+  const chatButton = task ? taskChatButton(task) : null;
   const openChat = async (): Promise<void> => {
-    if (!task) return;
-    if (!isMember) { router.push({ pathname: '/task/chat', params: { id: task.id } }); return; }
+    if (!task || !chatButton) return;
+    if (chatButton.kind === 'none') return;
+    if (chatButton.kind === 'read') { router.push({ pathname: '/task/chat', params: { id: task.id } }); return; }
     let chatId = task.chatId;
-    if (!chatId) {
-      // A task made from an old reminder has no chat until someone opens it.
+    if (chatButton.kind === 'start' || !chatId) {
       setBusy('chat');
       try { chatId = (await ensureTaskChat(task.id)).chatId; setTask({ ...task, chatId }); }
-      catch { showToast('Could not open the chat'); return; }
-      finally { setBusy(null); }
+      catch (e) {
+        showToast(e instanceof ApiError && e.status === 403 ? 'Only the person who gave the task, or the one doing it, can start its chat' : e instanceof ApiError && e.message ? e.message : 'Could not start the chat');
+        return;
+      } finally { setBusy(null); }
     }
-    // Make sure the chat is in my list (a brand-new task's chat may not be loaded yet).
+    // Make sure the chat is in my list (a chat started a moment ago is not loaded yet).
     await useMessagingStore.getState().loadConversations().catch(() => undefined);
     router.push({ pathname: '/chat/[id]', params: { id: chatId } });
   };
@@ -197,18 +203,23 @@ export default function TaskDetail() {
           ) : null}
 
           {task.actions.length ? <View style={{ marginTop: 14 }}><StatusActions task={task} onChanged={changed} /></View> : null}
-          {task.myRole === 'viewer' ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 12 }}>You can see this task because {task.assignedTo.name.split(' ')[0]} is in your team. Watch it to join its chat.</Text> : null}
+          {task.myRole === 'viewer' ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 12 }}>You can see this task because {task.assignedTo.name.split(' ')[0]} is in your team. {task.chatId ? 'Watch it to join its chat.' : 'Watch it to follow it.'}</Text> : null}
         </View>
 
-        {/* The task's chat */}
-        <Pressable onPress={() => void openChat()} disabled={busy === 'chat'} style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, paddingHorizontal: 14, paddingVertical: 13 }}>
-          <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }}><MessageSquare size={18} color={colors.primary} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{isMember ? 'Open chat' : 'Read chat'}</Text>
-            <Text style={{ color: colors.coolText, fontSize: 12 }}>{isMember ? 'Discuss the task — every status change is posted here' : 'Read-only until you watch the task'}</Text>
-          </View>
-          <UnreadBadge count={task.unread} />
-        </Pressable>
+        {/* The task's chat — Start chat / Open chat / View chat (read-only) / No chat yet. */}
+        {chatButton ? (
+          <Pressable onPress={() => void openChat()} disabled={busy === 'chat' || chatButton.kind === 'none'} accessibilityRole={chatButton.kind === 'none' ? 'text' : 'button'}
+            style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: chatButton.kind === 'start' ? colors.primarySoft : colors.card, borderRadius: 14, borderWidth: 1, borderColor: chatButton.kind === 'start' ? colors.primary : colors.coolDivider, paddingHorizontal: 14, paddingVertical: 13 }}>
+            <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: chatButton.kind === 'none' ? colors.coolMuted : chatButton.kind === 'start' ? colors.card : colors.primarySoft }}>
+              {busy === 'chat' ? <ActivityIndicator size="small" color={colors.primary} /> : <MessageSquare size={18} color={chatButton.kind === 'none' ? colors.coolText3 : colors.primary} />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: chatButton.kind === 'none' ? colors.coolText : chatButton.kind === 'start' ? colors.primaryDark : colors.ink, fontSize: 15, fontWeight: '700' }}>{chatButton.label}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12 }}>{chatButton.sub}</Text>
+            </View>
+            {chatButton.kind === 'open' ? <UnreadBadge count={task.unread} /> : null}
+          </Pressable>
+        ) : null}
 
         <View style={{ marginTop: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, paddingHorizontal: 14 }}>
           <Row Icon={UserRoundPen} label={task.isSelf ? 'FOR' : 'ASSIGNED TO'}>
