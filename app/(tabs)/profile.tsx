@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { View, Text, Pressable, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, StyleSheet } from 'react-native';
+import { Modal } from '../../src/components/ui/Modal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Paperclip, Star, Trash2 } from 'lucide-react-native';
 import { Avatar } from '../ui';
 import { colors } from '../../theme';
@@ -51,7 +51,7 @@ export const EmailListItem = memo(function EmailListItem({ email, folder, onOpen
 
   if (!onDelete) return row;
   return (
-    <Swipeable
+    <ReanimatedSwipeable
       overshootRight={false}
       renderRightActions={() => (
         <Pressable onPress={() => onDelete(email)} style={{ width: 84, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.danger }}>
@@ -61,6 +61,6 @@ export const EmailListItem = memo(function EmailListItem({ email, folder, onOpen
       )}
     >
       {row}
-    </Swipeable>
+    </ReanimatedSwipeable>
   );
 });

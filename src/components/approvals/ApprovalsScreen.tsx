@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ErpApprovalsView, type Tab as ErpTab } from '../erpApprovals/ErpApprovalsView';

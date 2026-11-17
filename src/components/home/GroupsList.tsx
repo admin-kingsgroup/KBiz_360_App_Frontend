@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { View, Text, Pressable, ScrollView, Modal } from 'react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowUpDown, ChevronDown, ChevronUp, LayoutGrid, Lock, MessageCircle, X } from 'lucide-react-native';
 import { colors, useChatListPalette, type ChatListPalette } from '../../theme';

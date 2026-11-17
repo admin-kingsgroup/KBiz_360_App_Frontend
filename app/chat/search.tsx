@@ -135,7 +135,7 @@ export default function ChatSearch() {
               ))}
               {results.length || loading ? <Text style={[sectionLabel, { marginTop: 14 }]}>MESSAGES</Text> : null}
             </View>
-          ) : null
+          ) : undefined
         }
         ListEmptyComponent={
           loading ? (
@@ -144,7 +144,7 @@ export default function ChatSearch() {
             <View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No people or messages found</Text></View>
           ) : !q.trim() ? (
             <View className="items-center" style={{ paddingVertical: 48 }}><Text style={{ color: colors.coolText, fontSize: 14 }}>Search people to start a chat, or find messages</Text></View>
-          ) : null
+          ) : undefined
         }
         renderItem={({ item: m }) => (
           <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId, messageId: m.id } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12 }}>

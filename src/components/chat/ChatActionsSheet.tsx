@@ -1,4 +1,5 @@
-import { Modal, Pressable, View, Text, StyleSheet, Alert } from 'react-native';
+import { Pressable, View, Text, StyleSheet, Alert } from 'react-native';
+import { Modal } from '../ui/Modal';
 import { BellOff, Bell, Pin, PinOff, Archive, ArchiveRestore, CheckCheck, Trash2, MessageSquareX } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { useMessagingStore } from '../../store/messagingStore';

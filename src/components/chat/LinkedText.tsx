@@ -98,7 +98,8 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor,
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 
 function runStyle(s: InlineStyle): TextStyle {
-  const st: TextStyle = {};
+  // RN 0.88 types every style field readonly; build the run's style in a writable copy of the type.
+  const st: { -readonly [K in keyof TextStyle]: TextStyle[K] } = {};
   if (s.bold) st.fontWeight = '700';
   if (s.italic) st.fontStyle = 'italic';
   if (s.strike) st.textDecorationLine = 'line-through';

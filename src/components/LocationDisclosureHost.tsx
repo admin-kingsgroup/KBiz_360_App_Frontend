@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Modal, View, Text, Pressable, ScrollView } from 'react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
+import { Modal } from './ui/Modal';
 import { MapPin, Check } from 'lucide-react-native';
 import { colors } from '../theme';
 import { LOCATION_DISCLOSURE } from '../logic/locationDisclosure';

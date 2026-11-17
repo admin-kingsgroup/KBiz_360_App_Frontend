@@ -126,6 +126,21 @@ describe('chat themes', () => {
     },
   );
 
+  // The chat open beside the list on a wide screen (iPhone Duo opened). Its first colour, the search
+  // field's, was all but the read-row tint on the Duo simulator: the open chat did not show.
+  it.each(CHAT_THEMES.map((t) => [t.label, t] as const))(
+    '%s marks the open chat in the two-pane list',
+    (_label, theme) => {
+      const p = chatListPalette(theme);
+      expect(contrast(p.selected, p.text)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(p.selected, p.mute)).toBeGreaterThanOrEqual(4.5);
+      // The leading bar and read ticks are the accent on this ground (WCAG non-text 3:1).
+      expect(contrast(p.selected, p.accent)).toBeGreaterThanOrEqual(3);
+      // Clear of a read row by the same margin read rows keep from unread ones.
+      expect(deltaE(p.list, p.selected)).toBeGreaterThanOrEqual(theme.dark ? 2 : 4);
+    },
+  );
+
   // Owner 2026-10-08 screenshot: "@Sujeet …" in his own Ink bubble was dark-on-near-black. The ink a
   // mention / reply quote uses inside YOUR bubble must read on the sent fill in every theme.
   it.each(CHAT_THEMES.map((t) => [t.label, t] as const))('%s — @mentions and reply quotes read in your own bubble', (_label, theme) => {

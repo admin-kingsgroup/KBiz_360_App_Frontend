@@ -11,6 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary, OfflineBanner } from '../src/components/common';
 import { GlobalToast } from '../src/components/ui';
 import { LocationDisclosureHost } from '../src/components/LocationDisclosureHost';
+import { SideSafeArea } from '../src/components/layout/SideSafeArea';
 import { AnimatedSplash } from '../src/components/splash/AnimatedSplash';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
@@ -220,6 +221,9 @@ export default function RootLayout() {
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <KeyboardProvider>
           <ErrorBoundary>
+            {/* iPhone Duo: keeps every screen out of the side strip that holds the status bar on the
+                closed screen (see SideSafeArea). A plain flex:1 View on every other phone. */}
+            <SideSafeArea>
             <OfflineBanner />
             {/* NO app-wide tap-to-dismiss-keyboard wrapper. The old TouchableWithoutFeedback here
                 claimed the JS responder on every touch that started on non-interactive space; on
@@ -239,6 +243,7 @@ export default function RootLayout() {
             {/* App-wide toast host — must be last so it layers above every screen. Mounted here
                 (not per-screen) so showToast() from any screen is actually visible. */}
             <GlobalToast />
+            </SideSafeArea>
             <StatusBar style="dark" />
             {/* Launch splash — after the StatusBar so its light status bar wins while it shows, and
                 last so it covers banners and toasts until it hands off. */}

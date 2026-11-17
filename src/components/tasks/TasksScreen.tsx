@@ -175,7 +175,7 @@ export default function TasksScreen() {
             </Text>
           )
         }
-        ListFooterComponent={total ? <Text style={{ color: colors.coolText3, textAlign: 'center', fontSize: 11.5, marginTop: 14 }}>{total} {total === 1 ? 'task' : 'tasks'}</Text> : null}
+        ListFooterComponent={total ? <Text style={{ color: colors.coolText3, textAlign: 'center', fontSize: 11.5, marginTop: 14 }}>{total} {total === 1 ? 'task' : 'tasks'}</Text> : undefined}
       />
 
       <FilterSheet visible={filterOpen} value={filters} meId={meId} onChange={setFilters} onClose={() => setFilterOpen(false)} />

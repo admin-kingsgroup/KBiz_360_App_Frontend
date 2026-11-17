@@ -34,7 +34,7 @@ export default function PayslipViewScreen() {
   const [reloadKey, setReloadKey] = useState(0);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
-  const web = useRef<WebView>(null);
+  const web = useRef<WebView<object>>(null);
   // The page said its payslip is ready to download (Books that predates the bridge never says so —
   // the button then stays hidden). Reset whenever the page reloads.
   const [pdfReady, setPdfReady] = useState(false);

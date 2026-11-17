@@ -84,7 +84,7 @@ export default function OutlookFolderScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
         onEndReachedThreshold={0.4}
         onEndReached={() => void loadMore()}
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 18 }} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 18 }} /> : undefined}
         ListEmptyComponent={
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60 }}>
             <FolderIcon size={42} color={colors.coolText3} />

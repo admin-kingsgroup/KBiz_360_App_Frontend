@@ -10,6 +10,7 @@ import { oneLine } from '../../src/logic/text';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { mediaUrl } from '../../src/api/media';
 import type { ChatConversation } from '../../src/api/chat';
+import { useSideStripStore } from '../../src/store/sideStripStore';
 
 // Archived chats — out of the main list but not gone, exactly like WhatsApp's archive. They keep
 // receiving messages silently; long-press unarchives (or mutes/pins) through the same sheet.
@@ -26,8 +27,9 @@ export default function ArchivedChats() {
   const p = useChatListPalette(); // part of the Chats list, so it wears the same theme
   useFocusEffect(useCallback(() => {
     setStatusBarStyle(p.dark ? 'light' : 'dark');
-    return () => setStatusBarStyle('dark');
-  }, [p.dark]));
+    useSideStripStore.getState().setColor(p.bar); // iPhone Duo side strip, as on the Chats tab
+    return () => { setStatusBarStyle('dark'); useSideStripStore.getState().setColor(null); };
+  }, [p.dark, p.bar]));
   const conversations = useMessagingStore((s) => s.conversations);
   const drafts = useMessagingStore((s) => s.drafts);
   const myUserId = useMessagingStore((s) => s.myUserId);

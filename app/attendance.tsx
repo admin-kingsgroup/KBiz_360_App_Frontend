@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { ChevronLeft, ChevronRight, Clock, Check, Camera, CheckCircle2, ArrowDownLeft, ArrowUpRight, MapPin, Building2, X, Pencil, Palmtree, ClipboardCheck, Send } from 'lucide-react-native';
-import { Modal } from 'react-native';
+import { Modal } from '../src/components/ui/Modal';
 import { Avatar } from '../src/components/ui';
 import { DayTimesSheet, type DayTimesTarget } from '../src/components/attendance/DayTimesSheet';
 import { RegularizeSheet } from '../src/components/attendance/RegularizeSheet';
