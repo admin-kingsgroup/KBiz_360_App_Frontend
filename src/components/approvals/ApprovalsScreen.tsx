@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Modal } from '../ui/Modal';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -18,9 +18,7 @@ import { useUiStore } from '../../store/uiStore';
 import type {
   Approval,
   ApprovalHierarchyResponse,
-  ApprovalLevel,
   ApprovalStatus,
-  ApprovalStep,
   ApprovalStepStatus,
   ApproverCandidate,
 } from '../../api/approvals';
@@ -44,137 +42,6 @@ const fmtDate = (value: string): string => {
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 };
-
-const DEMO_APPROVALS: Approval[] = [
-  {
-    id: 'demo-1',
-    title: 'Salary release approval',
-    details: 'Requesting approval to release the September salary payment for the Ahmedabad team.',
-    category: 'Salary',
-    status: 'pending',
-    submittedAt: '2026-09-17T09:30:00Z',
-    decidedAt: null,
-    requester: { id: 'u1', name: 'Rohan Mehta', initials: 'RM', color: '#37B6A4', avatar: null, position: 'Finance Officer' },
-    totalLevels: 2,
-    currentLevel: 1,
-    currentApprovers: [{ id: 'u2', name: 'Faiz Patel', initials: 'FP', color: '#4F8BFF', avatar: null, position: 'Branch Manager' }],
-    totalSteps: 2,
-    currentStep: 1,
-    currentApprover: { id: 'u2', name: 'Faiz Patel', initials: 'FP', color: '#4F8BFF', avatar: null, position: 'Branch Manager' },
-    levels: [
-      {
-        order: 1,
-        key: null,
-        label: 'Level 1',
-        mode: 'all',
-        status: 'pending',
-        isCurrent: true,
-        decidedAt: null,
-        approvedCount: 0,
-        requiredCount: 1,
-        approvers: [
-          {
-            approver: { id: 'u2', name: 'Faiz Patel', initials: 'FP', color: '#4F8BFF', avatar: null, position: 'Branch Manager' },
-            status: 'pending',
-            decidedAt: null,
-            note: '',
-          },
-        ],
-      },
-      {
-        order: 2,
-        key: null,
-        label: 'Level 2',
-        mode: 'all',
-        status: 'waiting',
-        isCurrent: false,
-        decidedAt: null,
-        approvedCount: 0,
-        requiredCount: 1,
-        approvers: [
-          {
-            approver: { id: 'u3', name: 'Pravesh', initials: 'PR', color: '#9A6CF0', avatar: null, position: 'Company Manager' },
-            status: 'waiting',
-            decidedAt: null,
-            note: '',
-          },
-        ],
-      },
-    ],
-    steps: [
-      { order: 1, key: null, label: 'Level 1', approver: { id: 'u2', name: 'Faiz Patel', initials: 'FP', color: '#4F8BFF', avatar: null, position: 'Branch Manager' }, status: 'pending', isCurrent: true, decidedAt: null, note: '' },
-      { order: 2, key: null, label: 'Level 2', approver: { id: 'u3', name: 'Pravesh', initials: 'PR', color: '#9A6CF0', avatar: null, position: 'Company Manager' }, status: 'waiting', isCurrent: false, decidedAt: null, note: '' },
-    ],
-    isMine: true,
-    canAct: true,
-    canCancel: true,
-    myDecision: null,
-  },
-  {
-    id: 'demo-2',
-    title: 'Today holiday approval',
-    details: 'Request to mark today as a branch holiday due to the local public holiday.',
-    category: 'Holiday',
-    status: 'approved',
-    submittedAt: '2026-09-16T12:15:00Z',
-    decidedAt: '2026-09-16T12:35:00Z',
-    requester: { id: 'u5', name: 'Nandni Shah', initials: 'NS', color: '#E8A13A', avatar: null, position: 'Executive' },
-    totalLevels: 2,
-    currentLevel: null,
-    currentApprovers: [],
-    totalSteps: 2,
-    currentStep: null,
-    currentApprover: null,
-    levels: [
-      {
-        order: 1,
-        key: null,
-        label: 'Level 1',
-        mode: 'all',
-        status: 'approved',
-        isCurrent: false,
-        decidedAt: '2026-09-16T12:18:00Z',
-        approvedCount: 1,
-        requiredCount: 1,
-        approvers: [
-          {
-            approver: { id: 'u2', name: 'Faiz Patel', initials: 'FP', color: '#4F8BFF', avatar: null, position: 'Branch Manager' },
-            status: 'approved',
-            decidedAt: '2026-09-16T12:18:00Z',
-            note: 'Approved for the Ahmedabad branch.',
-          },
-        ],
-      },
-      {
-        order: 2,
-        key: null,
-        label: 'Level 2',
-        mode: 'all',
-        status: 'approved',
-        isCurrent: false,
-        decidedAt: '2026-09-16T12:35:00Z',
-        approvedCount: 1,
-        requiredCount: 1,
-        approvers: [
-          {
-            approver: { id: 'u4', name: 'Afshin Dhanani', initials: 'AD', color: '#0C0E14', avatar: null, position: 'Business Owner' },
-            status: 'approved',
-            decidedAt: '2026-09-16T12:35:00Z',
-            note: 'Approved.',
-          },
-        ],
-      },
-    ],
-    steps: [
-      { order: 1, key: null, label: 'Level 1', approver: { id: 'u2', name: 'Faiz Patel', initials: 'FP', color: '#4F8BFF', avatar: null, position: 'Branch Manager' }, status: 'approved', isCurrent: false, decidedAt: '2026-09-16T12:18:00Z', note: 'Approved for the Ahmedabad branch.' },
-      { order: 2, key: null, label: 'Level 2', approver: { id: 'u4', name: 'Afshin Dhanani', initials: 'AD', color: '#0C0E14', avatar: null, position: 'Business Owner' }, status: 'approved', isCurrent: false, decidedAt: '2026-09-16T12:35:00Z', note: 'Approved.' },
-    ],
-    isMine: false,
-    canAct: false,
-    canCancel: false,
-    myDecision: 'approved',
-  },
-];
 
 function AvatarBadge({ name, color, size = 34 }: { name: string; color?: string; size?: number }) {
   const initials = name
@@ -541,7 +408,7 @@ export function RequestForm({ onSuccess }: { onSuccess?: () => void }) {
 
       {/* Dynamic Levels Builder */}
       <View style={{ gap: 12 }}>
-        {levels.map((level, index) => {
+        {levels.map((level) => {
           const isSearchOpen = activeSearchLevelId === level.id;
           const hasApprovers = level.approvers.length > 0;
 
@@ -1112,7 +979,8 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
   const [filter, setFilter] = useState<'all' | ApprovalStatus>('pending');
   const [selected, setSelected] = useState<Approval | null>(null);
   const [loadError, setLoadError] = useState(false);
-  // The demo rows a failed load falls back to must never reach the tab badge.
+  const [refreshing, setRefreshing] = useState(false);
+  // Whether `approvals` is the server's list. Only that may reach the tab badge.
   const fromServer = useRef(false);
   // Ids ticked for a bulk decision. A reload that settles a request simply stops matching it, so a
   // decided row can never linger in the count.
@@ -1122,35 +990,42 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
   const [rejecting, setRejecting] = useState<QueueItem | 'bulk' | null>(null);
   const [note, setNote] = useState('');
 
-  const load = useCallback(() => {
-    setLoadError(false);
-    listApprovals('all')
+  // A failed load used to fill the list with two made-up requests (one with an Approve button) — on
+  // a bad connection they read as real approvals (Afshin, 2026-11-17). Now it says it could not load:
+  // the last real list stays if there was one, otherwise the list is empty; pull down to retry.
+  const load = useCallback((): Promise<void> => {
+    const requests = listApprovals('all')
       .then((response) => {
         fromServer.current = true;
         setApprovals(response.items ?? []);
         setLoadError(false);
       })
       .catch(() => {
-        fromServer.current = false;
-        setApprovals(DEMO_APPROVALS);
-        setLoadError(false);
+        setApprovals((current) => (fromServer.current ? current : []));
+        setLoadError(true);
       });
     // Attendance time corrections belong in this queue too — they are decisions waiting on the same
     // person. The endpoint is super-admin only and 403s everyone else, so a failure here is the
     // normal case for most viewers and simply means "no corrections to show".
-    if (!includeCorrections) { setCorrections([]); return; }
-    Promise.all([
+    if (!includeCorrections) { setCorrections([]); return requests; }
+    const corrected = Promise.all([
       getRegularizationsForAdmin('pending').catch(() => [] as Regularization[]),
       getRegularizationsForAdmin('approved').catch(() => [] as Regularization[]),
       getRegularizationsForAdmin('rejected').catch(() => [] as Regularization[]),
     ])
       .then((sets) => setCorrections(sets.flat()))
       .catch(() => setCorrections([]));
+    return Promise.all([requests, corrected]).then(() => undefined);
   }, [includeCorrections]);
+
+  const pullToRefresh = useCallback(() => {
+    setRefreshing(true);
+    void load().finally(() => setRefreshing(false));
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      void load();
     }, [load])
   );
 
@@ -1236,7 +1111,7 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
         setRejecting(null);
         setNote('');
         setSelected(null);
-        load();
+        void load();
       })
       .catch((error) => showToast(error instanceof ApiError ? error.message : 'Could not record the decision'))
       .finally(() => setBusyId(null));
@@ -1273,7 +1148,7 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
     setNote('');
     const verb = action === 'approve' ? 'Approved' : 'Rejected';
     showToast(done === list.length ? `${verb} ${done}` : `${verb} ${done} of ${list.length}`);
-    load();
+    void load();
   };
 
   const confirmMany = (action: 'approve' | 'reject') => {
@@ -1359,7 +1234,13 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
         })}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pullToRefresh} tintColor={colors.primary} />}>
+        {loadError && groups.length ? (
+          <View style={styles.loadErrorBanner}>
+            <Text style={styles.loadErrorText}>Could not refresh your approvals. Pull down to try again.</Text>
+          </View>
+        ) : null}
         {groups.length ? (
           groups.map((group) => (
             <View key={group.userId}>
@@ -1402,7 +1283,7 @@ function Inbox({ showTitle = true, includeCorrections = true }: { showTitle?: bo
             <Text style={styles.heading}>{loadError ? 'Something went wrong' : 'No approval requests'}</Text>
             <Text style={styles.subheading}>
               {loadError
-                ? 'We could not load your approvals right now. Please try again.'
+                ? 'We could not load your approvals right now. Pull down to try again.'
                 : filter === 'all'
                 ? 'There are currently no approval requests assigned to you.'
                 : `There are no ${statusMeta(filter as ApprovalStatus).label.toLowerCase()} approval requests at the moment.`}
@@ -1505,11 +1386,31 @@ export default function ApprovalsScreen() {
   useEffect(() => { if (openTab) setMode('erp'); }, [openTab]);
   // Only one of the two lists is on screen, so the badge refetches both parts whenever the tab opens.
   useFocusEffect(useCallback(() => { void useApprovalBadgeStore.getState().refresh(); void useOwnerReviewStore.getState().refresh(); }, []));
+  // Coming back to the tab after "could not load" asks the ERP again by itself — on focus only (read
+  // through a ref, so a failed retry does not re-run this and retry in a loop while offline).
+  const erpNow = useRef(erp);
+  erpNow.current = erp;
+  useFocusEffect(useCallback(() => { if (erpNow.current.state === 'error') erpNow.current.retry(); }, []));
   if (erp.state === 'checking') {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.header}><Text style={styles.headerTitle}>Approvals</Text></View>
         <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
+  if (erp.state === 'error') {
+    // The ERP check could not be made (no connection, timeout, server error). Say so above the app's
+    // own requests and offer to ask again — rather than quietly showing no ERP approvals, as a bad
+    // connection on Afshin's phone did (2026-11-17). Every new look at the tab asks again too.
+    return (
+      <SafeAreaView style={styles.screen}>
+        <Pressable onPress={() => erp.retry()} accessibilityRole="button" accessibilityLabel="Could not load ERP approvals. Tap to try again."
+          style={styles.erpErrorBanner}>
+          <Text style={styles.erpErrorTitle}>Could not load your ERP approvals</Text>
+          <Text style={styles.erpErrorText}>Check your connection, then tap here to try again.</Text>
+        </Pressable>
+        <Inbox />
       </SafeAreaView>
     );
   }
@@ -2016,6 +1917,11 @@ const styles = {
   statusText: { fontSize: 10.5, fontWeight: '800' as const },
 
   emptyState: { alignItems: 'center' as const, paddingTop: 48 },
+  loadErrorBanner: { marginHorizontal: 16, marginTop: 10, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#FDECEC' },
+  loadErrorText: { color: '#B42318', fontSize: 13, fontWeight: '600' as const, lineHeight: 18 },
+  erpErrorBanner: { marginHorizontal: 16, marginTop: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#FDECEC' },
+  erpErrorTitle: { color: '#B42318', fontSize: 14, fontWeight: '700' as const },
+  erpErrorText: { color: '#B42318', fontSize: 12.5, marginTop: 2 },
   emptyIcon: {
     width: 72,
     height: 72,

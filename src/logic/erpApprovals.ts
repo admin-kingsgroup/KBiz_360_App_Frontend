@@ -279,3 +279,14 @@ export function money(amount: number | undefined, currency?: string): string {
   const sym = cur === 'INR' ? '₹' : cur === 'USD' ? '$' : cur ? `${cur} ` : '';
   return `${sym}${n}`;
 }
+
+/**
+ * Why the ERP check (status → whoami) failed: the ERP's own answer that this person has no ERP
+ * approvals (403 / 404) — or the app could not ask: no connection, a timeout, a session that would
+ * not renew, a server error. Only the first hides the ERP section; the second is said on screen and
+ * asked again (Afshin's phone on a bad connection, 2026-11-17, lost its ERP approvals without a word).
+ */
+export function erpCheckFailure(e: unknown): 'none' | 'error' {
+  const status = typeof e === 'object' && e !== null && 'status' in e ? Number((e as { status: unknown }).status) : NaN;
+  return status === 403 || status === 404 ? 'none' : 'error';
+}
