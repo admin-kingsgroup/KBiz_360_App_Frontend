@@ -1,4 +1,4 @@
-import { isWideWidth, splitPanes, WIDE_MIN_WIDTH, type RegionLike } from '../logic/wideLayout';
+import { isCompactHeight, isWideWidth, listRange, snapListWidth, splitPanes, WIDE_MIN_WIDTH, type RegionLike } from '../logic/wideLayout';
 
 // The two-pane Chats view (list | conversation) on a wide window — the iPhone Duo opened.
 
@@ -42,9 +42,49 @@ describe('splitPanes', () => {
     expect(splitPanes(626, [fold(0)]).onFold).toBe(false);
   });
 
-  it('without a reported fold, gives the list 40% held between 300 and 420 points', () => {
-    expect(splitPanes(626, [])).toEqual({ list: 300, gap: 0, onFold: false }); // 250 → 300
-    expect(splitPanes(900, [])).toEqual({ list: 360, gap: 0, onFold: false });
-    expect(splitPanes(1366, [])).toEqual({ list: 420, gap: 0, onFold: false }); // 546 → 420
+  it('without a reported fold, gives the list 42%, at least 320 and at most 460 points', () => {
+    expect(splitPanes(867, [])).toEqual({ list: 364, gap: 0, onFold: false }); // the Duo opened, less the side strip
+    expect(splitPanes(900, [])).toEqual({ list: 378, gap: 0, onFold: false });
+    expect(splitPanes(1366, [])).toEqual({ list: 460, gap: 0, onFold: false }); // 574 → 460
+    expect(splitPanes(626, [])).toEqual({ list: 313, gap: 0, onFold: false }); // too narrow for both minimums: halves
+  });
+
+  it('uses the width the person dragged the divider to, kept as a share of the window', () => {
+    expect(splitPanes(867, [], 0.5).list).toBe(434);
+    expect(splitPanes(1000, [], 0.5).list).toBe(500); // the same share on a wider window
+  });
+
+  it('still meets on the hinge when half-folded, whatever width was chosen flat', () => {
+    expect(splitPanes(626, [fold(313)], 0.7)).toEqual({ list: 313, gap: 0, onFold: true });
+  });
+});
+
+describe('dragging the divider', () => {
+  it('keeps the list at least 320 points and the chat at least 360', () => {
+    expect(listRange(867)).toEqual({ min: 320, max: 507 });
+    expect(snapListWidth(100, 867)).toBe(320);
+    expect(snapListWidth(800, 867)).toBe(507);
+  });
+
+  it('snaps to the middle when let go near it', () => {
+    expect(snapListWidth(440, 867)).toBe(434); // within 16 pt of 433.5
+    expect(snapListWidth(400, 867)).toBe(400); // too far: stays where it was let go
+  });
+
+  it('halves a window too narrow for both minimums', () => {
+    expect(listRange(626)).toEqual({ min: 313, max: 313 });
+  });
+});
+
+describe('isCompactHeight', () => {
+  it('gives both iPhone Duo screens and an iPhone SE the compact chrome', () => {
+    expect(isCompactHeight(669)).toBe(true); // Duo opened, held sideways
+    expect(isCompactHeight(678)).toBe(true); // Duo closed
+    expect(isCompactHeight(667)).toBe(true); // iPhone SE
+  });
+
+  it('keeps the full header and branch tiles on every other iPhone', () => {
+    expect(isCompactHeight(844)).toBe(false);
+    expect(isCompactHeight(956)).toBe(false);
   });
 });

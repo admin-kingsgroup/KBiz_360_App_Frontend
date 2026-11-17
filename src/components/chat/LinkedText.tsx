@@ -1,3 +1,4 @@
+import { textStyles } from '../../theme/typography';
 import type { ReactNode } from 'react';
 import { Fragment } from 'react';
 import { Text, View, Linking, Platform } from 'react-native';
@@ -70,7 +71,7 @@ export function LinkedText({ text, style, linkColor, mentionNames, mentionColor,
           case 'code':
             return (
               <View key={i} style={{ backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 6, paddingVertical: 6, marginVertical: 3 }}>
-                <Text style={[style, { fontFamily: MONO, fontSize: 13 }]}>{b.text}</Text>
+                <Text style={[style, { fontFamily: MONO, fontSize: textStyles.subheadline.fontSize }]}>{b.text}</Text>
               </View>
             );
           case 'bullet':
@@ -103,7 +104,7 @@ function runStyle(s: InlineStyle): TextStyle {
   if (s.bold) st.fontWeight = '700';
   if (s.italic) st.fontStyle = 'italic';
   if (s.strike) st.textDecorationLine = 'line-through';
-  if (s.mono) { st.fontFamily = MONO; st.fontSize = 13; st.backgroundColor = 'rgba(0,0,0,0.06)'; }
+  if (s.mono) { st.fontFamily = MONO; st.fontSize = textStyles.subheadline.fontSize; st.backgroundColor = 'rgba(0,0,0,0.06)'; }
   return st;
 }
 

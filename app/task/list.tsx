@@ -11,23 +11,26 @@ import { TaskRow } from '../../src/components/tasks/TaskRow';
 
 // The tasks behind a dashboard number. The dashboard counts over view=all (everything this person may
 // see), so the list asks for exactly that with the same flag, person and branch — the two always agree.
+// From Tasks › People (assignee=1) it is that person's own tasks: the server's person filter also
+// matches the tasks they GAVE, so those are dropped here and the list matches the count on the row.
 
 const FLAG: Record<string, TaskFlag | undefined> = { overdue: 'overdue', dueToday: 'due_today', check: 'waiting_check', open: undefined };
 
 export default function TaskDrillList() {
   const router = useRouter();
   const meId = useAuthStore((s) => s.user?.id) ?? '';
-  const { metric = 'open', personId, branchId, title } = useLocalSearchParams<{ metric?: string; personId?: string; branchId?: string; title?: string }>();
+  const { metric = 'open', personId, branchId, title, assignee } = useLocalSearchParams<{ metric?: string; personId?: string; branchId?: string; title?: string; assignee?: string }>();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setTasks(await listTasks({ view: 'all', state: 'open', flag: FLAG[metric], ...(personId ? { personId } : {}), ...(branchId ? { branchId } : {}) }));
+      const found = await listTasks({ view: 'all', state: 'open', flag: FLAG[metric], ...(personId ? { personId } : {}), ...(branchId ? { branchId } : {}) });
+      setTasks(assignee && personId ? found.filter((t) => t.assignedTo.id === personId) : found);
       setError('');
     } catch { setError('Could not load these tasks. Pull down to retry.'); }
-  }, [metric, personId, branchId]);
+  }, [metric, personId, branchId, assignee]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const sections = useMemo(() => groupMine(tasks ?? []).map((g) => ({ key: g.key, title: g.title, data: g.tasks })), [tasks]);

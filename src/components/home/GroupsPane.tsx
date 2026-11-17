@@ -1,14 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
-import { Modal } from '../ui/Modal';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronDown, LayoutGrid } from 'lucide-react-native';
+import { View, ScrollView } from 'react-native';
+import { AnchoredMenu, MenuHeading, anchorOfPress, type AnchorRect } from '../ui/AnchoredMenu';
+import { PickChip, PickRow, PickTile, plural } from './PickMenu';
+import { useFocusEffect } from 'expo-router';
+import { Building2 } from 'lucide-react-native';
 import { SkeletonList } from '../ui';
 import { GroupsList } from './GroupsList';
 import { useChatListPalette, type ChatListPalette } from '../../theme';
 import { oneLine } from '../../logic/text';
-import { tintForCode } from '../../logic/chatTile';
 import { OTHER_CHIP } from '../../logic/groupFiling';
 import { groupBizId, scopeCounts, withSender, type ScopeCounts } from '../../logic/groupsStrip';
 import { relTime } from '../../utils/time';
@@ -21,24 +20,27 @@ import { useAccessStore } from '../../store/accessStore';
 import { useUiStore } from '../../store/uiStore';
 import { useMessagingStore } from '../../store/messagingStore';
 
-const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
-
 interface BizOption { id: string; code: string; name: string; counts: ScopeCounts }
 
 // The Chats tab's Groups chip — every group the user belongs to, filed by business and branch.
-// Layout = option 6B of the redesign canvas (picked 2026-10-07): the business is a title you tap to
-// switch (a sheet lists them with their counts), and the branches are a strip of tiles in GroupsList.
-// The title replaced a row of business pills that looked exactly like the All/Unread/Groups chips
-// above it and the branch chips below it — three rows of the same pill, three levels of filter.
-export function GroupsPane({ onLongPressGroup }: { onLongPressGroup: (conversationId: string) => void }) {
-  const router = useRouter();
-  const insets = useSafeAreaInsets(); // read out here: native insets do not reach inside a Modal
+// Above the list, one row of two dropdowns: the business here, the branch in GroupsList (owner,
+// 2026-11-17: "just like all business make drop down for branches also", then "phones too"). It
+// replaced option 6B of the redesign canvas (2026-10-07) — a business title row over a strip of 66-pt
+// branch tiles, about 150 pt of a phone's height — on every screen size.
+export function GroupsPane({ onOpenChat, openId = null, onLongPressGroup }: {
+  /** The Chats tab's opener: the right pane on a wide window, the chat screen otherwise. */
+  onOpenChat: (conversationId: string) => void;
+  /** The chat open in the right pane (wide window), marked in the list as the All rows mark it. */
+  openId?: string | null;
+  onLongPressGroup: (conversationId: string, at?: AnchorRect) => void;
+}) {
   const pal = useChatListPalette(); // the Chats tab's theme — this pane lives inside its list
   const access = useAccessStore((s) => s.access());
   const users = useAccessStore((s) => s.users);
   const activeBizId = useUiStore((s) => s.activeBizId);
   const setBiz = useUiStore((s) => s.setBiz);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // The business picker: a menu that opens from the control that was tapped (see AnchoredMenu).
+  const [menuAt, setMenuAt] = useState<AnchorRect | null>(null);
 
   // Real CRM org directory (companies/branches), access-scoped by the backend. We show the
   // real org ONLY — no mock fallback — so dummy pills/tabs never flash before the real data loads.
@@ -87,8 +89,8 @@ export function GroupsPane({ onLongPressGroup }: { onLongPressGroup: (conversati
     };
   });
 
-  // Each group's business, by the rule GroupsList files it by, for the title row and the sheet's
-  // counts. A group whose branch the directory lacks counts under the one "Other" tile it shows on.
+  // Each group's business, by the rule GroupsList files it by, for the dropdown's dot and the menu's
+  // counts. A group whose branch the directory lacks counts under the one "Other" branch it shows on.
   const branchBiz = useMemo(() => new Map(dir.branches.map((br) => [br.id, br.companyId ?? 'tk'])), [dir.branches]);
   const fallbackBiz = bizSource[0]?.id ?? 'tk';
   const placed = groupConvs.map((g) => ({
@@ -99,105 +101,65 @@ export function GroupsPane({ onLongPressGroup }: { onLongPressGroup: (conversati
   const scope = scopeCounts(placed, activeBizId);
   const options: BizOption[] = pickable.map((b) => ({ id: b.id, code: b.code, name: b.name, counts: scopeCounts(placed, b.id) }));
   const title = pickable.find((b) => b.id === activeBizId)?.name ?? 'All businesses';
+  // The business dropdown — its code, or "All businesses" — drawn first in GroupsList's row. New
+  // messages in another business show as a dot on it; the menu lists every business with its counts.
+  // Only when there is a choice to make: someone in a single business gets the branch dropdown alone.
+  const bizCode = activeBizId === 'all' ? 'All businesses' : (pickable.find((b) => b.id === activeBizId)?.code || title);
+  const bizChip = pickable.length > 1 ? (showIcon: boolean) => (
+    <PickChip pal={pal} Icon={Building2} label={bizCode} dot={scope.unreadElsewhere > 0} showIcon={showIcon}
+      a11y={`Business: ${title}. Change business${scope.unreadElsewhere > 0 ? `. ${plural(scope.unreadElsewhere, 'group', 'groups')} with new messages in other businesses` : ''}`}
+      onPress={(e) => { void anchorOfPress(e).then(setMenuAt); }} />
+  ) : null;
 
   return (
     <View>
-      {/* Which business's groups are on screen — tap to switch. Only when there is a choice to make:
-          someone in a single business gets the branch tiles alone. On the right, either the scope's
-          size or, when a business is picked and another one has new messages, how many — so
-          narrowing to one business never hides unread groups. */}
-      {pickable.length > 1 ? (
-        <View className="flex-row items-center" style={{ gap: 8, paddingLeft: 8, paddingRight: 16, paddingTop: 4, backgroundColor: pal.bar }}>
-          <Pressable onPress={() => setSheetOpen(true)} accessibilityRole="button" accessibilityLabel={`Business: ${title}. Change business`}
-            className="flex-row items-center" style={{ height: 44, flexShrink: 1, paddingLeft: 12, paddingRight: 8, gap: 4, borderRadius: 10 }}>
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: pal.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.2 }}>{title}</Text>
-            <ChevronDown size={18} color={pal.accent} />
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          {scope.unreadElsewhere > 0 ? (
-            <Pressable onPress={() => setSheetOpen(true)} hitSlop={8} accessibilityRole="button"
-              accessibilityLabel={`${plural(scope.unreadElsewhere, 'group', 'groups')} with new messages in other businesses`}
-              style={{ height: 28, paddingHorizontal: 10, borderRadius: 14, backgroundColor: pal.field, justifyContent: 'center' }}>
-              <Text style={{ color: pal.accent, fontSize: 12, fontWeight: '800' }}>{scope.unreadElsewhere} new elsewhere</Text>
-            </Pressable>
-          ) : (
-            <Text numberOfLines={1} style={{ color: pal.mute, fontSize: 12 }}>
-              {plural(scope.branches, 'branch', 'branches')} · {plural(scope.groups, 'group', 'groups')}
-            </Text>
-          )}
-        </View>
-      ) : null}
-
       {!dir.loaded ? <SkeletonList /> : (
         <GroupsList
-          activeBizId={activeBizId} access={access} serverFiltered
+          activeBizId={activeBizId} access={access} serverFiltered leading={bizChip}
           businesses={dir.businesses}
           branches={dir.branches}
           groupConversations={groupConvs}
-          onLongPressGroup={onLongPressGroup}
+          onLongPressGroup={onLongPressGroup} selectedId={openId}
           onOpen={(g) => {
-            // A group is an existing conversation — open it directly by id.
-            if (g.convId) router.push({ pathname: '/chat/[id]', params: { id: g.convId } });
+            // A group is an existing conversation — opened by id, through the tab's opener: beside the
+            // list on a wide window, like every other row. It used to push the chat screen itself,
+            // so on the Duo a group took over the whole window (owner, 2026-11-17).
+            if (g.convId) onOpenChat(g.convId);
           }}
         />
       )}
 
-      <BusinessSheet
-        open={sheetOpen} pal={pal} bottomInset={insets.bottom}
+      <BusinessMenu
+        anchor={menuAt} pal={pal}
         options={options} activeId={activeBizId}
-        onPick={(id) => { setBiz(id); setSheetOpen(false); }}
-        onClose={() => setSheetOpen(false)}
+        onPick={(id) => { setBiz(id); setMenuAt(null); }}
+        onClose={() => setMenuAt(null)}
       />
     </View>
   );
 }
 
-// Bottom sheet: pick whose groups to show. Each business carries its size and how many of its groups
-// have new messages, so the choice is made knowing where the unread are.
-function BusinessSheet({ open, pal, bottomInset, options, activeId, onPick, onClose }: {
-  open: boolean; pal: ChatListPalette; bottomInset: number; options: BizOption[]; activeId: string;
+// Pick whose groups to show — a menu that opens from the business dropdown. Each business
+// carries its size and how many of its groups have new messages, so the choice is made knowing where
+// the unread are. Was a bottom sheet over a dark scrim (owner, 2026-11-17: "remove that black thing").
+function BusinessMenu({ anchor, pal, options, activeId, onPick, onClose }: {
+  anchor: AnchorRect | null; pal: ChatListPalette; options: BizOption[]; activeId: string;
   onPick: (id: string) => void; onClose: () => void;
 }) {
-  if (!open) return null;
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={() => undefined} style={{ backgroundColor: pal.bar, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: Math.max(24, bottomInset + 12) }}>
-          <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: pal.line }} /></View>
-          <Text style={{ color: pal.text, fontSize: 17, fontWeight: '800', paddingHorizontal: 20, paddingTop: 4, paddingBottom: 10 }}>Show groups of</Text>
-          <ScrollView style={{ flexGrow: 0, maxHeight: 460 }}>
-            {options.map((o) => {
-              const on = o.id === activeId;
-              const tint = o.id === 'all' ? null : tintForCode(o.code);
-              return (
-                <Pressable key={o.id} onPress={() => onPick(o.id)} accessibilityRole="radio" accessibilityState={{ checked: on }}
-                  accessibilityLabel={`${o.name}, ${plural(o.counts.groups, 'group', 'groups')}${o.counts.unread ? `, ${o.counts.unread} with new messages` : ''}`}
-                  className="flex-row items-center" style={{ gap: 12, minHeight: 64, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: on ? pal.field : 'transparent' }}>
-                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: tint ? tint.bg : pal.field, alignItems: 'center', justifyContent: 'center' }}>
-                    {tint
-                      ? <Text numberOfLines={1} style={{ color: tint.fg, fontSize: 11.5, fontWeight: '800' }}>{o.code.slice(0, 4)}</Text>
-                      : <LayoutGrid size={19} color={pal.text} />}
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text numberOfLines={1} style={{ color: pal.text, fontSize: 15, fontWeight: '700' }}>{o.name}</Text>
-                    <Text numberOfLines={1} style={{ color: pal.mute, fontSize: 12.5, marginTop: 1 }}>
-                      {plural(o.counts.branches, 'branch', 'branches')} · {plural(o.counts.groups, 'group', 'groups')}
-                    </Text>
-                  </View>
-                  {o.counts.unread > 0 ? (
-                    <View style={{ minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: pal.accent, alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ color: pal.onAccent, fontSize: 11, fontWeight: '700' }}>{o.counts.unread}</Text>
-                    </View>
-                  ) : null}
-                  <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? pal.accent : pal.line, alignItems: 'center', justifyContent: 'center' }}>
-                    {on ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: pal.accent }} /> : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <AnchoredMenu anchor={anchor} onClose={onClose} width={340} background={pal.bar} border={pal.line} label="Show groups of">
+      <MenuHeading color={pal.mute}>Show groups of</MenuHeading>
+      <ScrollView style={{ flexGrow: 0 }} bounces={false}>
+        {options.map((o, i) => (
+          <PickRow key={o.id} pal={pal} index={i} animate={!!anchor} on={o.id === activeId}
+            tile={<PickTile pal={pal} code={o.id === 'all' ? undefined : o.code} />}
+            title={o.name} sub={`${plural(o.counts.branches, 'branch', 'branches')} · ${plural(o.counts.groups, 'group', 'groups')}`}
+            unread={o.counts.unread}
+            a11y={`${o.name}, ${plural(o.counts.groups, 'group', 'groups')}${o.counts.unread ? `, ${o.counts.unread} with new messages` : ''}`}
+            onPress={() => onPick(o.id)} />
+        ))}
+        <View style={{ height: 6 }} />
+      </ScrollView>
+    </AnchoredMenu>
   );
 }

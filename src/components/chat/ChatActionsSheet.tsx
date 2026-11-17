@@ -1,5 +1,6 @@
-import { Pressable, View, Text, StyleSheet, Alert } from 'react-native';
-import { Modal } from '../ui/Modal';
+import { useRef } from 'react';
+import { Alert, useWindowDimensions } from 'react-native';
+import { AnchoredMenu, MenuHeading, MenuItem, type AnchorRect } from '../ui/AnchoredMenu';
 import { BellOff, Bell, Pin, PinOff, Archive, ArchiveRestore, CheckCheck, Trash2, MessageSquareX } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { useMessagingStore } from '../../store/messagingStore';
@@ -10,6 +11,8 @@ import type { ChatConversation } from '../../api/chat';
 // archive, mark read, clear stored messages, delete a one-to-one chat. Everything here is personal to
 // the signed-in user — muting a group mutes it for you, not for the group; deleting a chat deletes it
 // for you, not for the other person. (Groups: Leave / Delete group live in Group info.)
+// It opens as a menu beside the pressed row, at the finger (AnchoredMenu) — it was a bottom sheet over
+// a dark scrim (owner, 2026-11-17). `at` is where the row was; without it the menu opens mid-screen.
 
 const MUTE_CHOICES: { label: string; hours: number | null }[] = [
   { label: '8 hours', hours: 8 },
@@ -17,8 +20,13 @@ const MUTE_CHOICES: { label: string; hours: number | null }[] = [
   { label: 'Always', hours: null },
 ];
 
-export function ChatActionsSheet({ conv, onClose }: { conv: ChatConversation | null; onClose: () => void }) {
-  if (!conv) return null;
+export function ChatActionsSheet({ conv: open, at, onClose }: { conv: ChatConversation | null; at?: AnchorRect | null; onClose: () => void }) {
+  const { width: winW, height: winH } = useWindowDimensions();
+  // The last chat shown stays drawn while the menu fades out after it is closed.
+  const last = useRef<{ conv: ChatConversation; at?: AnchorRect | null } | null>(null);
+  if (open) last.current = { conv: open, at };
+  if (!last.current) return null;
+  const conv = last.current.conv;
   const store = useMessagingStore.getState;
   const muted = !!conv.muted;
   const pinned = !!conv.pinned;
@@ -64,21 +72,14 @@ export function ChatActionsSheet({ conv, onClose }: { conv: ChatConversation | n
     { key: 'clear', label: 'Clear from this phone', Icon: Trash2, danger: true, onPress: clearStored },
   ];
 
+  const anchor = open ? (last.current.at ?? { x: winW / 2 - 140, y: winH / 3, width: 280, height: 0 }) : null;
+  const menuColors = { text: colors.ink, mute: colors.coolText, danger: colors.danger, pressed: colors.coolMuted, divider: colors.coolDivider };
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, paddingTop: 8 }}>
-          <View style={{ alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: colors.coolDivider, marginBottom: 8 }} />
-          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: '700', paddingHorizontal: 20, paddingBottom: 10 }}>{conv.name}</Text>
-          {rows.map((r, i) => (
-            <Pressable key={r.key} onPress={r.onPress} android_ripple={{ color: colors.coolMuted }}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14, borderTopWidth: i === 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: colors.coolDivider }}>
-              <r.Icon size={20} color={r.danger ? colors.danger : colors.coolText} />
-              <Text style={{ color: r.danger ? colors.danger : colors.ink, fontSize: 15.5 }}>{r.label}</Text>
-            </Pressable>
-          ))}
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <AnchoredMenu anchor={anchor} onClose={onClose} width={280} background={colors.card} border={colors.coolDivider} label={`Actions for ${conv.name}`}>
+      <MenuHeading color={colors.coolText}>{conv.name}</MenuHeading>
+      {rows.map((r, i) => (
+        <MenuItem key={r.key} index={i} label={r.label} Icon={r.Icon} danger={'danger' in r && !!r.danger} onPress={r.onPress} colors={menuColors} />
+      ))}
+    </AnchoredMenu>
   );
 }

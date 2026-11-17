@@ -222,3 +222,15 @@ function fmtIso(v: string): string {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
+
+// The chat badge on task cards and the task page (owner, 2026-11-17): red until someone has WRITTEN in
+// the task's chat, green after. Starting the chat is not enough: that only posts the app's own notice
+// ("X started a chat about this task"), as do status changes — those are 'system' messages.
+// The server says so per task (chatHasMessages); the chat list's last message turns it green at once
+// when someone writes while the list is open (and stands in for older servers).
+export const TASK_CHAT_COLORS = {
+  started: { fg: '#15803D', bg: '#DCFCE7' },
+  none: { fg: '#DC2626', bg: '#FDECEC' },
+} as const;
+export const taskChatStarted = (t: Pick<Task, 'chatId' | 'chatHasMessages'>, lastMessageType?: string | null): boolean =>
+  !!t.chatId && (t.chatHasMessages === true || (!!lastMessageType && lastMessageType !== 'system'));

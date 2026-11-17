@@ -1,9 +1,8 @@
+import { textStyles } from '../../theme/typography';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
-import { Modal } from '../ui/Modal';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUpDown, ChevronDown, ChevronUp, LayoutGrid, Lock, MessageCircle, X } from 'lucide-react-native';
+import { useRef, useState } from 'react';
+import { View, Text, Pressable, ScrollView, type GestureResponderEvent } from 'react-native';
+import { ArrowUpDown, ChevronDown, ChevronUp, FolderOpen, Lock, MapPin, MessageCircle, X } from 'lucide-react-native';
 import { colors, useChatListPalette, type ChatListPalette } from '../../theme';
 import { ChatListItem } from '../chat';
 import { businesses as mockBusinesses, branches as mockBranches } from '../../data/businesses';
@@ -11,8 +10,9 @@ import { makeAccessFilters } from '../../logic/accessFilters';
 import { applyBranchOrder, moveCode } from '../../logic/branchOrder';
 import { OTHER_CHIP, splitUnfiledGroups } from '../../logic/groupFiling';
 import { mergeBranchChips } from '../../logic/branchChips';
-import { ALL_BRANCHES, orderGroups, resolveStripPick, stripBranchPrefix } from '../../logic/groupsStrip';
-import { tintForCode } from '../../logic/chatTile';
+import { ALL_BRANCHES, orderGroups, resolveStripPick, stripBranchPrefix, unreadOutsidePick } from '../../logic/groupsStrip';
+import { AnchoredMenu, MenuHeading, MenuItem, anchorOfPress, type AnchorRect } from '../ui/AnchoredMenu';
+import { PickChip, PickRow, PickTile, plural } from './PickMenu';
 import { useBranchOrderStore } from '../../store/branchOrderStore';
 import { tzTime } from '../../utils/time';
 import type { AccessControl, Business, Branch } from '../../types';
@@ -32,17 +32,27 @@ interface GItem extends GroupConv { bizId: string; branchId: string; branchCode?
 interface Sub { code: string; city: string; color: string; time: string; flag: string; items: GItem[]; }
 interface Block { id: string; label: string; color: string; subs: Sub[]; }
 
-// Groups segment. Data via props (real CRM directory) with a mock fallback. A strip of branch tiles
-// (option 6B on the redesign canvas, picked 2026-10-07) that opens on "All", then the groups of the
-// picked tile. `serverFiltered` skips client access filters (the backend already scoped the rows).
-// View-As-aware otherwise. The business is picked one level up, in GroupsPane.
+// Under this row width the business and branch dropdowns drop their icons. Each chip spends 56 pt on
+// padding, icon and chevron; "All businesses" and "All branches" need ~180 pt between them. At the
+// narrowest list (320 pt, the two-pane minimum) the icons are what cut the labels to "All busines…".
+const ROOMY_ROW = 360;
+
+// Groups segment. Data via props (real CRM directory) with a mock fallback. A branch dropdown that
+// opens on "All branches", then the groups of the picked branch. `serverFiltered` skips client access
+// filters (the backend already scoped the rows). View-As-aware otherwise. The business is picked one
+// level up, in GroupsPane, with a dropdown drawn first in the same row (`leading`).
 export function GroupsList({
-  activeBizId, access, onOpen, onLongPressGroup,
+  activeBizId, access, onOpen, onLongPressGroup, selectedId = null,
   businesses = mockBusinesses, branches = mockBranches, serverFiltered = false, groupConversations = [],
+  leading = null,
 }: {
   activeBizId: string; access: AccessControl | null; onOpen: (g: GroupOpen) => void;
+  /** Drawn first in the dropdown row — GroupsPane's business dropdown, told whether to show its icon. */
+  leading?: ((showIcon: boolean) => ReactNode) | null;
+  /** The chat open in the right pane (wide window) — its row is marked, as on the All list. */
+  selectedId?: string | null;
   /** Long-press a group row → the mute/pin/archive sheet. */
-  onLongPressGroup?: (conversationId: string) => void;
+  onLongPressGroup?: (conversationId: string, at?: AnchorRect) => void;
   businesses?: Business[]; branches?: Branch[]; serverFiltered?: boolean; groupConversations?: GroupConv[];
 }) {
   const f = makeAccessFilters(access);
@@ -51,14 +61,28 @@ export function GroupsList({
   const bizOK: typeof f.bizOK = serverFiltered ? yes : f.bizOK;
   const brOK: typeof f.brOK = serverFiltered ? yes : f.brOK;
   const branchesForBiz = (bizId: string): Branch[] => branches.filter((br) => (br.companyId ?? 'tk') === bizId);
-  // Picked tile, remembered per business ('all' included) — defaults to the All tile, so every
-  // unread group is on screen until someone narrows it. ONE strip for everything on screen.
+  // Picked branch, remembered per business ('all' included) — defaults to All branches, so every
+  // unread group is on screen until someone narrows it. ONE pick for everything on screen.
   const [selBranch, setSelBranch] = useState<Record<string, string>>({});
   const p = useChatListPalette(); // painted with the Chats tab's theme, like the rows below
   // Personal chip arrangement (device-local, per business pill — 'all' has its own) + whether the
   // arrange sheet is open.
   const chipOrder = useBranchOrderStore((s) => s.order);
-  const [arranging, setArranging] = useState(false);
+  // The arrange card, open at the control that opened it (the arrange button or a long-pressed chip).
+  const [arranging, setArranging] = useState<AnchorRect | null>(null);
+  const openArrange = (e: GestureResponderEvent): void => { void anchorOfPress(e).then(setArranging); };
+  // The dropdown row's width: under ROOMY_ROW the two dropdowns drop their icons (see below).
+  const [rowW, setRowW] = useState(0);
+  const roomy = rowW === 0 || rowW >= ROOMY_ROW;
+  // The branch dropdown's menu, open at the dropdown.
+  const [branchMenuAt, setBranchMenuAt] = useState<AnchorRect | null>(null);
+  // "Arrange branches" from that menu: the arrange card opens where the menu was, once the menu has
+  // faded out (one AnchoredMenu at a time — each is its own Modal).
+  const arrangeFromMenu = (): void => {
+    const at = branchMenuAt;
+    setBranchMenuAt(null);
+    setTimeout(() => setArranging(at), 250);
+  };
 
   // The Groups list shows the real group chats the user belongs to, grouped by branch — opened
   // directly by conversation id. New groups are created via the "+" New group action.
@@ -89,17 +113,19 @@ export function GroupsList({
     return { id: b.id, label: b.name, color: b.color, subs };
   });
   const allItems = blocks.flatMap((bl) => bl.subs.flatMap((s) => s.items));
-  // The tiles: every branch that has groups, across every business on screen, in the user's own
-  // arrangement (long-press a tile, or the ⇅ button, to change it). With one business picked this is
+  // The branches: every branch that has groups, across every business on screen, in the user's own
+  // arrangement ("Arrange branches" in the branch menu, or hold the dropdown, to change it). With one business picked this is
   // just that business's branches; under "All businesses" it spans them all, so picking BOM leaves
   // only BOM's groups on screen — not BOM for one business and whatever the others defaulted to.
   const chips = applyBranchOrder(mergeBranchChips(blocks), chipOrder[activeBizId]);
-  // A single tile filters nothing, so with one branch the strip is not drawn and All is all there is.
+  // A single branch filters nothing, so with one branch there is no dropdown and All is all there is.
   const pick = chips.length > 1 ? resolveStripPick(chips.map((s) => s.code), selBranch[activeBizId]) : ALL_BRANCHES;
   const active = pick === ALL_BRANCHES ? null : chips.find((s) => s.code === pick) ?? null;
   const shown = orderGroups(active ? active.items : allItems);
   const unreadOf = (items: GItem[]): number => items.filter((g) => (g.unread || 0) > 0).length;
   const pickTile = (code: string): void => setSelBranch((m) => ({ ...m, [activeBizId]: code }));
+  const elsewhere = unreadOutsidePick(chips.map((s) => ({ code: s.code, unread: unreadOf(s.items) })), pick);
+  const pickLabel = !active ? 'All branches' : active.code === OTHER_CHIP ? 'Other' : active.code;
   const arrangeBlock: Block = { id: activeBizId, label: activeBizId === 'all' ? 'All businesses' : (bizBase[0]?.name ?? ''), color: colors.ink, subs: chips };
 
   if (allItems.length === 0) {
@@ -114,7 +140,7 @@ export function GroupsList({
   // initials on a colour hashed off the conversation id.
   // The member count has no slot in that row; it lives on the group's own info screen, which is
   // where someone actually goes to ask it.
-  // Under a branch tile the name drops the code that tile (and the row's own tile) already shows.
+  // Under a picked branch the name drops the code the dropdown (and the row's own tile) already shows.
   const GroupRow = (g: GItem) => (
     <ChatListItem
       key={g.id}
@@ -134,137 +160,151 @@ export function GroupsList({
         lastStatus: g.lastStatus,
         branchCode: g.branchCode ?? null,
       }}
+      selected={!!selectedId && g.convId === selectedId}
       onPress={() => onOpen({ id: g.id, name: g.name, bizId: g.bizId, branchId: g.branchId, branchCode: g.branchCode, convId: g.convId })}
-      onLongPress={() => g.convId && onLongPressGroup?.(g.convId)}
+      onLongPress={(e) => { const id = g.convId; if (id && onLongPressGroup) void anchorOfPress(e, { atFinger: true }).then((at) => onLongPressGroup(id, at)); }}
     />
   );
 
   return (
     <View>
-      {/* Branch tiles — ONE strip for the whole list, opening on All. A tile is the branch's code on
-          the same code-keyed tint as the rows' own tiles, with the city under it; the badge is the
-          number of the branch's GROUPS with unread (chats, not messages — the unit every badge in
-          the app uses). Only drawn with more than one branch: a single tile filters nothing. */}
-      {chips.length > 1 ? (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled
-        style={{ flexGrow: 0, backgroundColor: p.bar, borderBottomWidth: 1, borderBottomColor: p.line }}
-        contentContainerStyle={{ gap: 6, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12, alignItems: 'flex-start' }}>
-        <BranchTile p={p} label="All" selected={!active} unread={unreadOf(allItems)}
-          a11y="All branches" onPress={() => pickTile(ALL_BRANCHES)} onLongPress={() => setArranging(true)} />
-        <View style={{ width: 1, height: 44, marginTop: 11, marginHorizontal: 3, backgroundColor: p.line }} />
-        {chips.map((s) => {
-          const label = s.code === OTHER_CHIP ? 'Other' : (s.city || s.code);
-          return (
-            <BranchTile key={s.code} p={p} code={s.code} label={label} selected={active?.code === s.code} unread={unreadOf(s.items)}
-              a11y={s.code === OTHER_CHIP ? 'Other groups' : `${s.code}${s.city ? `, ${s.city}` : ''}`}
-              onPress={() => pickTile(s.code)} onLongPress={() => setArranging(true)} />
-          );
-        })}
-        {/* Arrange — reorder the tiles to taste (long-pressing any tile opens the same sheet). */}
-        <Pressable onPress={() => setArranging(true)} accessibilityRole="button" accessibilityLabel="Arrange branches"
-          style={{ height: 34, width: 34, marginTop: 16, marginLeft: 2, borderRadius: 17, borderWidth: 1, borderColor: p.line, backgroundColor: p.bar, alignItems: 'center', justifyContent: 'center' }}>
-          <ArrowUpDown size={15} color={p.text} />
-        </Pressable>
-      </ScrollView>
+      {/* The business and the branch: two dropdowns in ONE row, on every screen size (owner,
+          2026-11-17: "just like all business make drop down for branches also", then "phones
+          too"). They replaced a business title row over a strip of 66-pt branch tiles on phones
+          (~150 pt) and a scrolling row of branch chips on short windows. The branch menu lists each
+          branch's unread groups; the dropdown dots itself when a branch not on screen has some. */}
+      {chips.length > 1 || leading ? (
+        <View onLayout={(e) => setRowW(Math.round(e.nativeEvent.layout.width))}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10,
+            backgroundColor: p.bar, borderBottomWidth: 1, borderBottomColor: p.line }}>
+          {leading?.(roomy)}
+          {chips.length > 1 ? (
+            <PickChip pal={p} Icon={MapPin} label={pickLabel} dot={elsewhere > 0} showIcon={roomy}
+              a11y={`Branch: ${pickLabel}. Change branch${elsewhere > 0 ? `. ${plural(elsewhere, 'group', 'groups')} with new messages in other branches` : ''}`}
+              onPress={(e) => { void anchorOfPress(e).then(setBranchMenuAt); }} onLongPress={openArrange} />
+          ) : null}
+        </View>
       ) : null}
 
       {/* The picked branch in one line: its code, city and local time, and how many groups it has. */}
       {active ? (
-        <View className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 }}>
-          <Text style={{ color: p.text, fontSize: 15, fontWeight: '800' }}>{active.code === OTHER_CHIP ? 'Other' : active.code}</Text>
-          <Text numberOfLines={1} style={{ flex: 1, color: p.mute, fontSize: 12.5 }}>
+        <View className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6 }}>
+          <Text style={{ color: p.text, ...textStyles.headline }}>{active.code === OTHER_CHIP ? 'Other' : active.code}</Text>
+          <Text numberOfLines={1} style={{ flex: 1, color: p.mute, ...textStyles.footnote }}>
             {[active.code === OTHER_CHIP ? '' : active.city, active.time].filter(Boolean).join(' · ')}
           </Text>
-          <Text style={{ color: p.mute, fontSize: 12 }}>{active.items.length} group{active.items.length === 1 ? '' : 's'}</Text>
+          <Text style={{ color: p.mute, ...textStyles.footnote }}>{active.items.length} group{active.items.length === 1 ? '' : 's'}</Text>
         </View>
       ) : null}
 
-      {/* The groups of the picked tile — the chat row, full-bleed, exactly as All/Unread. Under All
-          every branch on screen is one list, newest first, so no unread group sits behind a tile. */}
+      {/* The groups of the picked branch — the chat row, full-bleed, exactly as All/Unread. Under All
+          every branch on screen is one list, newest first, so no unread group sits behind a pick. */}
       {shown.map(GroupRow)}
 
+      <BranchMenu
+        anchor={branchMenuAt} p={p} chips={chips} allItems={allItems} pick={pick}
+        onPick={(code) => { pickTile(code); setBranchMenuAt(null); }}
+        onArrange={arrangeFromMenu}
+        onClose={() => setBranchMenuAt(null)}
+      />
+
       <ArrangeBranchesSheet
-        block={arranging ? arrangeBlock : null}
-        onClose={() => setArranging(false)}
+        block={arranging ? arrangeBlock : null} anchor={arranging}
+        onClose={() => setArranging(null)}
       />
     </View>
   );
 }
 
-// Bottom sheet: put the branch chips in YOUR order (per business, this device only). Up/down moves
-// a branch one slot; the row list is the live chip order, so changes show through immediately.
-function ArrangeBranchesSheet({ block, onClose }: { block: Block | null; onClose: () => void }) {
-  const insets = useSafeAreaInsets();
+// Pick which branch's groups to show — the branch dropdown's menu, built from the same
+// parts as the business one (PickMenu). Each branch shows its city, its code, how many groups it has
+// and how many of them have new messages. The last row opens the arrange card.
+function BranchMenu({ anchor, p, chips, allItems, pick, onPick, onArrange, onClose }: {
+  anchor: AnchorRect | null; p: ChatListPalette; chips: Sub[]; allItems: GItem[]; pick: string;
+  onPick: (code: string) => void; onArrange: () => void; onClose: () => void;
+}) {
+  const unreadOf = (items: GItem[]): number => items.filter((g) => (g.unread || 0) > 0).length;
+  const allUnread = unreadOf(allItems);
+  const menuColors = { text: p.text, mute: p.mute, danger: colors.danger, pressed: p.line, divider: p.line };
+  return (
+    <AnchoredMenu anchor={anchor} onClose={onClose} width={340} background={p.bar} border={p.line} label="Show groups from">
+      <MenuHeading color={p.mute}>Show groups from</MenuHeading>
+      <ScrollView style={{ flexGrow: 0 }} bounces={false}>
+        <PickRow pal={p} index={0} animate={!!anchor} on={pick === ALL_BRANCHES}
+          tile={<PickTile pal={p} />} title="All branches"
+          sub={`${plural(chips.length, 'branch', 'branches')} · ${plural(allItems.length, 'group', 'groups')}`}
+          unread={allUnread}
+          a11y={`All branches, ${plural(allItems.length, 'group', 'groups')}${allUnread ? `, ${allUnread} with new messages` : ''}`}
+          onPress={() => onPick(ALL_BRANCHES)} />
+        {chips.map((s, i) => {
+          const other = s.code === OTHER_CHIP;
+          const unread = unreadOf(s.items);
+          const title = other ? 'Other' : (s.city || s.code);
+          // No local time here: beside a group count it reads as the last message's time. The line
+          // under the dropdowns gives it once a branch is picked.
+          const sub = `${other ? s.city : s.code} · ${plural(s.items.length, 'group', 'groups')}`;
+          return (
+            <PickRow key={s.code} pal={p} index={i + 1} animate={!!anchor} on={pick === s.code}
+              tile={other ? <PickTile pal={p} Icon={FolderOpen} /> : <PickTile pal={p} code={s.code} />}
+              title={title} sub={sub} unread={unread}
+              a11y={`${other ? 'Other groups' : `${s.code}, ${s.city}`}, ${plural(s.items.length, 'group', 'groups')}${unread ? `, ${unread} with new messages` : ''}`}
+              onPress={() => onPick(s.code)} />
+          );
+        })}
+      </ScrollView>
+      <MenuItem index={chips.length + 1} label="Arrange branches" Icon={ArrowUpDown} onPress={onArrange} colors={menuColors} />
+    </AnchoredMenu>
+  );
+}
+
+// Put the branch chips in YOUR order (per business, this device only): a card that opens from the
+// arrange button or the long-pressed chip (AnchoredMenu) — it was a bottom sheet over a dark scrim
+// (owner, 2026-11-17). Up/down moves a branch one slot; the list is the live chip order, so changes
+// show through immediately.
+function ArrangeBranchesSheet({ block: open, anchor, onClose }: { block: Block | null; anchor: AnchorRect | null; onClose: () => void }) {
   const setOrder = useBranchOrderStore((s) => s.setOrder);
   const resetOrder = useBranchOrderStore((s) => s.resetOrder);
+  // The last block shown stays drawn while the card fades out after it is closed.
+  const last = useRef<Block | null>(null);
+  if (open) last.current = open;
+  const block = last.current;
   if (!block) return null;
   const codes = block.subs.map((s) => s.code); // already in the applied (personal) order
   const move = (code: string, delta: -1 | 1): void => setOrder(block.id, moveCode(codes, code, delta));
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16) }}>
-          <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
-          <View className="flex-row items-center justify-between px-5 pb-2">
-            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Arrange branches</Text>
-            <Pressable onPress={onClose} hitSlop={9} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
-          </View>
-          <Text style={{ color: colors.textMuted, fontSize: 12.5, paddingHorizontal: 20, paddingBottom: 10 }}>The branch tiles follow this order. It is yours alone — it doesn't change anyone else's app.</Text>
-          <ScrollView style={{ flexGrow: 0, maxHeight: 420 }}>
-            {block.subs.map((s, i) => (
-              <View key={s.code} className="flex-row items-center" style={{ gap: 10, paddingHorizontal: 20, paddingVertical: 9, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
-                <Text style={{ width: 22, color: colors.textMuted2, fontSize: 12.5, fontWeight: '700' }}>{i + 1}</Text>
-                <Text style={{ flex: 1, color: colors.ink, fontSize: 14.5, fontWeight: '700' }}>
-                  {s.code}
-                  {s.city ? <Text style={{ color: colors.textMuted, fontWeight: '500' }}>  ·  {s.flag} {s.city}</Text> : null}
-                </Text>
-                <Pressable disabled={i === 0} onPress={() => move(s.code, -1)} hitSlop={6}
-                  style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: i === 0 ? 0.35 : 1 }}>
-                  <ChevronUp size={17} color={colors.ink} />
-                </Pressable>
-                <Pressable disabled={i === block.subs.length - 1} onPress={() => move(s.code, 1)} hitSlop={6}
-                  style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: i === block.subs.length - 1 ? 0.35 : 1 }}>
-                  <ChevronDown size={17} color={colors.ink} />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-          <Pressable onPress={() => resetOrder(block.id)} style={{ alignSelf: 'flex-start', marginLeft: 20, marginTop: 12, paddingHorizontal: 14, height: 34, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
-            <Text style={{ color: colors.coolText, fontSize: 13, fontWeight: '600' }}>Reset to default order</Text>
-          </Pressable>
+    <AnchoredMenu anchor={open ? anchor : null} onClose={onClose} width={360} background={colors.paper} border={colors.cardEdge} label="Arrange branches">
+      <View className="flex-row items-center justify-between" style={{ paddingLeft: 16, paddingRight: 10, paddingTop: 12, paddingBottom: 4 }}>
+        <Text style={{ color: colors.ink, ...textStyles.headline }}>Arrange branches</Text>
+        <Pressable onPress={onClose} hitSlop={9} accessibilityRole="button" accessibilityLabel="Close"
+          style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
+          <X size={14} color={colors.textMuted} />
         </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
-// One tile of the branch strip: the code on its code-keyed tint (the same tint the rows' tiles use, so
-// a BOM tile and the BOM rooms under it read as one family), the city under it, an unread badge.
-// No code = the All tile. The ring is always laid out and only coloured when picked, so picking a
-// tile never shifts the strip.
-function BranchTile({ p, code, label, selected, unread, a11y, onPress, onLongPress }: {
-  p: ChatListPalette; code?: string; label: string; selected: boolean; unread: number; a11y: string;
-  onPress: () => void; onLongPress: () => void;
-}) {
-  const tint = code ? tintForCode(code) : null;
-  return (
-    <Pressable onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityState={{ selected }}
-      accessibilityLabel={unread ? `${a11y}, ${unread} with new messages` : a11y}
-      style={{ width: 66, alignItems: 'center', gap: 5 }}>
-      <View style={{ width: 66, height: 66, borderRadius: 23, borderWidth: 2.5, borderColor: selected ? p.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: tint ? tint.bg : p.field, alignItems: 'center', justifyContent: 'center' }}>
-          {tint
-            ? <Text numberOfLines={1} style={{ color: tint.fg, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.2 }}>{code}</Text>
-            : <LayoutGrid size={22} color={p.text} />}
-        </View>
       </View>
-      <Text numberOfLines={1} style={{ maxWidth: 66, color: selected ? p.text : p.mute, fontSize: 11.5, fontWeight: selected ? '800' : '600' }}>{label}</Text>
-      {unread > 0 ? (
-        <View style={{ position: 'absolute', top: -2, right: -2, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, borderWidth: 2, borderColor: p.bar, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: p.onAccent, fontSize: 10.5, fontWeight: '700' }}>{unread > 99 ? '99+' : unread}</Text>
-        </View>
-      ) : null}
-    </Pressable>
+      <Text style={{ color: colors.textMuted, ...textStyles.footnote, paddingHorizontal: 16, paddingBottom: 8 }}>Your branches are listed in this order. It is yours alone — it doesn't change anyone else's app.</Text>
+      <ScrollView style={{ flexGrow: 0 }} bounces={false}>
+        {block.subs.map((s, i) => (
+          <View key={s.code} className="flex-row items-center" style={{ gap: 10, paddingHorizontal: 16, paddingVertical: 7, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: colors.cardEdge }}>
+            <Text style={{ width: 20, color: colors.textMuted2, ...textStyles.footnote, fontWeight: '600' }}>{i + 1}</Text>
+            <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, ...textStyles.headline }}>
+              {s.code}
+              {s.city ? <Text style={{ color: colors.textMuted, fontWeight: '500' }}>  ·  {s.flag} {s.city}</Text> : null}
+            </Text>
+            <Pressable disabled={i === 0} onPress={() => move(s.code, -1)} hitSlop={5} accessibilityRole="button" accessibilityLabel={`Move ${s.code} up`}
+              style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: i === 0 ? 0.35 : 1 }}>
+              <ChevronUp size={17} color={colors.ink} />
+            </Pressable>
+            <Pressable disabled={i === block.subs.length - 1} onPress={() => move(s.code, 1)} hitSlop={5} accessibilityRole="button" accessibilityLabel={`Move ${s.code} down`}
+              style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: i === block.subs.length - 1 ? 0.35 : 1 }}>
+              <ChevronDown size={17} color={colors.ink} />
+            </Pressable>
+          </View>
+        ))}
+      </ScrollView>
+      <Pressable onPress={() => resetOrder(block.id)} accessibilityRole="button"
+        style={{ alignSelf: 'flex-start', marginLeft: 16, marginTop: 8, marginBottom: 14, paddingHorizontal: 14, height: 34, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
+        <Text style={{ color: colors.coolText, ...textStyles.subheadline, fontWeight: '600' }}>Reset to default order</Text>
+      </Pressable>
+    </AnchoredMenu>
   );
 }
 
@@ -273,8 +313,8 @@ function Empty({ icon, title, sub }: { icon: ReactNode; title: string; sub: stri
   return (
     <View className="items-center px-6" style={{ paddingVertical: 64 }}>
       <View className="mb-3">{icon}</View>
-      <Text style={{ color: p.text, fontSize: 16, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: p.mute, fontSize: 13.5, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
+      <Text style={{ color: p.text, ...textStyles.headline }}>{title}</Text>
+      <Text style={{ color: p.mute, ...textStyles.subheadline, marginTop: 5, textAlign: 'center' }}>{sub}</Text>
     </View>
   );
 }

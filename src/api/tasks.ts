@@ -54,6 +54,9 @@ export interface Task {
   link: TaskLink | null;
   chatId: string | null;
   unread: number; // unread messages in the task's chat, for the caller (0 when not a member)
+  // Someone has written in the task's chat — not just the app's own notices. Optional: servers before
+  // 2026-11-17 do not send it, and the chat badge then reads the chat list's last message instead.
+  chatHasMessages?: boolean;
   overdue: boolean;
   isSelf: boolean;
   myRole: TaskRole;

@@ -1,13 +1,15 @@
+import { textStyles } from '../../theme/typography';
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Eye, SquarePen, UserCheck, UserX } from 'lucide-react-native';
+import { Eye, Search, SquarePen, UserCheck, UserX } from 'lucide-react-native';
 import { CreateMenu } from './CreateMenu';
 import { colors, type ChatListPalette } from '../../theme';
 import { useAccessStore } from '../../store/accessStore';
 import { useUiStore } from '../../store/uiStore';
 import { canCreateGroups } from '../../logic/groupCreate';
 import { getMyAttendance } from '../../api/attendance';
+import { useCompactChrome } from '../../hooks/useCompactChrome';
 import { ROLE_DEFS } from '../../constants/roles';
 
 // "HH:MM" wall-clock for an ISO timestamp (attendance chip).
@@ -24,7 +26,15 @@ const hhmm = (iso: string): string => {
 // Layout note: today's attendance rides the eyebrow line rather than the main row. It is a STATUS
 // ("In 09:12" / "Absent"), not a peer action, so that is where it belongs; it stays tappable into
 // the Attendance screen with hitSlop making up the touch target.
-export function HomeHeader({ title, palette }: { title: string; palette?: ChatListPalette }) {
+//
+// Compact (a short window — the iPhone Duo, an iPhone SE; see useCompactChrome): one line, the title
+// at title1 size with the attendance chip beside it and no brand eyebrow. The full bar is ~85 pt
+// there, which with search and filters under it left the list under half the screen.
+//
+// `onSearch` (Chats tab): a search button beside compose. It replaced the row under the title — a
+// field that only opened the search screen, and a mic button beside it — so that row's height goes to
+// the list (owner, 2026-11-17). The search screen has the input box and the mic.
+export function HomeHeader({ title, palette, onSearch }: { title: string; palette?: ChatListPalette; onSearch?: () => void }) {
   const bar = palette?.bar ?? colors.card;
   const ink = palette?.text ?? colors.ink;
   const brand = palette?.accent ?? colors.primary;
@@ -52,37 +62,55 @@ export function HomeHeader({ title, palette }: { title: string; palette?: ChatLi
   // (group / user / business / branch); for everyone else it starts a new chat — previously they
   // had no create affordance here at all.
   const mayCreate = isSuper || mayCreateGroup;
+  const compact = useCompactChrome();
+
+  // Today's attendance at a glance — tap to open Attendance. Hidden for exempt users (attendance not
+  // tracked) and until the first fetch resolves.
+  const attendance = attToday && !attToday.exempt ? (
+    <Pressable onPress={() => router.navigate('/attendance')} hitSlop={12} className="flex-row items-center"
+      accessibilityRole="button" accessibilityLabel="Today's attendance"
+      style={{ height: 22, flexShrink: 0, paddingHorizontal: 8, gap: 4, borderRadius: 999, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
+      {attToday.present ? <UserCheck size={12} color={colors.primary} /> : <UserX size={12} color={colors.danger} />}
+      <Text style={{ color: attToday.present ? colors.primary : colors.danger, ...textStyles.caption1, fontWeight: '600' }}>
+        {attToday.inTime
+          ? (attToday.outTime ? `${hhmm(attToday.inTime)} – ${hhmm(attToday.outTime)}` : `In ${hhmm(attToday.inTime)}`)
+          : 'Absent'}
+      </Text>
+    </Pressable>
+  ) : null;
 
   return (
     <>
-      <View style={{ backgroundColor: bar, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+      <View style={{ backgroundColor: bar, paddingHorizontal: compact ? 16 : 20, paddingTop: compact ? 6 : 18, paddingBottom: compact ? 4 : 8 }}>
         <View className="flex-row items-center" style={{ gap: 12 }}>
-          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-            <View className="flex-row items-center" style={{ gap: 8 }}>
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: brand, fontSize: 12, fontWeight: '600', letterSpacing: 0.7, textTransform: 'uppercase' }}>KBiz 360 · Smart Connect</Text>
-              {/* Today's attendance at a glance — tap to open Attendance. Hidden for exempt users
-                  (attendance not tracked) and until the first fetch resolves. */}
-              {attToday && !attToday.exempt ? (
-                <Pressable onPress={() => router.navigate('/attendance')} hitSlop={12} className="flex-row items-center"
-                  accessibilityRole="button" accessibilityLabel="Today's attendance"
-                  style={{ height: 22, paddingHorizontal: 8, gap: 4, borderRadius: 999, backgroundColor: attToday.present ? colors.primarySoft : '#FDECEC' }}>
-                  {attToday.present ? <UserCheck size={12} color={colors.primary} /> : <UserX size={12} color={colors.danger} />}
-                  <Text style={{ color: attToday.present ? colors.primary : colors.danger, fontSize: 11, fontWeight: '700' }}>
-                    {attToday.inTime
-                      ? (attToday.outTime ? `${hhmm(attToday.inTime)} – ${hhmm(attToday.outTime)}` : `In ${hhmm(attToday.inTime)}`)
-                      : 'Absent'}
-                  </Text>
-                </Pressable>
-              ) : null}
+          {compact ? (
+            <View className="flex-row items-center" accessibilityRole="header" style={{ flex: 1, minWidth: 0, gap: 10 }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: ink, ...textStyles.title1 }}>{title}</Text>
+              {attendance}
             </View>
-            <Text numberOfLines={1} style={{ color: ink, fontSize: 28, fontWeight: '800', letterSpacing: -0.6 }}>{title}</Text>
-          </View>
-          {/* Compose only. There is no profile avatar here: Profile is a bottom tab, and the same
-              destination twice on one screen is a wasted 44px, not a convenience. */}
+          ) : (
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <View className="flex-row items-center" style={{ gap: 8 }}>
+                <Text numberOfLines={1} style={{ flexShrink: 1, color: brand, ...textStyles.caption1, fontWeight: '600', letterSpacing: 0.7, textTransform: 'uppercase' }}>KBiz 360 · Smart Connect</Text>
+                {attendance}
+              </View>
+              <Text numberOfLines={1} accessibilityRole="header" style={{ color: ink, ...textStyles.largeTitle }}>{title}</Text>
+            </View>
+          )}
+          {/* Search (Chats tab), then compose. There is no profile avatar here: Profile is a bottom
+              tab, and the same destination twice on one screen is a wasted 44px, not a convenience. */}
+          {onSearch ? (
+            <Pressable onPress={onSearch} accessibilityRole="button" accessibilityLabel="Search chats, people and messages"
+              hitSlop={compact ? 2 : 0}
+              style={{ width: compact ? 40 : 44, height: compact ? 40 : 44, borderRadius: compact ? 12 : 14, backgroundColor: button, alignItems: 'center', justifyContent: 'center', marginRight: compact ? -4 : -2 }}>
+              <Search size={20} color={brand} strokeWidth={2} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => (mayCreate ? setCreateOpen(true) : router.push('/chat/search'))}
             accessibilityRole="button" accessibilityLabel={mayCreate ? 'Create' : 'New chat'}
-            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: button, alignItems: 'center', justifyContent: 'center' }}>
+            hitSlop={compact ? 2 : 0}
+            style={{ width: compact ? 40 : 44, height: compact ? 40 : 44, borderRadius: compact ? 12 : 14, backgroundColor: button, alignItems: 'center', justifyContent: 'center' }}>
             <SquarePen size={20} color={brand} strokeWidth={2} />
           </Pressable>
         </View>
@@ -92,11 +120,11 @@ export function HomeHeader({ title, palette }: { title: string; palette?: ChatLi
       {viewAsUser ? (
         <View className="flex-row items-center gap-2 px-4 py-1.5" style={{ backgroundColor: colors.purple + '14', borderBottomColor: colors.purple + '33', borderBottomWidth: 1 }}>
           <Eye size={13} color={colors.purple} />
-          <Text numberOfLines={1} style={{ color: colors.purple, fontSize: 11, fontWeight: '700', flex: 1 }}>
+          <Text numberOfLines={1} style={{ color: colors.purple, ...textStyles.caption1, fontWeight: '600', flex: 1 }}>
             Viewing as {viewAsUser.name} · {ROLE_DEFS[viewAsUser.role]?.label}
           </Text>
           <Pressable onPress={() => { useAccessStore.getState().setViewAs(null); setBiz('all'); showToast('Back to your view'); }} style={{ backgroundColor: colors.purple, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}>
-            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>Exit</Text>
+            <Text style={{ color: '#fff', ...textStyles.caption1, fontWeight: '600' }}>Exit</Text>
           </Pressable>
         </View>
       ) : null}
