@@ -12,6 +12,7 @@ import { ErrorBoundary, OfflineBanner } from '../src/components/common';
 import { GlobalToast } from '../src/components/ui';
 import { LocationDisclosureHost } from '../src/components/LocationDisclosureHost';
 import { SideSafeArea } from '../src/components/layout/SideSafeArea';
+import { RailBack } from '../src/components/layout/RailActions';
 import { AnimatedSplash } from '../src/components/splash/AnimatedSplash';
 import { useGate } from '../src/navigation/guards';
 import { useNotificationRouting } from '../src/hooks/useNotificationRouting';
@@ -224,7 +225,7 @@ export default function RootLayout() {
           <ErrorBoundary>
             {/* iPhone Duo: keeps every screen out of the side strip that holds the status bar on the
                 closed screen (see SideSafeArea). A plain flex:1 View on every other phone. */}
-            <SideSafeArea>
+            <SideSafeArea fallbackRail={<RailBack />}>
             <OfflineBanner />
             {/* NO app-wide tap-to-dismiss-keyboard wrapper. The old TouchableWithoutFeedback here
                 claimed the JS responder on every touch that started on non-interactive space; on

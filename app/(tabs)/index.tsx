@@ -1,10 +1,12 @@
-import { memo, useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { View, Text, Pressable, ScrollView, FlatList, type ListRenderItem } from 'react-native';
+import { textStyles } from '../../src/theme/typography';
+import { memo, useState, useCallback, useMemo } from 'react';
+import { View, Text, Pressable, ScrollView, FlatList, type GestureResponderEvent, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect, useIsFocused } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
-import { Search, Plus, MessageCircle, Mic, Archive, ListChecks } from 'lucide-react-native';
+import { Plus, MessageCircle, Archive, ListChecks } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
+import { anchorOfPress, type AnchorRect } from '../../src/components/ui/AnchoredMenu';
 import { HomeHeader, GroupsPane } from '../../src/components/home';
 import { colors, useChatListPalette, type ChatListPalette } from '../../src/theme';
 import { mixHex } from '../../src/theme/chatListPalette';
@@ -19,11 +21,11 @@ import { mediaUrl } from '../../src/api/media';
 import { oneLine } from '../../src/logic/text';
 import { withSender } from '../../src/logic/groupsStrip';
 import { relTime } from '../../src/utils/time';
-import { TwoPane } from '../../src/components/layout/TwoPane';
+import { ChatSplit, useOpenChat } from '../../src/components/layout/ChatSplit';
 import { useWideLayout } from '../../src/hooks/useWideLayout';
+import { useCompactChrome } from '../../src/hooks/useCompactChrome';
 import { useChatPaneStore } from '../../src/store/chatPaneStore';
 import { useSideStripStore } from '../../src/store/sideStripStore';
-import { ChatThread } from '../chat/[id]';
 
 // Media types whose preview gets the small image glyph in the approved row.
 const PICTORIAL = new Set(['image', 'video']);
@@ -69,11 +71,12 @@ function convToItem(
 // (or someone coming online) repaints one row instead of the whole list.
 const ChatRow = memo(function ChatRow({ conv, online, myUserId, branchCode, companyCode, draft, sender, selected, onOpen, onActions }: {
   conv: ChatConversation; online: boolean; myUserId: string | null; branchCode: string | null; companyCode: string | null;
-  draft?: string; sender: string | null; selected: boolean; onOpen: (id: string) => void; onActions: (id: string) => void;
+  draft?: string; sender: string | null; selected: boolean; onOpen: (id: string) => void; onActions: (id: string, at?: AnchorRect) => void;
 }) {
   const id = conv.id;
   const press = useCallback(() => onOpen(id), [onOpen, id]);
-  const longPress = useCallback(() => onActions(id), [onActions, id]);
+  // The actions menu opens beside this row, at the finger.
+  const longPress = useCallback((e: GestureResponderEvent) => { void anchorOfPress(e, { atFinger: true }).then((at) => onActions(id, at)); }, [onActions, id]);
   return <ChatListItem chat={convToItem(conv, online, myUserId, branchCode, companyCode, draft, sender)} onPress={press} onLongPress={longPress} selected={selected} />;
 });
 
@@ -109,20 +112,9 @@ export default function Home() {
   // Wide window (iPhone Duo opened): the list and the open chat side by side, split on the fold.
   // A tap opens the chat in the right pane instead of pushing its own screen.
   const wide = useWideLayout();
-  const paneId = useChatPaneStore((s) => s.openId);
-  const paneMessageId = useChatPaneStore((s) => s.messageId);
-  const focused = useIsFocused();
-  // Folding the phone shuts the right pane — carry the open chat over as its own screen, so the
-  // conversation the user was in is still in front of them on the small screen.
-  const wasWide = useRef(wide);
-  useEffect(() => {
-    if (wasWide.current && !wide) {
-      const { openId, messageId } = useChatPaneStore.getState();
-      useChatPaneStore.getState().close();
-      if (openId && focused) router.push({ pathname: '/chat/[id]', params: messageId ? { id: openId, messageId } : { id: openId } });
-    }
-    wasWide.current = wide;
-  }, [wide, focused, router]);
+  // Short window (the iPhone Duo, an iPhone SE): slimmer search and filter rows — see HomeHeader.
+  const compact = useCompactChrome();
+  const paneId = useChatPaneStore((s) => s.openId); // the chat open in the right pane (ChatSplit)
 
   // Real conversations from the messaging store. Refetch every time Home gains focus so the list is
   // always current (new chats from elsewhere, reads, the post-reset clean slate) — not just on mount.
@@ -144,7 +136,7 @@ export default function Home() {
   const userNames = useMemo(() => new Map(users.map((u) => [u.id, u.name])), [users]);
   useFocusEffect(useCallback(() => { void refreshDirectoryUsers(); }, []));
   // Long-pressed row -> the mute/pin/archive sheet.
-  const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
+  const [actionsFor, setActionsFor] = useState<{ conv: ChatConversation; at?: AnchorRect } | null>(null);
   useFocusEffect(useCallback(() => {
     void useMessagingStore.getState().loadConversations().then(() => {
       const ids = useMessagingStore.getState().conversations.filter((c) => c.type === 'direct' && c.otherUserId).map((c) => c.otherUserId as string);
@@ -186,11 +178,12 @@ export default function Home() {
   void realUser;
 
   // Stable row handlers (rows are memoised — a fresh closure per render would repaint every row).
-  const openChat = useCallback((id: string) => {
-    if (wide) useChatPaneStore.getState().open(id);
-    else router.push({ pathname: '/chat/[id]', params: { id } });
-  }, [router, wide]);
-  const openActions = useCallback((id: string) => setActionsFor(useMessagingStore.getState().conversations.find((c) => c.id === id) ?? null), []);
+  // Opens in the right pane on a wide window, as its own screen otherwise (ChatSplit).
+  const openChat = useOpenChat();
+  const openActions = useCallback((id: string, at?: AnchorRect) => {
+    const conv = useMessagingStore.getState().conversations.find((c) => c.id === id);
+    setActionsFor(conv ? { conv, at } : null);
+  }, []);
   const renderChat: ListRenderItem<ChatConversation> = useCallback(({ item: c }) => {
     // Live presence beats the conversation's stale `online` snapshot; the snapshot only fills in when
     // no live entry has arrived at all.
@@ -210,37 +203,27 @@ export default function Home() {
 
   const listColumn = (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
-      <HomeHeader title="Chats" palette={p} />
-
-      {/* Search — a grey field that opens the search screen, with voice as its own button beside it
-          (the approved header row), so the mic is a full 44px target rather than an inset glyph. */}
-      <View className="flex-row" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 10 }}>
-        <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center" style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: p.field, paddingHorizontal: 14, gap: 10 }}>
-          <Search size={18} color={p.mute} strokeWidth={2} />
-          <Text numberOfLines={1} style={{ color: p.mute, fontSize: 15, flex: 1 }}>Search chats, people, tickets</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push({ pathname: '/chat/search', params: { voice: '1' } })}
-          accessibilityRole="button" accessibilityLabel="Voice search"
-          style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: p.field, alignItems: 'center', justifyContent: 'center' }}>
-          <Mic size={18} color={p.mute} strokeWidth={2} />
-        </Pressable>
-      </View>
+      {/* Search lives in the header, as a button beside compose: it opens the search screen (input
+          box and mic). The field and mic row it replaced cost ~50 pt of list (owner, 2026-11-17). */}
+      <HomeHeader title="Chats" palette={p} onSearch={() => router.push('/chat/search')} />
 
       {/* All / Unread / Groups — a segmented control, not pills: the Groups view under it has its
           own business switcher and branch tiles, and three rows of the same pill (the old layout)
           read as one jumble of filters. Fills the width, so each segment is a big target. */}
-      <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
-        <View className="flex-row" accessibilityRole="tablist" style={[segTrack, { backgroundColor: p.field }]}>
+      <View style={{ paddingHorizontal: compact ? 16 : 20, paddingTop: compact ? 6 : 8, paddingBottom: compact ? 8 : 12 }}>
+        <View className="flex-row" accessibilityRole="tablist" style={[segTrack, compact ? { height: 34 } : null, { backgroundColor: p.field }]}>
           {([['all', 'All', 0], ['unread', 'Unread', unreadChats], ['groups', 'Groups', unreadGroupChats], ['tasks', 'Tasks', unreadTaskChats]] as const).map(([k, label, count]) => {
             const on = filter === k;
             return (
               <Pressable key={k} onPress={() => setFilter(k)} className="flex-row items-center justify-center"
                 accessibilityRole="tab" accessibilityState={{ selected: on }}
+                // A tab is 28-32 pt inside the track; the slop makes every tap target at least 44 pt.
+                hitSlop={{ top: compact ? 8 : 6, bottom: compact ? 8 : 6 }}
                 style={[seg, on ? segOn(p) : null]}>
-                <Text style={{ color: on ? p.text : p.mute, fontSize: 13.5, fontWeight: on ? '700' : '600' }}>{label}</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ flexShrink: 1, color: on ? p.text : p.mute, ...textStyles.subheadline, fontWeight: on ? '600' : '500' }}>{label}</Text>
                 {count > 0 ? (
                   <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: p.accent }}>
-                    <Text style={{ color: p.onAccent, fontSize: 11, fontWeight: '700' }}>{count > 99 ? '99+' : count}</Text>
+                    <Text style={{ color: p.onAccent, ...textStyles.caption1, fontWeight: '600' }}>{count > 99 ? '99+' : count}</Text>
                   </View>
                 ) : null}
               </Pressable>
@@ -253,7 +236,7 @@ export default function Home() {
           only the rows on (and near) the screen are mounted, however many conversations there are. */}
       {filter === 'groups' ? (
         <ScrollView style={listStyle(p)} contentContainerStyle={listContent}>
-          <GroupsPane onLongPressGroup={openActions} />
+          <GroupsPane onOpenChat={openChat} openId={wide ? paneId : null} onLongPressGroup={openActions} />
         </ScrollView>
       ) : (
         <FlatList
@@ -271,18 +254,18 @@ export default function Home() {
             <Pressable onPress={() => router.push('/chat/closed-tasks')} android_ripple={{ color: p.line }}
               className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
               <ListChecks size={20} color={p.mute} />
-              <Text style={{ flex: 1, color: p.text, fontSize: 15, fontWeight: '600' }}>Closed task chats</Text>
-              {closedTaskChats ? <Text style={{ color: p.mute, fontSize: 13, fontWeight: '600' }}>{closedTaskChats}</Text> : null}
+              <Text style={{ flex: 1, color: p.text, ...textStyles.headline }}>Closed task chats</Text>
+              {closedTaskChats ? <Text style={{ color: p.mute, ...textStyles.subheadline }}>{closedTaskChats}</Text> : null}
             </Pressable>
           ) : hasArchived ? (
             <Pressable onPress={() => router.push('/chat/archived')} android_ripple={{ color: p.line }}
               className="flex-row items-center gap-3" style={{ minHeight: 56, paddingHorizontal: 20, backgroundColor: p.list }}>
               <Archive size={20} color={p.mute} />
-              <Text style={{ flex: 1, color: p.text, fontSize: 15, fontWeight: '600' }}>Archived</Text>
+              <Text style={{ flex: 1, color: p.text, ...textStyles.headline }}>Archived</Text>
               {/* A badge, not bare accent text: accent on the canvas is only 3.8:1 on Eclipse. */}
               {archivedCount ? (
                 <View style={{ minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: p.onAccent, fontSize: 11, fontWeight: '700' }}>{archivedCount}</Text>
+                  <Text style={{ color: p.onAccent, ...textStyles.caption1, fontWeight: '600' }}>{archivedCount}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -292,47 +275,25 @@ export default function Home() {
               <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>
                 <MessageCircle size={50} color={p.accent} />
               </View>
-              <Text style={{ color: p.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'tasks' ? 'No task chats' : 'No conversations'}</Text>
-              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'tasks' ? 'Every task has its own chat — it appears here when the task is given.' : 'Your conversations will appear here.'}</Text>
+              <Text style={{ color: p.text, ...textStyles.title3, marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'tasks' ? 'No task chats' : 'No conversations'}</Text>
+              <Text style={{ color: p.mute, ...textStyles.subheadline, marginTop: 6, textAlign: 'center' }}>{filter === 'tasks' ? 'Every task has its own chat — it appears here when the task is given.' : 'Your conversations will appear here.'}</Text>
               <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: p.accent }}>
                 <Plus size={20} color={p.onAccent} />
-                <Text style={{ color: p.onAccent, fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
+                <Text style={{ color: p.onAccent, ...textStyles.headline }}>Start new chat</Text>
               </Pressable>
             </View>
           )}
         />
       )}
 
-      <ChatActionsSheet conv={actionsFor} onClose={() => setActionsFor(null)} />
+      <ChatActionsSheet conv={actionsFor?.conv ?? null} at={actionsFor?.at} onClose={() => setActionsFor(null)} />
 
       {/* Toast is mounted app-wide in app/_layout.tsx (GlobalToast) — not here. */}
     </SafeAreaView>
   );
 
-  if (!wide) return listColumn;
-  // The open chat is mounted only while this tab is in front: it marks the chat read and holds it
-  // as "active" (no notification for it) for as long as it is mounted, which must not outlive the
-  // user looking at it. Keyed on the id — each chat reads its draft/unread state once, at mount.
-  return (
-    <TwoPane background={p.bar} divider={p.line} left={listColumn} right={
-      paneId && focused
-        ? <ChatThread key={paneId} id={paneId} messageId={paneMessageId} embedded onClose={() => useChatPaneStore.getState().close()} />
-        : <PaneEmpty p={p} />
-    } />
-  );
-}
-
-// The right pane before a chat is picked (WhatsApp's wide-layout welcome panel).
-function PaneEmpty({ p }: { p: ChatListPalette }) {
-  return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: p.list, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
-      <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: p.rowUnread, alignItems: 'center', justifyContent: 'center' }}>
-        <MessageCircle size={44} color={p.accent} />
-      </View>
-      <Text style={{ color: p.text, fontSize: 18, fontWeight: '700', marginTop: 18, textAlign: 'center' }}>Pick a chat</Text>
-      <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>It opens here, beside your list.</Text>
-    </SafeAreaView>
-  );
+  // Wide window: the list and the open chat side by side, split on the fold (ChatSplit).
+  return <ChatSplit list={listColumn} />;
 }
 
 const listStyle = (p: ChatListPalette) => ({ flex: 1, backgroundColor: p.list, borderTopWidth: 1, borderTopColor: p.line });
@@ -341,7 +302,9 @@ const listContent = { paddingBottom: 16, flexGrow: 1 };
 // Segmented control: a sunken track in the search field's colour, the picked segment a raised thumb.
 // On a dark theme the bar is darker than the field, so the thumb is the field lifted toward white.
 const segTrack = { height: 38, borderRadius: 12, padding: 3, gap: 2 };
-const seg = { flex: 1, borderRadius: 9, gap: 6 };
+// minWidth 0 + overflow hidden: in a narrow list (two panes) a tab's label shrinks instead of pushing
+// its count into the next tab (seen on the Duo opened: "Unread 2Groups 2").
+const seg = { flex: 1, minWidth: 0, overflow: 'hidden' as const, borderRadius: 9, gap: 4, paddingHorizontal: 4 };
 const segOn = (p: ChatListPalette) => ({
   backgroundColor: p.dark ? mixHex(p.field, '#FFFFFF', 0.08) : p.bar,
   shadowColor: '#101519', shadowOpacity: 0.12, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1,

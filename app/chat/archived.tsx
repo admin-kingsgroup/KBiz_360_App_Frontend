@@ -5,6 +5,10 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { ChevronLeft, Archive } from 'lucide-react-native';
 import { ChatListItem, ChatActionsSheet } from '../../src/components/chat';
+import { anchorOfPress, type AnchorRect } from '../../src/components/ui/AnchoredMenu';
+import { ChatSplit, useOpenChat } from '../../src/components/layout/ChatSplit';
+import { useWideLayout } from '../../src/hooks/useWideLayout';
+import { useChatPaneStore } from '../../src/store/chatPaneStore';
 import { colors, useChatListPalette } from '../../src/theme';
 import { oneLine } from '../../src/logic/text';
 import { useMessagingStore } from '../../src/store/messagingStore';
@@ -33,11 +37,15 @@ export default function ArchivedChats() {
   const conversations = useMessagingStore((s) => s.conversations);
   const drafts = useMessagingStore((s) => s.drafts);
   const myUserId = useMessagingStore((s) => s.myUserId);
-  const [actionsFor, setActionsFor] = useState<ChatConversation | null>(null);
+  // A tap opens the chat beside this list on a wide window, as its own screen otherwise.
+  const openChat = useOpenChat();
+  const wide = useWideLayout();
+  const paneId = useChatPaneStore((s) => s.openId); // marked in the list, as on the Chats tab
+  const [actionsFor, setActionsFor] = useState<{ conv: ChatConversation; at: AnchorRect } | null>(null);
 
   const archived = conversations.filter((c) => c.archived);
 
-  return (
+  const list = (
     <SafeAreaView style={{ flex: 1, backgroundColor: p.bar }} edges={['top']}>
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: p.bar, height: 56, borderBottomColor: p.line, borderBottomWidth: StyleSheet.hairlineWidth }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -74,13 +82,16 @@ export default function ArchivedChats() {
               pinned: !!c.pinned,
               draft: drafts[c.id] ?? null,
             }}
-            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: c.id } })}
-            onLongPress={() => setActionsFor(c)}
+            selected={wide && c.id === paneId}
+            onPress={() => openChat(c.id)}
+            onLongPress={(e) => { void anchorOfPress(e, { atFinger: true }).then((at) => setActionsFor({ conv: c, at })); }}
           />
         ))}
       </ScrollView>
 
-      <ChatActionsSheet conv={actionsFor} onClose={() => setActionsFor(null)} />
+      <ChatActionsSheet conv={actionsFor?.conv ?? null} at={actionsFor?.at} onClose={() => setActionsFor(null)} />
     </SafeAreaView>
   );
+  // Wide window (the iPhone Duo opened): this list on the left, the chat it opens on the right.
+  return <ChatSplit list={list} />;
 }

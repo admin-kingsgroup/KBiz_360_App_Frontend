@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import type { NotificationResponse } from 'expo-notifications';
 import { Notifications } from '../services/notifications';
 import { routeForData, type NotifData } from '../services/notifications/routes';
+import { openChatFromOutside } from '../services/openChatFromOutside';
 
 // Module-level, NOT a ref: getLastNotificationResponseAsync returns the most recent response for
 // the LIFETIME of the process, and a per-mount ref forgets it whenever the gate remounts — every
@@ -22,8 +23,11 @@ export function useNotificationRouting() {
       // exactly what navigate() accepts rather than coupling the pure module to expo-router types.
       // navigate (not push): tapping a notification for the screen already on top must focus it,
       // never stack a second live instance (each mounted instance runs its own GPS/poll timers).
-      const route = routeForData(data) as Parameters<typeof router.navigate>[0];
-      router.navigate(route);
+      const target = routeForData(data);
+      // A chat opens beside the Chats list on a wide window (the iPhone Duo opened), as its own
+      // screen otherwise — openChatFromOutside decides.
+      if (target.pathname === '/chat/[id]' && target.params?.id) { openChatFromOutside(target.params.id); return; }
+      router.navigate(target as Parameters<typeof router.navigate>[0]);
     };
 
     const handle = (resp: NotificationResponse | null): void => {

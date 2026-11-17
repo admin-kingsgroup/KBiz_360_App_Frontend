@@ -12,6 +12,8 @@ import { useApprovalBadgeStore } from '../../src/store/approvalBadgeStore';
 import { usePulseStore } from '../../src/store/pulseStore';
 import { isVisibleAlertChannel } from '../../src/data/pulse';
 import { countsTowardBadge } from '../../src/logic/alertMutes';
+import { useSideRail } from '../../src/components/layout/SideSafeArea';
+import { TabRailHost } from '../../src/components/layout/TabRail';
 
 // Pill that highlights behind the active tab's icon (WhatsApp-style bottom bar).
 function TabPill({ Icon, color, focused }: { Icon: LucideIcon; color: ColorValue; focused: boolean }) {
@@ -59,9 +61,12 @@ export default function TabsLayout() {
   // OTA updates: check on launch + every foreground, then offer a one-tap in-place restart. Without
   // this, updates only land on a cold start — which Android may not do for days.
   const { updateReady, applyUpdate } = useOtaUpdate();
+  // iPhone Duo: where iOS shows a vertical bar, the tabs move into it (TabRail) and the bottom bar goes.
+  const { edge: railEdge } = useSideRail();
   return (
     <View style={{ flex: 1 }}>
     <Tabs
+      tabBar={railEdge ? (props) => <TabRailHost {...props} /> : undefined}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -90,7 +95,7 @@ export default function TabsLayout() {
     {/* Floating "update ready" pill above the tab bar — tapping swaps to the new version in place. */}
     {updateReady ? (
       <Pressable onPress={applyUpdate} className="flex-row items-center"
-        style={{ position: 'absolute', alignSelf: 'center', bottom: 62 + insets.bottom + 14, height: 40, paddingHorizontal: 18, borderRadius: 999, gap: 8, backgroundColor: colors.ink, shadowColor: '#0b1220', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 }}>
+        style={{ position: 'absolute', alignSelf: 'center', bottom: (railEdge ? 0 : 62) + insets.bottom + 14, height: 40, paddingHorizontal: 18, borderRadius: 999, gap: 8, backgroundColor: colors.ink, shadowColor: '#0b1220', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 }}>
         <RefreshCw size={15} color="#fff" strokeWidth={2.4} />
         <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>Update ready — tap to restart</Text>
       </Pressable>

@@ -1,5 +1,5 @@
 import {
-  ALL_BRANCHES, resolveStripPick, stripBranchPrefix, withSender, orderGroups, groupBizId, scopeCounts,
+  ALL_BRANCHES, resolveStripPick, stripBranchPrefix, withSender, orderGroups, groupBizId, scopeCounts, unreadOutsidePick,
 } from '../logic/groupsStrip';
 
 describe('resolveStripPick', () => {
@@ -79,4 +79,14 @@ describe('scopeCounts', () => {
     expect(scopeCounts(groups, 'tk')).toEqual({ groups: 3, branches: 2, unread: 2, unreadElsewhere: 2 });
     expect(scopeCounts(groups, 'qa')).toEqual({ groups: 1, branches: 1, unread: 1, unreadElsewhere: 3 });
   });
+});
+
+// The branch dropdown (compact strip) dots itself when a branch it is not showing has new messages,
+// the way the business dropdown does for other businesses.
+describe('unreadOutsidePick', () => {
+  const branches = [{ code: 'HDAR', unread: 1 }, { code: 'MHUB', unread: 0 }, { code: 'BOM', unread: 2 }];
+  it('is nothing under All: every branch is on screen', () => expect(unreadOutsidePick(branches, ALL_BRANCHES)).toBe(0));
+  it('counts the unread groups of every other branch', () => expect(unreadOutsidePick(branches, 'MHUB')).toBe(3));
+  it('leaves out the picked branch\'s own unread', () => expect(unreadOutsidePick(branches, 'BOM')).toBe(1));
+  it('is nothing when only the picked branch has unread', () => expect(unreadOutsidePick([{ code: 'HDAR', unread: 4 }, { code: 'BOM', unread: 0 }], 'HDAR')).toBe(0));
 });

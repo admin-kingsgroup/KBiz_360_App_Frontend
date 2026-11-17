@@ -13,6 +13,8 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { useUiStore } from '../../src/store/uiStore';
+import { useOpenChat } from '../../src/components/layout/ChatSplit';
+import { useWideLayout } from '../../src/hooks/useWideLayout';
 
 // Read-only task chat for someone who can SEE a task but is not in its chat — a manager above the
 // assignee (decision 2). They read everything; to write, they watch the task, which adds them to
@@ -33,6 +35,8 @@ export default function TaskChatReadOnly() {
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [error, setError] = useState('');
   const [joining, setJoining] = useState(false);
+  const openPane = useOpenChat();
+  const wide = useWideLayout();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -59,7 +63,9 @@ export default function TaskChatReadOnly() {
       const t = await setTaskWatchers(task.id, { add: [meId] });
       useTasksStore.getState().upsert(t);
       await useMessagingStore.getState().loadConversations().catch(() => undefined);
-      if (t.chatId) router.replace({ pathname: '/chat/[id]', params: { id: t.chatId } });
+      // Phone width: the real chat replaces this read-only one. Wide: back to the task, with the
+      // chat beside it.
+      if (t.chatId) { openPane(t.chatId, { replace: true }); if (wide) router.back(); }
       else router.back();
       showToast('You are watching this task and are in its chat');
     } catch (e) {

@@ -12,6 +12,7 @@ import { searchMessages, getOrCreateDirect, type ChatMessage } from '../../src/a
 import { search as searchLocal } from '../../src/services/chatDb';
 import { refreshDirectoryUsers } from '../../src/store/directoryStore';
 import { startVoiceSearch, stopVoiceSearch } from '../../src/services/speech';
+import { ChatSplit, useOpenChat } from '../../src/components/layout/ChatSplit';
 
 const hhmm = (iso: string): string => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; };
 
@@ -23,6 +24,8 @@ const sectionLabel = { color: colors.coolText, fontSize: 11, fontWeight: '700' a
 // local storage has nothing to offer (a thread this device never downloaded).
 export default function ChatSearch() {
   const router = useRouter();
+  // Results open beside the search on a wide window (ChatSplit), as their own screen otherwise.
+  const openChat = useOpenChat();
   const [q, setQ] = useState('');
   const [results, setResults] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -90,16 +93,18 @@ export default function ChatSearch() {
     setStarting(true);
     try {
       const conv = await getOrCreateDirect(userId);
-      router.replace({ pathname: '/chat/[id]', params: { id: conv.id } });
+      // Phone width: the chat replaces the search. Wide: it opens on the right and the search stays.
+      openChat(conv.id, { replace: true });
     } catch {
       showToast('Could not start chat');
+    } finally {
       setStarting(false);
     }
   };
 
   const noResults = !!q.trim() && !loading && people.length === 0 && results.length === 0;
 
-  return (
+  const list = (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }} edges={['top', 'bottom']}>
       <View className="flex-row items-center gap-2 px-2 py-2" style={{ backgroundColor: colors.card, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
@@ -147,7 +152,7 @@ export default function ChatSearch() {
           ) : undefined
         }
         renderItem={({ item: m }) => (
-          <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: m.conversationId, messageId: m.id } })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12 }}>
+          <Pressable onPress={() => openChat(m.conversationId, { messageId: m.id })} android_ripple={{ color: colors.coolMuted }} style={{ backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12 }}>
             <View className="flex-row justify-between items-baseline gap-2">
               <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 }}>{convName(m.conversationId)}</Text>
               <Text style={{ color: colors.coolText3, fontSize: 12, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
@@ -159,4 +164,6 @@ export default function ChatSearch() {
       />
     </SafeAreaView>
   );
+  // Wide window (the iPhone Duo opened): this list on the left, the chat it opens on the right.
+  return <ChatSplit list={list} />;
 }

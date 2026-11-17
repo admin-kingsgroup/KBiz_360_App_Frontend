@@ -1,5 +1,6 @@
+import { textStyles } from '../../theme/typography';
 import { memo } from 'react';
-import { Pressable, View, Text, PixelRatio } from 'react-native';
+import { Pressable, View, Text, PixelRatio, type GestureResponderEvent } from 'react-native';
 import { Check, CheckCheck, BellOff, Pin, Image as ImageIcon } from 'lucide-react-native';
 import { colors, useChatListPalette } from '../../theme';
 import { ChatTile } from './ChatTile';
@@ -36,7 +37,7 @@ const SELECTED_BAR_WIDTH = 4;
 // colour, used first, is all but the read-row tint, so the open chat did not show. It now sits on an
 // accent tint (palette `selected`) with an accent bar down its leading edge. The bar is what tells it
 // from an unread row: in some themes any tint lands near the unread ground.
-function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void; selected?: boolean }) {
+function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { chat: ChatRowItem; onPress: () => void; onLongPress?: (e: GestureResponderEvent) => void; selected?: boolean }) {
   const unread = !!chat.unread;
   // Painted from the global chat theme, so the list matches the conversations it opens. Read rows sit
   // on a light tint, unread rows on the full theme colour, and a WhatsApp hairline closes every row.
@@ -60,9 +61,11 @@ function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { ch
         dotBorder={ground} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text numberOfLines={1} style={{ color: p.text, fontSize: 15, fontWeight: unread ? '800' : '600', flex: 1 }}>{chat.name}</Text>
+          {/* Semibold, unread or not, as WhatsApp sets names: unread shows in the time and the badge. Bold
+              also spread the name ~5 pt wider. */}
+          <Text numberOfLines={1} style={{ color: p.text, ...textStyles.headline, flex: 1 }}>{chat.name}</Text>
           {chat.muted ? <BellOff size={14} color={p.mute} /> : null}
-          <Text style={{ color: unread ? p.unreadTime : p.mute, fontSize: 12, fontWeight: unread ? '700' : '600' }}>{chat.time}</Text>
+          <Text style={{ color: unread ? p.unreadTime : p.mute, ...textStyles.subheadline, fontWeight: unread ? '600' : '400' }}>{chat.time}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
           {/* A pending draft outranks the last message in the preview slot — it is the thing the
@@ -72,17 +75,17 @@ function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { ch
             : <CheckCheck size={16} color={chat.lastStatus === 'read' ? p.accent : p.mute} />) : null}
           {!chat.draft && chat.isImage ? <ImageIcon size={15} color={p.mute} /> : null}
           {chat.draft ? (
-            <Text numberOfLines={1} style={{ fontSize: 13.5, flex: 1 }}>
+            <Text numberOfLines={1} style={{ ...textStyles.subheadline, flex: 1 }}>
               <Text style={{ color: colors.danger }}>Draft: </Text>
               <Text style={{ color: p.mute }}>{chat.draft}</Text>
             </Text>
           ) : (
-            <Text numberOfLines={1} style={{ color: unread ? p.text : p.mute, fontSize: 13.5, flex: 1 }}>{chat.preview}</Text>
+            <Text numberOfLines={1} style={{ color: unread ? p.text : p.mute, ...textStyles.subheadline, flex: 1 }}>{chat.preview}</Text>
           )}
           {chat.pinned && !unread ? <Pin size={14} color={p.mute} /> : null}
           {unread ? (
-            <View style={{ minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: chat.muted ? p.mute : p.accent, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: p.onAccent, fontSize: 11, fontWeight: '700' }}>{chat.unread}</Text>
+            <View style={{ minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: chat.muted ? p.mute : p.accent, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: p.onAccent, ...textStyles.footnote, fontWeight: '600' }}>{chat.unread}</Text>
             </View>
           ) : null}
         </View>

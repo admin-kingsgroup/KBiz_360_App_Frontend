@@ -1,3 +1,4 @@
+import { textStyles } from '../../theme/typography';
 import { useCallback, useEffect } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Play, Pause } from 'lucide-react-native';
@@ -52,7 +53,7 @@ export function VoiceMessage({ uri, durationSec, outgoing }: { uri: string; dura
       <View style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: track }}>
         <View style={{ width: `${progress * 100}%`, height: 3, borderRadius: 2, backgroundColor: fg }} />
       </View>
-      <Text style={{ color: fg, fontSize: 11, fontWeight: '700', minWidth: 32, textAlign: 'right' }}>{fmt(remaining)}</Text>
+      <Text style={{ color: fg, ...textStyles.caption1, fontWeight: '600', minWidth: 34, textAlign: 'right' }}>{fmt(remaining)}</Text>
     </View>
   );
 }

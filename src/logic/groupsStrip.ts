@@ -1,5 +1,6 @@
-// The Chats tab's Groups view, as picked on the redesign canvas (option 6B, 2026-10-07): a business
-// switcher title, a strip of branch tiles that opens on "All", and the group list under it.
+// The Chats tab's Groups view: a business dropdown and a branch dropdown that opens on "All
+// branches", and the group list under them (the branch tiles of option 6B, 2026-10-07, became a
+// dropdown on 2026-11-17).
 // These are the parts of it that decide WHAT shows; the components only draw it.
 
 /** The strip's "every branch" pick. Never a real branch code (those are short upper-case words). */
@@ -76,4 +77,13 @@ export function scopeCounts(
     unread: inScope.filter((g) => (g.unread ?? 0) > 0).length,
     unreadElsewhere: bizId === 'all' ? 0 : groups.filter((g) => g.bizId !== bizId && (g.unread ?? 0) > 0).length,
   };
+}
+
+/**
+ * Groups with unread in the branches NOT on screen — the dot on the branch dropdown, as
+ * `unreadElsewhere` is for the business one, so narrowing to one branch never hides new messages.
+ * Nothing under All: every branch is on screen.
+ */
+export function unreadOutsidePick(branches: readonly { code: string; unread: number }[], pick: string): number {
+  return pick === ALL_BRANCHES ? 0 : branches.reduce((n, b) => (b.code === pick ? n : n + b.unread), 0);
 }

@@ -1,7 +1,8 @@
 export { colors } from './colors';
 export type { ColorToken } from './colors';
 export { shadow, shadowSm } from './shadows';
-export { fonts, textSizes } from './typography';
+export { fonts, textStyles } from './typography';
+export type { TextStyleName } from './typography';
 export { spacing, radius } from './spacing';
 export { CHAT_THEMES, DEFAULT_CHAT_THEME, chatThemeFor, chatCanvas, CHAT_CANVAS_SOFTEN } from './chatThemes';
 export type { ChatTheme } from './chatThemes';

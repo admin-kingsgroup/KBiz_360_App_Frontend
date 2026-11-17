@@ -1,3 +1,4 @@
+import { textStyles } from '../../theme/typography';
 import { useEffect, useState } from 'react';
 import { View, Text, Image, Pressable, Linking, StyleSheet } from 'react-native';
 import { colors } from '../../theme';
@@ -43,13 +44,13 @@ export function LinkPreviewCard({ text }: { text: string }) {
       ) : null}
       <View style={{ padding: 8, gap: 2 }}>
         {preview.siteName ? (
-          <Text numberOfLines={1} style={{ color: colors.coolText3, fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' }}>{preview.siteName}</Text>
+          <Text numberOfLines={1} style={{ color: colors.coolText3, ...textStyles.caption2, fontWeight: '600', letterSpacing: 0.4, textTransform: 'uppercase' }}>{preview.siteName}</Text>
         ) : null}
         {preview.title ? (
-          <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600', lineHeight: 18 }}>{preview.title}</Text>
+          <Text numberOfLines={2} style={{ color: colors.ink, ...textStyles.subheadline, fontWeight: '600' }}>{preview.title}</Text>
         ) : null}
         {preview.description ? (
-          <Text numberOfLines={2} style={{ color: colors.coolText, fontSize: 12, lineHeight: 16 }}>{preview.description}</Text>
+          <Text numberOfLines={2} style={{ color: colors.coolText, ...textStyles.footnote }}>{preview.description}</Text>
         ) : null}
       </View>
     </Pressable>

@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
-import { Building2, CalendarDays, ChevronLeft, Eye, EyeOff, FileText, Hourglass, MessageSquare, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
+import { Building2, CalendarDays, ChevronLeft, Eye, EyeOff, FileText, Hourglass, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { addTaskAttachment, ensureTaskChat, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
 import { ApiError } from '../../src/api/client';
@@ -16,9 +16,11 @@ import { useMessagingStore } from '../../src/store/messagingStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { useUiStore } from '../../src/store/uiStore';
 import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL } from '../../src/logic/taskRules';
-import { OverdueFlag, PriorityPill, StatusPill, UnreadBadge } from '../../src/components/tasks/TaskPills';
+import { OverdueFlag, PriorityPill, StatusPill, TaskChatBadge, UnreadBadge, useTaskChatLastType } from '../../src/components/tasks/TaskPills';
+import { taskChatStarted } from '../../src/logic/taskRules';
 import { StatusActions } from '../../src/components/tasks/StatusActions';
 import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
+import { ChatSplit, useOpenChat } from '../../src/components/layout/ChatSplit';
 
 // Task detail (spec 2026-11-16, section 7): every field, the status buttons this person may press,
 // attachments, the full history and the task's chat. The server says what this person may do
@@ -54,6 +56,9 @@ export default function TaskDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<null | 'reassign' | 'watchers'>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The task's chat opens beside the task on a wide window (iPhone Duo opened), as its own screen
+  // otherwise (ChatSplit).
+  const openPane = useOpenChat();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -81,6 +86,9 @@ export default function TaskDetail() {
   const isMember = !!task && task.myRole !== 'viewer';
   const amWatcher = !!task && task.watchers.some((w) => w.id === meId);
   const isParty = !!task && (task.assignedTo.id === meId || task.assignedBy.id === meId);
+  // Red until someone has written in the task's chat, green after (the chat card and the task cards).
+  const chatLastType = useTaskChatLastType(task?.chatId ?? null);
+  const chatStarted = !!task && taskChatStarted(task, chatLastType);
 
   const openChat = async (): Promise<void> => {
     if (!task) return;
@@ -95,7 +103,7 @@ export default function TaskDetail() {
     }
     // Make sure the chat is in my list (a brand-new task's chat may not be loaded yet).
     await useMessagingStore.getState().loadConversations().catch(() => undefined);
-    router.push({ pathname: '/chat/[id]', params: { id: chatId } });
+    openPane(chatId);
   };
 
   const watch = async (on: boolean): Promise<void> => {
@@ -169,8 +177,12 @@ export default function TaskDetail() {
 
   const overdue = task.overdue || isOverdue(task);
   const biz = [task.companyName, task.branchName].filter(Boolean).join(' · ');
+  // The chat card's words — also the right pane's panel on a wide window, before the chat is open.
+  const chatLabel = !isMember ? 'Read chat' : chatStarted ? 'Open chat' : task.chatId || isParty ? 'Start chat' : 'Chat not started';
+  const chatHint = !isMember ? 'Read-only until you watch the task' : chatStarted ? 'Discuss the task — every status change is posted here' : task.chatId ? 'No one has written here yet' : isParty ? 'No one has started a chat on this task yet' : 'It opens once the giver or the doer starts it';
+  const canOpenChat = !isMember || chatStarted || !!task.chatId || isParty;
 
-  return (
+  const page = (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
       <Header onBack={() => router.back()} onEdit={task.canEdit ? () => router.push({ pathname: '/task/new', params: { id: task.id } }) : undefined} />
       <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }} tintColor={colors.primary} />}
@@ -202,10 +214,11 @@ export default function TaskDetail() {
 
         {/* The task's chat */}
         <Pressable onPress={() => void openChat()} disabled={busy === 'chat'} style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, paddingHorizontal: 14, paddingVertical: 13 }}>
-          <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }}><MessageSquare size={18} color={colors.primary} /></View>
+          {/* Red until the task's chat is started, green after — the same badge as on the task cards. */}
+          <TaskChatBadge task={task} size={36} />
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{isMember ? 'Open chat' : 'Read chat'}</Text>
-            <Text style={{ color: colors.coolText, fontSize: 12 }}>{isMember ? 'Discuss the task — every status change is posted here' : 'Read-only until you watch the task'}</Text>
+            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{chatLabel}</Text>
+            <Text style={{ color: colors.coolText, fontSize: 12 }}>{chatHint}</Text>
           </View>
           <UnreadBadge count={task.unread} />
         </Pressable>
@@ -300,6 +313,12 @@ export default function TaskDetail() {
         exclude={[task.assignedTo.id, task.assignedBy.id]} selected={task.watchers.map((w) => w.id)}
         onToggle={(uid) => void toggleWatcher(uid)} onClose={() => setSheet(null)} />
     </SafeAreaView>
+  );
+  // Wide window: the task on the left, ITS chat on the right — never another chat left open on the
+  // Chats tab (`only`). Until it is opened, the right pane says what the chat card says.
+  return (
+    <ChatSplit list={page} only={task.chatId ?? null}
+      empty={{ title: 'Task chat', text: chatHint, action: canOpenChat ? { label: chatLabel, onPress: () => void openChat() } : null }} />
   );
 }
 

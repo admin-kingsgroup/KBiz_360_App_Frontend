@@ -1,3 +1,4 @@
+import { textStyles } from '../../theme/typography';
 import { useEffect, useState } from 'react';
 import { View, Text, Pressable, Image, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
 import { Download, FileText, Play } from 'lucide-react-native';
@@ -83,12 +84,12 @@ export function AttachmentTile({ att, type, mine, onOpenImage, onOpenFile, onLon
         {progress !== null ? (
           <>
             <ActivityIndicator size="small" color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '700' }}>{Math.round(progress * 100)}%</Text>
+            <Text style={{ color: '#fff', ...textStyles.footnote, fontWeight: '600' }}>{Math.round(progress * 100)}%</Text>
           </>
         ) : (
           <>
             <Download size={16} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '700' }}>{humanSize(att.size)}</Text>
+            <Text style={{ color: '#fff', ...textStyles.footnote, fontWeight: '600' }}>{humanSize(att.size)}</Text>
           </>
         )}
       </View>
@@ -156,8 +157,8 @@ export function AttachmentTile({ att, type, mine, onOpenImage, onOpenFile, onLon
         <FileText size={20} color={iconColor} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 13, fontWeight: '600', lineHeight: 17 }}>{att.name}</Text>
-        <Text numberOfLines={1} style={{ color: colors.coolText3, fontSize: 11, marginTop: 2 }}>{humanSize(att.size)}{ext ? ` · ${ext}` : ''}</Text>
+        <Text numberOfLines={2} style={{ color: colors.ink, ...textStyles.subheadline, fontWeight: '600' }}>{att.name}</Text>
+        <Text numberOfLines={1} style={{ color: colors.coolText3, ...textStyles.caption1, marginTop: 2 }}>{humanSize(att.size)}{ext ? ` · ${ext}` : ''}</Text>
       </View>
       {progress !== null ? (
         <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>

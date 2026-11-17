@@ -4,6 +4,7 @@ import { isRunningInExpoGo } from 'expo';
 import { useRouter, useSegments } from 'expo-router';
 import { registerFcmDevice } from '../api/push';
 import { consumePendingChatTap, setPendingChatTap, subscribePendingChatTap } from './notifications/pendingTap';
+import { openChatFromOutside } from './openChatFromOutside';
 import { useGate } from '../navigation/guards';
 
 // FCM device registration + notification-tap routing. (This file kept its name from the retired
@@ -105,8 +106,9 @@ export function useCallNotifications(): void {
     if (gate !== 'app' || segments[0] === '(auth)') return;
     const open = (): void => {
       const id = consumePendingChatTap();
-      // navigate, not push: focuses an already-mounted instance of this chat instead of stacking one.
-      if (id) router.navigate({ pathname: '/chat/[id]', params: { id } });
+      // Beside the Chats list on a wide window; otherwise the chat screen, by navigate (not push) so
+      // an already-mounted instance of this chat is focused instead of stacking one.
+      if (id) openChatFromOutside(id);
     };
     open();
     return subscribePendingChatTap(open);

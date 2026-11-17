@@ -6,84 +6,83 @@ import { BarChart3, Bell, ListChecks, Plus, Search, SlidersHorizontal, X } from 
 import type { Task, TaskState, TaskView } from '../../api/tasks';
 import { colors } from '../../theme';
 import { useAuthStore } from '../../store/authStore';
-import { useAccessStore } from '../../store/accessStore';
 import { listKey, useTasksStore } from '../../store/tasksStore';
 import { activeFilterCount, filterTasks, groupAssigned, groupMine, type TaskFilters } from '../../logic/taskGroups';
 import { TaskRow } from './TaskRow';
 import { FilterSheet } from './FilterSheet';
+import { PeopleList } from './PeopleList';
 
 // Tasks tab (spec 2026-11-16, section 7) — replaces Reminders. Three lists: My tasks (assigned to
-// me, incl. my personal to-dos), Assigned by me (given to others) and Watching; managers also get
-// Team: tasks of the people under them (decision 2 — the server decides who that is).
+// me, incl. my personal to-dos), Assigned by me (given to others) and Watching. The fourth was Team
+// (managers only); since 2026-11-17 it is People for everyone: each person with tasks you can see,
+// with their open and overdue counts (PeopleList), tap for their tasks.
 
-type ListView = Exclude<TaskView, 'all'>;
-const SEGMENTS: Array<{ key: ListView; label: string }> = [
+type ListView = Exclude<TaskView, 'all' | 'team'>;
+type Segment = ListView | 'people';
+const SEGMENTS: Array<{ key: Segment; label: string }> = [
   { key: 'mine', label: 'My tasks' },
-  { key: 'assigned', label: 'Assigned by me' },
-  { key: 'watching', label: 'Watching' },
-  { key: 'team', label: 'Team' },
+  { key: 'assigned', label: 'By me' },
+  { key: 'watching', label: 'Watcher' },
+  { key: 'people', label: 'Team' },
 ];
 
 const EMPTY: Record<ListView, string> = {
   mine: 'Nothing assigned to you. Tap New to add a personal to-do.',
   assigned: 'You have not given anyone a task yet.',
   watching: 'You are not watching any tasks.',
-  team: 'No open tasks for the people under you.',
 };
 
 export default function TasksScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const meId = useAuthStore((s) => s.user?.id) ?? '';
-  const role = useAccessStore((s) => s.user?.role);
-  // Team is for anyone with people under them: every role above Employee (level ≤ 4).
-  const isManager = !!role && role !== 'EMPLOYEE';
-  const [view, setView] = useState<ListView>('mine');
+  const [view, setView] = useState<Segment>('mine');
+  const people = view === 'people';
+  // People loads its own list (the dashboard's per-person counts); the task-list plumbing below keeps
+  // serving the last task list underneath and is not drawn.
+  const listView: ListView = people ? 'mine' : view;
   const [state, setState] = useState<TaskState>('open');
   const [filters, setFilters] = useState<TaskFilters>({});
   const [filterOpen, setFilterOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const key = listKey(view, state);
+  const key = listKey(listView, state);
   const list = useTasksStore((s) => s.lists[key]);
   const loading = useTasksStore((s) => !!s.loading[key]);
   const error = useTasksStore((s) => s.errors[key]);
   const lists = useTasksStore((s) => s.lists);
   const notifUnread = useTasksStore((s) => s.notifUnread);
-  const counts = useMemo(() => ({
+  const counts = useMemo<Partial<Record<Segment, number>>>(() => ({
     mine: lists[listKey('mine', 'open')]?.length,
     assigned: lists[listKey('assigned', 'open')]?.length,
     watching: lists[listKey('watching', 'open')]?.length,
-    team: lists[listKey('team', 'open')]?.length,
   }), [lists]);
 
   const load = useCallback(async () => {
     const st = useTasksStore.getState();
-    await st.load(view, state);
+    if (!people) await st.load(listView, state);
     void st.refreshBadge(useAuthStore.getState().user?.id);
     void st.refreshNotifications();
-  }, [view, state]);
+  }, [people, listView, state]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   // A task changed on the server (socket 'task:update') → refetch the list on screen.
   const touchedAt = useTasksStore((s) => s.touched.at);
   const firstTouch = useRef(touchedAt);
-  useEffect(() => { if (touchedAt && touchedAt !== firstTouch.current) void useTasksStore.getState().load(view, state); }, [touchedAt, view, state]);
+  useEffect(() => { if (touchedAt && touchedAt !== firstTouch.current && !people) void useTasksStore.getState().load(listView, state); }, [touchedAt, people, listView, state]);
   // Fill the other segments' counts once, so the chips say how many are open there too.
   useFocusEffect(useCallback(() => {
     const st = useTasksStore.getState();
     void st.load('watching', 'open');
-    if (isManager) void st.load('team', 'open');
-  }, [isManager]));
+  }, []));
 
   const sections = useMemo(() => {
     const shown = filterTasks(list ?? [], filters);
-    const groups = view === 'assigned' ? groupAssigned(shown) : groupMine(shown);
+    const groups = listView === 'assigned' ? groupAssigned(shown) : groupMine(shown);
     return groups.map((g) => ({ key: g.key, title: g.title, data: g.tasks }));
-  }, [list, filters, view]);
+  }, [list, filters, listView]);
   const total = sections.reduce((n, s) => n + s.data.length, 0);
   const filterCount = activeFilterCount(filters);
   const openTask = useCallback((id: string) => router.push({ pathname: '/task/[id]', params: { id } }), [router]);
-  const segments = SEGMENTS.filter((s) => s.key !== 'team' || isManager);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -112,7 +111,7 @@ export default function TasksScreen() {
 
         {/* Segments */}
         <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: colors.coolMuted, borderRadius: 12, padding: 3, gap: 2, marginTop: 6 }}>
-          {segments.map((s) => {
+          {SEGMENTS.map((s) => {
             const on = view === s.key;
             const n = counts[s.key];
             return (
@@ -128,10 +127,11 @@ export default function TasksScreen() {
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 6 }}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.card, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.coolDivider }}>
             <Search size={16} color={colors.coolText3} />
-            <TextInput value={filters.q ?? ''} onChangeText={(q) => setFilters((f) => ({ ...f, q }))} placeholder="Search by title" placeholderTextColor={colors.coolText3}
+            <TextInput value={filters.q ?? ''} onChangeText={(q) => setFilters((f) => ({ ...f, q }))} placeholder={people ? 'Search people' : 'Search by title'} placeholderTextColor={colors.coolText3}
               style={{ flex: 1, paddingVertical: 9, fontSize: 14, color: colors.ink }} />
             {filters.q ? <Pressable onPress={() => setFilters((f) => ({ ...f, q: '' }))} hitSlop={8}><X size={15} color={colors.coolText} /></Pressable> : null}
           </View>
+          {people ? null : <>
           <Pressable accessibilityLabel="Filter tasks" onPress={() => setFilterOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, borderRadius: 12, backgroundColor: filterCount ? colors.primarySoft : colors.card, borderWidth: 1, borderColor: filterCount ? colors.primary : colors.coolDivider }}>
             <SlidersHorizontal size={16} color={filterCount ? colors.primary : colors.coolText} />
             {filterCount ? <Text style={{ color: colors.primary, fontSize: 12.5, fontWeight: '700' }}>{filterCount}</Text> : null}
@@ -140,9 +140,11 @@ export default function TasksScreen() {
             style={{ paddingHorizontal: 11, borderRadius: 12, justifyContent: 'center', backgroundColor: state === 'closed' ? colors.ink : colors.card, borderWidth: 1, borderColor: state === 'closed' ? colors.ink : colors.coolDivider }}>
             <Text style={{ color: state === 'closed' ? '#fff' : colors.coolText, fontSize: 12.5, fontWeight: '700' }}>{state === 'closed' ? 'Closed' : 'Open'}</Text>
           </Pressable>
+          </>}
         </View>
       </View>
 
+      {people ? <PeopleList query={filters.q ?? ''} meId={meId} /> : (
       <SectionList
         sections={sections}
         keyExtractor={(t: Task) => t.id}
@@ -171,12 +173,13 @@ export default function TasksScreen() {
             </Pressable>
           ) : (
             <Text style={{ color: colors.coolText, textAlign: 'center', padding: 28, fontSize: 13 }}>
-              {filterCount || filters.q ? 'No tasks match these filters.' : state === 'closed' ? 'No closed or cancelled tasks here yet.' : EMPTY[view]}
+              {filterCount || filters.q ? 'No tasks match these filters.' : state === 'closed' ? 'No closed or cancelled tasks here yet.' : EMPTY[listView]}
             </Text>
           )
         }
         ListFooterComponent={total ? <Text style={{ color: colors.coolText3, textAlign: 'center', fontSize: 11.5, marginTop: 14 }}>{total} {total === 1 ? 'task' : 'tasks'}</Text> : undefined}
       />
+      )}
 
       <FilterSheet visible={filterOpen} value={filters} meId={meId} onChange={setFilters} onClose={() => setFilterOpen(false)} />
     </View>

@@ -1,11 +1,18 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, useWindowDimensions, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
+import { textStyles } from '../../src/theme/typography';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { View, Text, TextInput, Pressable, FlatList, ActivityIndicator, Platform, ScrollView, StyleSheet, Vibration, Alert, Keyboard, useWindowDimensions, Image as RNImage, KeyboardAvoidingView as RNKeyboardAvoidingView, type GestureResponderEvent } from 'react-native';
 import { Modal } from '../../src/components/ui/Modal';
+import { AnchoredMenu, MenuItem, anchorOfPress, type AnchorRect } from '../../src/components/ui/AnchoredMenu';
+import { Sheet } from '../../src/components/ui/Sheet';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useIsFocused } from 'expo-router';
+import { setStatusBarStyle } from 'expo-status-bar';
+import { useRail } from '../../src/components/layout/SideSafeArea';
+import { RailActions } from '../../src/components/layout/RailActions';
+import { useSideStripStore } from '../../src/store/sideStripStore';
 import { ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Search as SearchIcon, BellOff, Bell, Ban, Timer, Palette, Share2, ArrowDown, MapPin, Send, X, Reply, Copy, Star, Pin, Pencil, Trash2, Plus, Mic, FileText, Image as ImageIcon, Camera, Clock, Check, CheckCheck, Forward as ForwardIcon, Megaphone, ListChecks, Info, Download, Smile, CalendarDays, MessageSquareX } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
@@ -59,7 +66,7 @@ const colors = {
 };
 const TICK_MUTED = '#B6BEC6'; // sent/delivered ticks + pending clock
 // Composer metrics, named so the max height stays a whole number of lines.
-const COMPOSER_LINE = 20;  // lineHeight of the input text
+const COMPOSER_LINE = textStyles.body.lineHeight;  // lineHeight of the input text: the body leading
 const COMPOSER_PAD = 20;   // its vertical padding, top + bottom
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -140,7 +147,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   // The cap is a share of the window rather than a fixed number, so a long draft never swallows
   // the conversation on a short screen; COMPOSER_LINE keeps the cap a whole number of lines, so it
   // never stops mid-line and looks clipped.
-  const { height: windowH } = useWindowDimensions();
+  const { width: windowW, height: windowH } = useWindowDimensions();
   const composerMaxH = Math.max(
     COMPOSER_LINE * 4 + COMPOSER_PAD,
     Math.min(COMPOSER_LINE * 10 + COMPOSER_PAD, Math.round(windowH * 0.3 / COMPOSER_LINE) * COMPOSER_LINE + COMPOSER_PAD),
@@ -158,7 +165,15 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   const [sel, setSel] = useState<{ start: number; end: number } | undefined>(undefined);
   const [selRange, setSelRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 }); // live selection — shows the formatting strip while text is selected
   const [active, setActive] = useState<StoredMessage | null>(null);
+  // Where the message menu opens: at the pressed message, by the finger (AnchoredMenu).
+  const [activeAt, setActiveAt] = useState<AnchorRect | null>(null);
+  // The menu opens once its anchor is known, so it never flashes in the middle first.
+  const openMsgMenu = (m: StoredMessage, at?: AnchorRect): void => { setActiveAt(at ?? null); setActive(m); };
   const [reactionsFor, setReactionsFor] = useState<string | null>(null); // message id → reactions sheet
+  const [reactionsAt, setReactionsAt] = useState<AnchorRect | null>(null); // the reaction pill that was tapped
+  const lastReactions = useRef<string | null>(null);
+  if (reactionsFor) lastReactions.current = reactionsFor;
+  const reactionsShown = reactionsFor ?? lastReactions.current;
   const [reactPickerOpen, setReactPickerOpen] = useState<string | null>(null); // message id → full emoji picker
   const [infoFor, setInfoFor] = useState<StoredMessage | null>(null);
   const [savingImage, setSavingImage] = useState(false);
@@ -194,7 +209,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   // behavior — a PDF goes to the PDF app, not the browser); this modal is the iOS in-app preview.
   const [fileViewer, setFileViewer] = useState<{ uri: string; name: string; mime: string } | null>(null);
   const [pinned, setPinned] = useState<ChatMessage[]>([]);
-  const [contactOpen, setContactOpen] = useState(false);
+  // The contact card (direct chats), open at the header or the ⋮ menu it was opened from; null = closed.
+  const [contactAt, setContactAt] = useState<AnchorRect | null>(null);
   // Jump-to-pinned (WhatsApp-style): which pin the banner targets next, the message id waiting to be
   // scrolled to (resolved by an effect once the row is in the list data), and the highlight flash.
   const [pinIdx, setPinIdx] = useState(0);
@@ -210,10 +226,15 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   const lastHitJump = useRef<string | null>(null);
   const consumedJumpParam = useRef(false);
   // Jump-to-date calendar (the search bar's calendar icon, WhatsApp-style).
-  const [dateJumpOpen, setDateJumpOpen] = useState(false);
+  // The jump-to-date calendar, open at the calendar button; null = closed.
+  const [dateJumpAt, setDateJumpAt] = useState<AnchorRect | null>(null);
+  const setDateJumpOpen = (open: false): void => { if (!open) setDateJumpAt(null); };
   // Jump-to-latest button: shown once the user has scrolled up away from the newest message.
   const [showJumpLatest, setShowJumpLatest] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  // The ⋮ menu, open at the button that was tapped (header or side strip); null = closed.
+  const [menuAt, setMenuAt] = useState<AnchorRect | null>(null);
+  const setMenuOpen = (open: false): void => { if (!open) setMenuAt(null); };
+  const openMenu = (e: GestureResponderEvent): void => { void anchorOfPress(e).then(setMenuAt); };
   const [pendingJump, setPendingJump] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -520,11 +541,11 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   // Dismissing the menu keeps the selection, so tapping more messages extends it; picking an
   // action applies to this message and leaves selection mode (finishAction). Once already
   // selecting, long-press just toggles like a tap.
-  const onMsgLongPress = (m: StoredMessage): void => {
+  const onMsgLongPress = (m: StoredMessage, at?: AnchorRect): void => {
     if (m.deletedForEveryone || m.type === 'system') return;
     if (selecting) { toggleSelect(m); return; }
     toggleSelect(m);
-    setActive(m);
+    openMsgMenu(m, at);
   };
   const copySelected = (): void => {
     const texts = selectedMsgs.filter((m) => m.text);
@@ -803,6 +824,9 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   };
 
   const closeMenu = (): void => setActive(null);
+  const lastActive = useRef<StoredMessage | null>(null);
+  if (active) lastActive.current = active;
+  const menuMsg = active ?? lastActive.current; // stays drawn while the menu fades out
   // A menu action acted on the single message — close the menu AND leave selection mode.
   const finishAction = (): void => { setActive(null); setSelectedIds([]); };
   const startEdit = (m: StoredMessage): void => { setEditing(m); setText(m.text); setReplyTo(null); finishAction(); };
@@ -886,11 +910,14 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   // Everything a row can do, behind identities that never change (useEventCallback runs the latest
   // body). With these stable and the row memoised, typing in the composer, a presence flip or a
   // message landing re-renders the rows that actually changed — not every bubble on screen.
-  const rowPress = useEventCallback((m: StoredMessage): void => { if (selecting) toggleSelect(m); else if (!m.deletedForEveryone) setActive(m); });
-  const rowLongPress = useEventCallback((m: StoredMessage): void => onMsgLongPress(m));
+  const rowPress = useEventCallback((m: StoredMessage, at?: AnchorRect): void => { if (selecting) toggleSelect(m); else if (!m.deletedForEveryone) openMsgMenu(m, at); });
+  const rowLongPress = useEventCallback((m: StoredMessage, at?: AnchorRect): void => onMsgLongPress(m, at));
   const rowReply = useEventCallback((m: StoredMessage): void => setReplyTo(m));
   const rowForward = useEventCallback((m: StoredMessage): void => setForwardMsgs([m]));
-  const rowReactions = useEventCallback((id: string): void => setReactionsFor(id));
+  const rowReactions = useEventCallback((id: string, e?: GestureResponderEvent): void => {
+    if (!e) { setReactionsAt(null); setReactionsFor(id); return; }
+    void anchorOfPress(e).then((at) => { setReactionsAt(at); setReactionsFor(id); });
+  });
   const rowOpenFile = useEventCallback((f: { uri: string; name: string; mime: string }): void => void openLocalFile(f));
   const rowRetry = useEventCallback((cid: string): void => void useMessagingStore.getState().retry(cid));
   const rowJump = useEventCallback((id: string): void => void jumpToMessage(id));
@@ -952,11 +979,31 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
       // scale:-1 (both axes — a scaleY-only counter leaves the text mirrored), iOS with scaleY:-1.
       // Held back until the first sync settles: a brand-new chat shouldn't flash "no messages"
       // at someone whose thread is a few milliseconds from landing.
-      ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, fontSize: 14 }}>No messages yet — say hi 👋</Text></View> : undefined}
+      ListEmptyComponent={fetched ? <View className="items-center" style={{ paddingVertical: 48, transform: Platform.OS === 'android' ? [{ scale: -1 }] : [{ scaleY: -1 }] }}><Text style={{ color: colors.coolText, ...textStyles.subheadline }}>No messages yet — say hi 👋</Text></View> : undefined}
       onScrollToIndexFailed={onScrollFailed}
       renderItem={renderMessage}
     />
   ), [reversed, fetched, renderMessage, onListEnd, onListScroll, onScrollFailed]);
+
+  // iPhone Duo, chat opened on its own (closed screen): back, search and ⋮ move out of the header
+  // into the side strip under the clock, the way WhatsApp's back and call buttons sit there, and the
+  // strip takes the header's colour. In the two-pane view the tabs keep the strip.
+  const isFocused = useIsFocused();
+  const railEdge = useRail(
+    <RailActions actions={[
+      { key: 'back', label: 'Back', icon: <ChevronLeft size={26} color={theme.chromeText} />, onPress: () => router.back() },
+      { key: 'search', label: 'Search in chat', icon: <SearchIcon size={22} color={theme.chromeText} />, onPress: openSearch },
+      { key: 'more', label: 'More options', icon: <MoreVertical size={22} color={theme.chromeText} />, onPress: openMenu },
+    ]} />,
+    !embedded && isFocused,
+  );
+  const inRail = !embedded && railEdge !== null;
+  useEffect(() => {
+    if (embedded || !isFocused) return undefined;
+    setStatusBarStyle(theme.dark ? 'light' : 'dark');
+    useSideStripStore.getState().setColor(theme.bar);
+    return () => { setStatusBarStyle('dark'); useSideStripStore.getState().setColor(null); };
+  }, [embedded, isFocused, theme.dark, theme.bar]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bar }} edges={['top']}>
@@ -964,7 +1011,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
       {selecting ? (
         <View className="flex-row items-center gap-1 px-2" style={{ backgroundColor: colors.card, height: 60, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
           <Pressable onPress={exitSelect} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><X size={22} color={colors.ink} /></Pressable>
-          <Text style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: '700' }}>{selectedIds.length}</Text>
+          <Text style={{ flex: 1, color: colors.ink, ...textStyles.headline }}>{selectedIds.length}</Text>
           {selectedMsgs.some((m) => m.text) ? (
             <Pressable onPress={copySelected} accessibilityLabel="Copy" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><Copy size={20} color={colors.ink} /></Pressable>
           ) : null}
@@ -975,8 +1022,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
       ) : (
       <View className="flex-row items-center gap-2 px-2" style={{ backgroundColor: theme.bar, height: 60, borderBottomColor: theme.line, borderBottomWidth: 1 }}>
         {/* In the two-pane view the list is beside the chat — no way "back" to show. */}
-        {embedded ? <View style={{ width: 6 }} /> : <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.chromeText} /></Pressable>}
-        <Pressable disabled={!isGroup && !taskId} onPress={() => (taskId ? openTask(taskId) : router.push({ pathname: '/chat/group-info', params: { id: convId } }))} className="flex-1 flex-row items-center gap-2.5">
+        {embedded || inRail ? <View style={{ width: 6 }} /> : <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={theme.chromeText} /></Pressable>}
+        <Pressable onPress={(e) => (taskId ? openTask(taskId) : isGroup ? router.push({ pathname: '/chat/group-info', params: { id: convId } }) : void anchorOfPress(e).then(setContactAt))} className="flex-1 flex-row items-center gap-2.5">
 
           <View style={{ position: 'relative' }}>
             <ChatTile name={title} size={40} radius={12}
@@ -986,17 +1033,19 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
               online={otherOnline} dotBorder={theme.bar} />
           </View>
           <View className="flex-1">
-            <Text numberOfLines={1} style={{ color: theme.chromeText, fontSize: 16, fontWeight: '600' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: theme.chromeText, ...textStyles.headline }}>{title}</Text>
             {/* One subtitle line, mockup-style: "Finance Manager · Online" — the presence part goes
                 teal when live (online/typing), the position stays grey. */}
-            <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: theme.mute }}>
+            <Text numberOfLines={1} style={{ ...textStyles.caption1, color: theme.mute }}>
               {!isMulti && otherPosition ? `${otherPosition} · ` : ''}
               <Text style={{ color: typingUsers.length || otherOnline ? theme.accent : theme.mute, fontStyle: typingUsers.length ? 'italic' : 'normal' }}>{subtitle}</Text>
             </Text>
           </View>
         </Pressable>
-        <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={theme.chromeText} /></Pressable>
-        <Pressable onPress={() => setMenuOpen(true)} style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={theme.chromeText} /></Pressable>
+        {inRail ? null : <>
+          <Pressable onPress={openSearch} accessibilityLabel="Search in chat" style={{ width: 38, height: 40, alignItems: 'center', justifyContent: 'center' }}><SearchIcon size={20} color={theme.chromeText} /></Pressable>
+          <Pressable onPress={openMenu} accessibilityRole="button" accessibilityLabel="More options" style={{ width: 36, height: 40, alignItems: 'center', justifyContent: 'center' }}><MoreVertical size={21} color={theme.chromeText} /></Pressable>
+        </>}
       </View>
       )}
 
@@ -1011,18 +1060,18 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
           <TextInput
             value={searchQ} onChangeText={setSearchQ} autoFocus placeholder="Search in this chat"
             placeholderTextColor={colors.coolText3}
-            style={{ flex: 1, fontSize: 15, color: colors.ink, paddingVertical: 4 }}
+            style={{ flex: 1, fontSize: textStyles.body.fontSize, color: colors.ink, paddingVertical: 4 }}
           />
-          <Text style={{ color: colors.coolText3, fontSize: 12.5, minWidth: 46, textAlign: 'right' }}>
+          <Text style={{ color: colors.coolText3, ...textStyles.footnote, minWidth: 46, textAlign: 'right' }}>
             {searchQ.trim() ? (hits.length ? `${hitIdx + 1}/${hits.length}` : 'none') : ''}
           </Text>
-          <Pressable onPress={() => setDateJumpOpen(true)} accessibilityLabel="Jump to date" hitSlop={6} style={{ padding: 4 }}><CalendarDays size={19} color={colors.ink} /></Pressable>
+          <Pressable onPress={(e) => void anchorOfPress(e).then(setDateJumpAt)} accessibilityLabel="Jump to date" hitSlop={6} style={{ padding: 4 }}><CalendarDays size={19} color={colors.ink} /></Pressable>
           <Pressable onPress={() => stepHit(1)} disabled={!hits.length} hitSlop={6} style={{ padding: 4, opacity: hits.length ? 1 : 0.4 }}><ChevronUp size={19} color={colors.ink} /></Pressable>
           <Pressable onPress={() => stepHit(-1)} disabled={!hits.length} hitSlop={6} style={{ padding: 4, opacity: hits.length ? 1 : 0.4 }}><ChevronDown size={19} color={colors.ink} /></Pressable>
           <Pressable onPress={closeSearch} hitSlop={6} style={{ padding: 4 }}><X size={19} color={colors.coolText} /></Pressable>
         </View>
       ) : null}
-      <DateJumpSheet visible={dateJumpOpen} onClose={() => setDateJumpOpen(false)} onPick={(d) => void jumpToDate(d)} />
+      <DateJumpSheet visible={!!dateJumpAt} anchor={dateJumpAt} onClose={() => setDateJumpOpen(false)} onPick={(d) => void jumpToDate(d)} />
 
       {/* Pinned bar — compact mockup style: teal rail + uppercase label; tap scrolls to the pinned
           message (repeated taps cycle through pins via the chevron too) */}
@@ -1032,10 +1081,10 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
           <Pressable onPress={jumpToPinned} className="flex-row items-center" style={{ gap: 12, paddingVertical: 8, paddingLeft: 16, paddingRight: 12, backgroundColor: '#fff', borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
             <View style={{ width: 3, height: 26, borderRadius: 2, backgroundColor: colors.primary }} />
             <View className="flex-1">
-              <Text numberOfLines={1} style={{ color: colors.primary, fontSize: 11, fontWeight: '600', letterSpacing: 0.8, lineHeight: 14 }}>
+              <Text numberOfLines={1} style={{ color: colors.primary, ...textStyles.caption2, fontWeight: '600', letterSpacing: 0.8 }}>
                 {pinned.length > 1 ? `PINNED MESSAGE ${(pinIdx % pinned.length) + 1} OF ${pinned.length}` : 'PINNED MESSAGE'}
               </Text>
-              <Text numberOfLines={1} style={{ color: '#3A424B', fontSize: 13, lineHeight: 18 }}>{cur.text || `[${cur.type}]`}</Text>
+              <Text numberOfLines={1} style={{ color: '#3A424B', ...textStyles.subheadline }}>{cur.text || `[${cur.type}]`}</Text>
             </View>
             <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: colors.coolMuted, alignItems: 'center', justifyContent: 'center' }}>
               <ChevronDown size={16} color={colors.coolText} />
@@ -1055,7 +1104,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
         {/* Upload progress */}
         {uploading !== null ? (
           <View className="px-3 py-2" style={{ backgroundColor: theme.bar, borderTopColor: theme.line, borderTopWidth: 1 }}>
-            <Text style={{ color: theme.mute, fontSize: 11.5, fontWeight: '600', marginBottom: 4 }}>Uploading… {Math.round(uploading * 100)}%</Text>
+            <Text style={{ color: theme.mute, ...textStyles.caption1, fontWeight: '600', marginBottom: 4 }}>Uploading… {Math.round(uploading * 100)}%</Text>
             <View style={{ height: 4, borderRadius: 2, backgroundColor: theme.input }}><View style={{ height: 4, borderRadius: 2, width: `${Math.max(5, uploading * 100)}%`, backgroundColor: theme.accent }} /></View>
           </View>
         ) : null}
@@ -1065,8 +1114,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
           <View className="flex-row items-center gap-2 px-3 py-2" style={{ backgroundColor: theme.bar, borderTopColor: theme.line, borderTopWidth: 1 }}>
             <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: theme.accent }} />
             <View className="flex-1">
-              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{editing ? 'Editing' : `Reply to ${nameOf((replyTo as StoredMessage).senderId)}`}</Text>
-              <Text numberOfLines={1} style={{ color: theme.mute, fontSize: 12.5 }}>{(editing ?? replyTo)?.text || '[media]'}</Text>
+              <Text style={{ color: theme.accent, ...textStyles.subheadline, fontWeight: '600' }}>{editing ? 'Editing' : `Reply to ${nameOf((replyTo as StoredMessage).senderId)}`}</Text>
+              <Text numberOfLines={1} style={{ color: theme.mute, ...textStyles.subheadline }}>{(editing ?? replyTo)?.text || '[media]'}</Text>
             </View>
             <Pressable onPress={() => { setReplyTo(null); setEditing(null); setText(''); }} hitSlop={8}><X size={18} color={theme.mute} /></Pressable>
           </View>
@@ -1083,8 +1132,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                   <Megaphone size={16} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '700' }}>Everyone</Text>
-                  <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>Notify all {mentionPeople.length} members</Text>
+                  <Text numberOfLines={1} style={{ color: colors.ink, ...textStyles.headline }}>Everyone</Text>
+                  <Text numberOfLines={1} style={{ color: colors.coolText, ...textStyles.footnote }}>Notify all {mentionPeople.length} members</Text>
                 </View>
               </Pressable>
             ) : null}
@@ -1093,8 +1142,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                 style={{ paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 && !showEveryone ? 0 : 1, borderTopColor: colors.coolDivider }}>
                 <Avatar initials={p.initials} color={p.color} size={32} uri={p.avatar} />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
-                  {p.position || p.roleName ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{p.position ?? p.roleName}</Text> : null}
+                  <Text numberOfLines={1} style={{ color: colors.ink, ...textStyles.headline }}>{p.name}</Text>
+                  {p.position || p.roleName ? <Text numberOfLines={1} style={{ color: colors.coolText, ...textStyles.footnote }}>{p.position ?? p.roleName}</Text> : null}
                 </View>
               </Pressable>
             ))}
@@ -1118,8 +1167,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
         {/* Blocked: the composer is replaced by the way out, exactly like WhatsApp. */}
         {isBlocked ? (
           <Pressable onPress={toggleBlock} style={{ backgroundColor: colors.card, borderTopColor: colors.coolDivider, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 18, paddingBottom: bottomInset + 18, alignItems: 'center' }}>
-            <Text style={{ color: colors.coolText, fontSize: 13.5 }}>You blocked this contact.</Text>
-            <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 3 }}>Tap to unblock</Text>
+            <Text style={{ color: colors.coolText, ...textStyles.subheadline }}>You blocked this contact.</Text>
+            <Text style={{ color: colors.primary, ...textStyles.subheadline, fontWeight: '600', marginTop: 3 }}>Tap to unblock</Text>
           </Pressable>
         ) : (
         <View className="flex-row items-end gap-2" style={{ backgroundColor: chatCanvas(theme), paddingHorizontal: 12, paddingTop: 8, paddingBottom: keyboardVisible ? 8 : bottomInset + 10 }}>
@@ -1133,8 +1182,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
           {isRecording ? (
             <View className="flex-row items-center gap-2" style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 23, backgroundColor: '#FDECEC' }}>
               <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
-              <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{mmss(elapsedSec)}</Text>
-              <Text style={{ color: colors.coolText, fontSize: 13 }}>Recording…</Text>
+              <Text style={{ color: colors.ink, ...textStyles.headline }}>{mmss(elapsedSec)}</Text>
+              <Text style={{ color: colors.coolText, ...textStyles.footnote }}>Recording…</Text>
             </View>
           ) : (
             <View className="flex-row items-end" style={{ flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: theme.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.line, paddingLeft: 6, paddingRight: 6 }}>
@@ -1144,7 +1193,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
               <TextInput value={text} onChangeText={onChangeText} onFocus={() => { setAttachOpen(false); setEmojiOpen(false); }} submitBehavior="newline" placeholder="Message" placeholderTextColor={theme.mute} multiline
                 selection={sel}
                 onSelectionChange={(e) => { const r = e.nativeEvent.selection; setCursor(r.start); setSelRange({ start: r.start, end: r.end }); if (sel) setSel(undefined); }}
-                style={{ flex: 1, paddingVertical: COMPOSER_PAD / 2, fontSize: 15, lineHeight: COMPOSER_LINE, color: theme.chromeText, maxHeight: composerMaxH, textAlignVertical: 'top' }} />
+                style={{ flex: 1, paddingVertical: COMPOSER_PAD / 2, fontSize: textStyles.body.fontSize, lineHeight: COMPOSER_LINE, color: theme.chromeText, maxHeight: composerMaxH, textAlignVertical: 'top' }} />
               <Pressable onPress={() => setAttachOpen((v) => !v)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Attach"
                 style={{ width: 32, height: 46, alignItems: 'center', justifyContent: 'center' }}>
                 <Plus size={22} color={attachOpen ? theme.accent : theme.mute} />
@@ -1177,21 +1226,19 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
           <ArrowDown size={20} color={colors.coolText} />
           {conv?.unread ? (
             <View style={{ position: 'absolute', top: -6, alignSelf: 'center', minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontSize: 10.5, fontWeight: '700' }}>{conv.unread}</Text>
+              <Text style={{ color: '#fff', ...textStyles.caption2, fontWeight: '600' }}>{conv.unread}</Text>
             </View>
           ) : null}
         </Pressable>
       ) : null}
 
-      {/* Overflow menu — the chat's own settings (WhatsApp's ⋮). */}
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-        <Pressable onPress={() => setMenuOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 8, paddingBottom: insets.bottom + 20 }}>
-            <View style={{ alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: colors.coolDivider, marginBottom: 10 }} />
-            {[
+      {/* Overflow menu — the chat's own settings (WhatsApp's ⋮), opening from the ⋮ that was tapped. It
+          was a bottom sheet over a dark scrim (owner, 2026-11-17). */}
+      <AnchoredMenu anchor={menuAt} onClose={() => setMenuOpen(false)} width={270} background={colors.card} border={colors.coolDivider} label="Chat options">
+        {[
               ...(isTask ? (taskId ? [{ key: 'task', label: 'Open task', Icon: ListChecks, onPress: () => { setMenuOpen(false); openTask(taskId); } }] : [])
                 : isGroup ? [{ key: 'info', label: 'Group info', Icon: Info, onPress: () => { setMenuOpen(false); router.push({ pathname: '/chat/group-info', params: { id: convId } }); } }]
-                : [{ key: 'contact', label: 'Contact info', Icon: Info, onPress: () => { setMenuOpen(false); setContactOpen(true); } }]),
+                : [{ key: 'contact', label: 'Contact info', Icon: Info, onPress: () => { const at = menuAt; setMenuOpen(false); setContactAt(at); } }]),
               { key: 'search', label: 'Search in chat', Icon: SearchIcon, onPress: openSearch },
               {
                 key: 'mute',
@@ -1205,16 +1252,11 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
               { key: 'export', label: 'Export chat', Icon: Share2, onPress: () => void exportChat() },
               ...(isMulti ? [] : [{ key: 'block', label: isBlocked ? 'Unblock' : 'Block', Icon: Ban, danger: !isBlocked, onPress: toggleBlock }]),
               ...(isMulti ? [] : [{ key: 'delete', label: 'Delete chat', Icon: MessageSquareX, danger: true, onPress: confirmDeleteChat }]),
-            ].map((r, i) => (
-              <Pressable key={r.key} onPress={r.onPress} android_ripple={{ color: colors.coolMuted }}
-                className="flex-row items-center gap-3.5 px-5" style={{ paddingVertical: 13, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: colors.coolDivider }}>
-                <r.Icon size={20} color={r.danger ? colors.danger : colors.coolText} />
-                <Text style={{ color: r.danger ? colors.danger : colors.ink, fontSize: 15.5 }}>{r.label}</Text>
-              </Pressable>
-            ))}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        ].map((r, i) => (
+          <MenuItem key={r.key} index={i} first={i === 0} label={r.label} Icon={r.Icon} danger={'danger' in r && !!r.danger} onPress={r.onPress}
+            colors={{ text: colors.ink, mute: colors.coolText, danger: colors.danger, pressed: colors.coolMuted, divider: colors.coolDivider }} />
+        ))}
+      </AnchoredMenu>
 
       {/* Full-screen image viewer — pinch to zoom, drag to pan, double-tap to zoom in/out, tap to
           close (ZoomableImage). The Modal gets its own GestureHandlerRootView: RN modals render in a
@@ -1244,7 +1286,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                 style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                 <X size={23} color="#fff" />
               </Pressable>
-              <Text numberOfLines={1} style={{ flex: 1, color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Send photo</Text>
+              <Text numberOfLines={1} style={{ flex: 1, color: '#fff', ...textStyles.headline }}>Send photo</Text>
             </View>
             {pendingImage ? (
               <RNImage source={{ uri: pendingImage.uri }} resizeMode="contain" style={{ flex: 1, width: '100%' }} />
@@ -1260,8 +1302,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                       <Megaphone size={16} color="#fff" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Everyone</Text>
-                      <Text numberOfLines={1} style={{ color: '#98A0A8', fontSize: 11.5 }}>Notify all {mentionPeople.length} members</Text>
+                      <Text numberOfLines={1} style={{ color: '#fff', ...textStyles.headline }}>Everyone</Text>
+                      <Text numberOfLines={1} style={{ color: '#98A0A8', ...textStyles.footnote }}>Notify all {mentionPeople.length} members</Text>
                     </View>
                   </Pressable>
                 ) : null}
@@ -1270,8 +1312,8 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                     style={{ paddingHorizontal: 14, paddingVertical: 9, borderTopWidth: i === 0 && !capShowEveryone ? 0 : 1, borderTopColor: '#22303A' }}>
                     <Avatar initials={p.initials} color={p.color} size={32} uri={p.avatar} />
                     <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{p.name}</Text>
-                      {p.position || p.roleName ? <Text numberOfLines={1} style={{ color: '#98A0A8', fontSize: 11.5 }}>{p.position ?? p.roleName}</Text> : null}
+                      <Text numberOfLines={1} style={{ color: '#fff', ...textStyles.headline }}>{p.name}</Text>
+                      {p.position || p.roleName ? <Text numberOfLines={1} style={{ color: '#98A0A8', ...textStyles.footnote }}>{p.position ?? p.roleName}</Text> : null}
                     </View>
                   </Pressable>
                 ))}
@@ -1284,7 +1326,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
                   selection={capSel}
                   onSelectionChange={(e) => { setCapCursor(e.nativeEvent.selection.start); if (capSel) setCapSel(undefined); }}
                   placeholder={isMulti ? 'Add a caption — @ to mention' : 'Add a caption'} placeholderTextColor="#7C8894"
-                  style={{ paddingVertical: 12, fontSize: 15, color: '#fff', maxHeight: 110 }} />
+                  style={{ paddingVertical: 12, fontSize: textStyles.body.fontSize, color: '#fff', maxHeight: 110 }} />
               </View>
               <Pressable onPress={() => void sendPendingImage()} accessibilityLabel="Send photo"
                 style={{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}>
@@ -1314,7 +1356,7 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
               style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
               <ChevronLeft size={24} color={colors.ink} />
             </Pressable>
-            <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 15.5, fontWeight: '700' }}>{fileViewer?.name}</Text>
+            <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, ...textStyles.headline }}>{fileViewer?.name}</Text>
             <Pressable onPress={() => { if (fileViewer) void shareFile(fileViewer.uri, fileViewer.mime); }} hitSlop={12} accessibilityLabel="Share"
               style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
               <ForwardIcon size={20} color={colors.ink} />
@@ -1329,74 +1371,72 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
       </Modal>
 
       {/* Contact info (direct chats) */}
-      <Modal visible={contactOpen} transparent animationType="fade" onRequestClose={() => setContactOpen(false)}>
-        <Pressable onPress={() => setContactOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 28 }}>
-          <Pressable onPress={() => {}} style={{ backgroundColor: '#fff', borderRadius: 18, padding: 20, alignItems: 'center' }}>
+      <AnchoredMenu anchor={contactAt} onClose={() => setContactAt(null)} width={300} background="#fff" border={colors.coolDivider} label="Contact info">
+        <View style={{ padding: 20, alignItems: 'center' }}>
             {(() => {
               const c = users.find((u) => u.id === conv?.otherUserId);
               return (
                 <>
                   <Avatar initials={c?.initials ?? (title[0] ?? '?').toUpperCase()} color={c?.color ?? colors.blue} size={64} uri={c?.avatar} />
-                  <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800', marginTop: 10 }}>{c?.name ?? title}</Text>
-                  {c?.position ? <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '600', marginTop: 2 }}>{c.position}</Text> : null}
-                  {c?.roleName ? <Text style={{ color: colors.coolText, fontSize: 11.5, marginTop: 1 }}>{c.roleName}</Text> : null}
-                  {c?.email ? <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 6 }}>{c.email}</Text> : null}
+                  <Text style={{ color: colors.ink, ...textStyles.title3, marginTop: 10 }}>{c?.name ?? title}</Text>
+                  {c?.position ? <Text style={{ color: colors.ink, ...textStyles.footnote, fontWeight: '600', marginTop: 2 }}>{c.position}</Text> : null}
+                  {c?.roleName ? <Text style={{ color: colors.coolText, ...textStyles.footnote, marginTop: 1 }}>{c.roleName}</Text> : null}
+                  {c?.email ? <Text style={{ color: colors.coolText3, ...textStyles.caption1, marginTop: 6 }}>{c.email}</Text> : null}
                   <View className="flex-row gap-2" style={{ marginTop: 16 }}>
-                    <Pressable onPress={() => setContactOpen(false)} style={{ paddingHorizontal: 18, paddingVertical: 11, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider }}>
-                      <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '700' }}>Close</Text>
+                    <Pressable onPress={() => setContactAt(null)} style={{ paddingHorizontal: 18, paddingVertical: 11, borderRadius: 999, borderWidth: 1, borderColor: colors.coolDivider }}>
+                      <Text style={{ color: colors.ink, ...textStyles.subheadline, fontWeight: '600' }}>Close</Text>
                     </Pressable>
                   </View>
                 </>
               );
             })()}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        </View>
+      </AnchoredMenu>
 
-      {/* Action menu */}
-      {active ? (
-        <Pressable onPress={closeMenu} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 8, minWidth: 250 }}>
-            <View className="flex-row items-center justify-around" style={{ paddingVertical: 6, marginBottom: 4, borderBottomColor: colors.coolDivider, borderBottomWidth: 1 }}>
+      {/* Message menu — reactions, then actions — opening at the pressed message (AnchoredMenu). It was a
+          card in the middle of a 50% black overlay (owner, 2026-11-17). */}
+      <AnchoredMenu anchor={active ? (activeAt ?? { x: windowW / 2 - 140, y: windowH / 3, width: 280, height: 0 }) : null}
+        onClose={closeMenu} width={290} background={colors.card} border={colors.coolDivider} label="Message actions">
+        {menuMsg ? (
+          <>
+            <View className="flex-row items-center justify-around" style={{ paddingVertical: 8, paddingHorizontal: 6, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
               {/* My current reaction is highlighted; tapping it again REMOVES it (server toggles). */}
               {REACTIONS.map((e) => {
-                const isMine = active.reactions.some((r) => r.userId === myUserId && r.emoji === e);
+                const isMine = menuMsg.reactions.some((r) => r.userId === myUserId && r.emoji === e);
                 return (
-                  <Pressable key={e} onPress={() => { reactTo(active.id, e); finishAction(); }}
+                  <Pressable key={e} onPress={() => { reactTo(menuMsg.id, e); finishAction(); }}
                     style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: isMine ? colors.primarySoft : 'transparent' }}>
-                    <Text style={{ fontSize: 24 }}>{e}</Text>
+                    <Text style={{ ...textStyles.title2 }}>{e}</Text>
                   </Pressable>
                 );
               })}
               {/* "+" → full emoji picker, WhatsApp-style. */}
-              <Pressable onPress={() => { setReactPickerOpen(active.id); closeMenu(); }}
+              <Pressable onPress={() => { setReactPickerOpen(menuMsg.id); closeMenu(); }}
                 style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
                 <Plus size={20} color={colors.coolText} />
               </Pressable>
             </View>
             {[
-              { label: 'Reply', Icon: Reply, onPress: () => { setReplyTo(active); finishAction(); } },
-              { label: 'Forward', Icon: ForwardIcon, onPress: () => { setForwardMsgs([active]); finishAction(); } },
+              { label: 'Reply', Icon: Reply, onPress: () => { setReplyTo(menuMsg); finishAction(); } },
+              { label: 'Forward', Icon: ForwardIcon, onPress: () => { setForwardMsgs([menuMsg]); finishAction(); } },
               // Keep (don't toggle) the long-pressed message selected and stay in selection mode.
-              { label: 'Select', Icon: ListChecks, onPress: () => { setSelectedIds((cur) => (cur.includes(active.id) ? cur : [...cur, active.id])); closeMenu(); } },
-              ...(active.type === 'text' ? [{ label: 'Copy', Icon: Copy, onPress: () => { void Clipboard.setStringAsync(active.text); finishAction(); showToast('Copied'); } }] : []),
-              { label: active.starred ? 'Unstar' : 'Star', Icon: Star, onPress: () => { void useMessagingStore.getState().star(active.id, convId); finishAction(); } },
+              { label: 'Select', Icon: ListChecks, onPress: () => { setSelectedIds((cur) => (cur.includes(menuMsg.id) ? cur : [...cur, menuMsg.id])); closeMenu(); } },
+              ...(menuMsg.type === 'text' ? [{ label: 'Copy', Icon: Copy, onPress: () => { void Clipboard.setStringAsync(menuMsg.text); finishAction(); showToast('Copied'); } }] : []),
+              { label: menuMsg.starred ? 'Unstar' : 'Star', Icon: Star, onPress: () => { void useMessagingStore.getState().star(menuMsg.id, convId); finishAction(); } },
               // "Message info" (who read/received) — sender-only, like WhatsApp.
-              ...(active.mine && !active.pending && !active.failed ? [{ label: 'Info', Icon: Info, onPress: () => { setInfoFor(active); finishAction(); } }] : []),
+              ...(menuMsg.mine && !menuMsg.pending && !menuMsg.failed ? [{ label: 'Info', Icon: Info, onPress: () => { setInfoFor(menuMsg); finishAction(); } }] : []),
               // Pinned by anyone counts (the message flag can lag pins made from another device).
-              { label: active.pinned || pinned.some((p) => p.id === active.id) ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(active.id, convId).then(refreshPinned); finishAction(); } },
-              ...(active.mine && active.type === 'text' && Date.now() - new Date(active.sentAt).getTime() < EDIT_WINDOW_MS ? [{ label: 'Edit', Icon: Pencil, onPress: () => startEdit(active) }] : []),
-              { label: 'Delete for me', Icon: Trash2, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'me'); finishAction(); } },
-              ...(active.mine && Date.now() - new Date(active.sentAt).getTime() < DELETE_EVERYONE_MS ? [{ label: 'Delete for everyone', Icon: Trash2, danger: true, onPress: () => { void useMessagingStore.getState().remove(active.id, convId, 'everyone'); finishAction(); } }] : []),
-            ].map((a) => (
-              <Pressable key={a.label} onPress={a.onPress} className="flex-row items-center gap-3" style={{ paddingHorizontal: 14, paddingVertical: 12 }}>
-                <a.Icon size={18} color={(a as { danger?: boolean }).danger ? colors.danger : colors.ink} />
-                <Text style={{ color: (a as { danger?: boolean }).danger ? colors.danger : colors.ink, fontSize: 14, fontWeight: '600' }}>{a.label}</Text>
-              </Pressable>
+              { label: menuMsg.pinned || pinned.some((p) => p.id === menuMsg.id) ? 'Unpin' : 'Pin', Icon: Pin, onPress: () => { void useMessagingStore.getState().pin(menuMsg.id, convId).then(refreshPinned); finishAction(); } },
+              ...(menuMsg.mine && menuMsg.type === 'text' && Date.now() - new Date(menuMsg.sentAt).getTime() < EDIT_WINDOW_MS ? [{ label: 'Edit', Icon: Pencil, onPress: () => startEdit(menuMsg) }] : []),
+              { label: 'Delete for me', Icon: Trash2, onPress: () => { void useMessagingStore.getState().remove(menuMsg.id, convId, 'me'); finishAction(); } },
+              ...(menuMsg.mine && Date.now() - new Date(menuMsg.sentAt).getTime() < DELETE_EVERYONE_MS ? [{ label: 'Delete for everyone', Icon: Trash2, danger: true, onPress: () => { void useMessagingStore.getState().remove(menuMsg.id, convId, 'everyone'); finishAction(); } }] : []),
+            ].map((a, i) => (
+              <MenuItem key={a.label} index={i} first={i === 0} label={a.label} Icon={a.Icon} danger={'danger' in a && !!a.danger} onPress={a.onPress}
+                colors={{ text: colors.ink, mute: colors.coolText, danger: colors.danger, pressed: colors.coolMuted, divider: colors.coolDivider }} />
             ))}
-          </View>
-        </Pressable>
-      ) : null}
+          </>
+        ) : null}
+      </AnchoredMenu>
 
       {/* Forward picker (WhatsApp-style: multi-select up to 5 chats, then send) */}
       <ForwardSheet visible={forwardMsgs.length > 0} targets={forwardTargets} sending={forwarding}
@@ -1407,43 +1447,38 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
       <MessageInfoSheet message={infoFor} users={users} nameOf={nameOf} onClose={() => setInfoFor(null)} />
 
       {/* Full emoji picker for reactions ("+" in the quick bar) */}
-      <Modal visible={!!reactPickerOpen} transparent animationType="slide" onRequestClose={() => setReactPickerOpen(null)}>
-        <Pressable onPress={() => setReactPickerOpen(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => {}} style={{ borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: 'hidden' }}>
-            <EmojiPicker
-              onPick={(e) => { const id = reactPickerOpen; setReactPickerOpen(null); setSelectedIds([]); if (id) reactTo(id, e); }}
-              onBackspace={() => setReactPickerOpen(null)}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <Sheet visible={!!reactPickerOpen} onClose={() => setReactPickerOpen(null)} background={colors.card}>
+        <EmojiPicker
+          onPick={(e) => { const id = reactPickerOpen; setReactPickerOpen(null); setSelectedIds([]); if (id) reactTo(id, e); }}
+          onBackspace={() => setReactPickerOpen(null)}
+        />
+      </Sheet>
 
       {/* Reactions sheet — who reacted; tap YOUR OWN row/emoji to remove it (server toggles). */}
-      <Modal visible={!!reactionsFor} transparent animationType="fade" onRequestClose={() => setReactionsFor(null)}>
-        <Pressable onPress={() => setReactionsFor(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => {}} style={{ backgroundColor: colors.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, paddingBottom: insets.bottom + 16, maxHeight: '60%' }}>
-            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Reactions</Text>
-            <Text style={{ color: colors.coolText, fontSize: 12, marginBottom: 10 }}>Tap your reaction to remove it.</Text>
-            <ScrollView>
-              {(messages.find((x) => x.id === reactionsFor)?.reactions ?? []).map((r) => {
-                const isMine = r.userId === myUserId;
-                return (
-                  <Pressable key={`${r.userId}-${r.emoji}`} disabled={!isMine}
-                    onPress={() => { const id = reactionsFor; setReactionsFor(null); if (id) reactTo(id, r.emoji); }}
-                    className="flex-row items-center gap-3" style={{ paddingVertical: 10, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
-                    <Avatar initials={(nameOf(r.userId)[0] ?? '?').toUpperCase()} color={colors.blue} size={36} uri={users.find((u) => u.id === r.userId)?.avatar} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{isMine ? 'You' : nameOf(r.userId)}</Text>
-                      {isMine ? <Text style={{ color: colors.coolText, fontSize: 11.5 }}>Tap to remove</Text> : null}
-                    </View>
-                    <Text style={{ fontSize: 22 }}>{r.emoji}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <AnchoredMenu anchor={reactionsFor ? (reactionsAt ?? { x: windowW / 2 - 150, y: windowH / 3, width: 300, height: 0 }) : null}
+        onClose={() => setReactionsFor(null)} width={300} background={colors.card} border={colors.coolDivider} label="Reactions">
+        <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexShrink: 1 }}>
+          <Text style={{ color: colors.ink, ...textStyles.headline, marginBottom: 2 }}>Reactions</Text>
+          <Text style={{ color: colors.coolText, ...textStyles.footnote, marginBottom: 6 }}>Tap your reaction to remove it.</Text>
+            <ScrollView style={{ flexGrow: 0 }} bounces={false}>
+            {(messages.find((x) => x.id === reactionsShown)?.reactions ?? []).map((r) => {
+              const isMine = r.userId === myUserId;
+              return (
+                <Pressable key={`${r.userId}-${r.emoji}`} disabled={!isMine}
+                  onPress={() => { const id = reactionsFor; setReactionsFor(null); if (id) reactTo(id, r.emoji); }}
+                  className="flex-row items-center gap-3" style={{ paddingVertical: 10, borderBottomColor: colors.coolDivider, borderBottomWidth: StyleSheet.hairlineWidth }}>
+                  <Avatar initials={(nameOf(r.userId)[0] ?? '?').toUpperCase()} color={colors.blue} size={36} uri={users.find((u) => u.id === r.userId)?.avatar} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.ink, ...textStyles.headline }}>{isMine ? 'You' : nameOf(r.userId)}</Text>
+                    {isMine ? <Text style={{ color: colors.coolText, ...textStyles.footnote }}>Tap to remove</Text> : null}
+                  </View>
+                  <Text style={{ ...textStyles.title2 }}>{r.emoji}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </AnchoredMenu>
     </SafeAreaView>
   );
 }
@@ -1455,11 +1490,12 @@ const MARKED_ROW = { backgroundColor: colors.primary + '2E', borderRadius: 14, m
 const messageKey = (m: StoredMessage): string => m.id;
 
 interface RowActions {
-  press: (m: StoredMessage) => void;
-  longPress: (m: StoredMessage) => void;
+  /** `at`: the whole message row, lined up with the finger — where its menu opens. */
+  press: (m: StoredMessage, at?: AnchorRect) => void;
+  longPress: (m: StoredMessage, at?: AnchorRect) => void;
   reply: (m: StoredMessage) => void;
   forward: (m: StoredMessage) => void;
-  reactions: (messageId: string) => void;
+  reactions: (messageId: string, e?: GestureResponderEvent) => void;
   openImage: (uri: string) => void;
   openFile: (file: { uri: string; name: string; mime: string }) => void;
   retry: (clientId: string) => void;
@@ -1474,14 +1510,34 @@ const MessageRow = memo(function MessageRow({ m, showDay, unreadCount, marked, s
   m: StoredMessage; showDay: boolean; unreadCount: number; marked: boolean; selecting: boolean; isGroup: boolean;
   nameOf: (id: string) => string; theme: ChatTheme; highlight?: string; actions: RowActions;
 }) {
-  const onLongPress = (): void => actions.longPress(m);
+  // The menu opens at the WHOLE message (this row), lined up with the finger — not at whichever part
+  // of the bubble took the press (a text line, a quote, an attachment).
+  const rowRef = useRef<ComponentRef<typeof View>>(null);
+  const atRow = (e?: GestureResponderEvent): Promise<AnchorRect | undefined> => new Promise((resolve) => {
+    const node = rowRef.current;
+    if (!e || !node) { resolve(undefined); return; }
+    const fx = e.nativeEvent.pageX;
+    node.measureInWindow((x, y, w, h) => resolve(w > 0 && h > 0 ? { x: Math.max(x, fx - 60), y, width: 120, height: h } : undefined));
+  });
+  // A long press is acted on when the finger LIFTS (onTouchEnd on the row, which hears the touch end
+  // whichever part of the bubble took it). Selecting the message and opening its menu while the
+  // finger is still down re-renders the bubble under the finger and opens the menu's window over
+  // the live touch, and the menu's first tap was then lost (seen on the Duo, 2026-11-17).
+  const pendingLong = useRef<Promise<AnchorRect | undefined> | null>(null);
+  const onLongPress = (e?: GestureResponderEvent): void => { pendingLong.current = atRow(e); };
+  const flushLongPress = (): void => {
+    const pending = pendingLong.current;
+    if (!pending) return;
+    pendingLong.current = null;
+    void pending.then((at) => actions.longPress(m, at));
+  };
   const bubble = (
     <Bubble m={m} isGroup={isGroup} nameOf={nameOf} theme={theme}
-      onPress={() => actions.press(m)}
+      onPress={(e) => { void atRow(e).then((at) => actions.press(m, at)); }}
       onLongPress={onLongPress}
       selecting={selecting}
       onOpenImage={actions.openImage} onOpenFile={actions.openFile} onRetry={actions.retry} onForward={() => actions.forward(m)}
-      onReactions={() => actions.reactions(m.id)}
+      onReactions={(e) => actions.reactions(m.id, e)}
       onJumpToReply={actions.jumpToReply} highlight={highlight} />
   );
   const row = m.type === 'system'
@@ -1500,10 +1556,12 @@ const MessageRow = memo(function MessageRow({ m, showDay, unreadCount, marked, s
       {m.type === 'system'
         ? row
         : (
-          <Pressable onLongPress={onLongPress} onPress={selecting ? () => actions.press(m) : undefined}
-            style={marked ? MARKED_ROW : undefined}>
-            {row}
-          </Pressable>
+          <View onTouchEnd={flushLongPress} onTouchCancel={flushLongPress}>
+            <Pressable ref={rowRef} onLongPress={onLongPress} onPress={selecting ? () => actions.press(m) : undefined}
+              style={marked ? MARKED_ROW : undefined}>
+              {row}
+            </Pressable>
+          </View>
         )}
       {unreadCount ? <UnreadDivider count={unreadCount} /> : null}
       {showDay ? <DateSeparator label={daySeparator(new Date(m.createdAt).getTime())} /> : null}
@@ -1519,10 +1577,14 @@ function MessageInfoSheet({ message, users, nameOf, onClose }: {
   const [data, setData] = useState<MessageReceipts | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
+    if (!message) return; // closing: keep the receipts on screen while the sheet slides away
     setData(null); setFailed(false);
-    if (message) getReceipts(message.id).then(setData).catch(() => setFailed(true));
+    getReceipts(message.id).then(setData).catch(() => setFailed(true));
   }, [message]);
-  if (!message) return null;
+  const lastMsg = useRef<StoredMessage | null>(null);
+  if (message) lastMsg.current = message;
+  const shown = message ?? lastMsg.current;
+  if (!shown) return null;
 
   const byId = new Map(users.map((u) => [u.id, u]));
   const read = (data?.readBy ?? []).slice().sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
@@ -1536,39 +1598,38 @@ function MessageInfoSheet({ message, users, nameOf, onClose }: {
     return (
       <View className="flex-row items-center gap-3" style={{ paddingHorizontal: 18, paddingVertical: 8 }}>
         <Avatar initials={u?.initials ?? (nameOf(userId)[0] ?? '?').toUpperCase()} color={u?.color ?? colors.blue} size={36} uri={u?.avatar ?? null} />
-        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{nameOf(userId)}</Text>
-        {at != null ? <Text style={{ color: colors.coolText3, fontSize: 12 }}>{dateStamp(at)}</Text> : null}
+        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, ...textStyles.headline }}>{nameOf(userId)}</Text>
+        {at != null ? <Text style={{ color: colors.coolText3, ...textStyles.footnote }}>{dateStamp(at)}</Text> : null}
       </View>
     );
   };
   const SectionHead = ({ icon, label }: { icon: React.ReactNode; label: string }) => (
     <View className="flex-row items-center gap-2" style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 }}>
       {icon}
-      <Text style={{ color: colors.coolText, fontSize: 12.5, fontWeight: '700', letterSpacing: 0.2 }}>{label}</Text>
+      <Text style={{ color: colors.coolText, ...textStyles.footnote, fontWeight: '600', letterSpacing: 0.2 }}>{label}</Text>
     </View>
   );
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }} />
-      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '75%', paddingBottom: insets.bottom + 10 }}>
+    <Sheet visible={!!message} onClose={onClose} background="#fff" maxHeight="75%">
+      <View style={{ flexShrink: 1, paddingBottom: insets.bottom + 10 }}>
         <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8 }}>
-          <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>Message info</Text>
+          <Text style={{ color: colors.ink, ...textStyles.headline }}>Message info</Text>
           <Pressable onPress={onClose} hitSlop={10}><X size={20} color={colors.coolText} /></Pressable>
         </View>
         <ScrollView>
           <View style={{ marginHorizontal: 18, backgroundColor: colors.primarySoft, borderRadius: 12, padding: 10 }}>
-            <Text numberOfLines={3} style={{ color: colors.ink, fontSize: 13.5 }}>{message.text || `[${message.type}]`}</Text>
+            <Text numberOfLines={3} style={{ color: colors.ink, ...textStyles.subheadline }}>{shown.text || `[${shown.type}]`}</Text>
           </View>
           {failed ? (
-            <Text style={{ color: colors.coolText3, fontSize: 13, textAlign: 'center', paddingVertical: 24 }}>Could not load receipts.</Text>
+            <Text style={{ color: colors.coolText3, ...textStyles.footnote, textAlign: 'center', paddingVertical: 24 }}>Could not load receipts.</Text>
           ) : !data ? (
             <ActivityIndicator style={{ paddingVertical: 24 }} color={colors.primary} />
           ) : (
             <>
               <SectionHead icon={<CheckCheck size={16} color={colors.primary} />} label={`READ${read.length ? ` · ${read.length}` : ''}`} />
               {read.length ? read.map((r) => <Row key={r.userId} userId={r.userId} at={r.at} />)
-                : <Text style={{ color: colors.coolText3, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 18, paddingVertical: 4 }}>No one yet</Text>}
+                : <Text style={{ color: colors.coolText3, ...textStyles.footnote, fontStyle: 'italic', paddingHorizontal: 18, paddingVertical: 4 }}>No one yet</Text>}
               {delivered.length ? (
                 <>
                   <SectionHead icon={<CheckCheck size={16} color={TICK_MUTED} />} label={`DELIVERED · ${delivered.length}`} />
@@ -1585,7 +1646,7 @@ function MessageInfoSheet({ message, users, nameOf, onClose }: {
           )}
         </ScrollView>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -1620,14 +1681,13 @@ function ForwardSheet({ visible, targets, preview, sending, onClose, onSend }: {
     setSelKeys((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : cur.length >= FORWARD_MAX ? cur : [...cur, key]));
   const picked = targets.filter((t) => selKeys.includes(t.key));
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <View style={{ backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%', paddingBottom: insets.bottom }}>
+    <Sheet visible={visible} onClose={onClose} background={colors.card}>
+      <View style={{ flexShrink: 1 }}>
+        <View style={{ flexShrink: 1, paddingBottom: insets.bottom }}>
           <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 10 }}>
             <View style={{ flex: 1, paddingRight: 10 }}>
-              <Text style={{ color: colors.ink, fontSize: 17, fontWeight: '800' }}>Forward to…</Text>
-              <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12, marginTop: 2 }}>{preview}</Text>
+              <Text style={{ color: colors.ink, ...textStyles.headline }}>Forward to…</Text>
+              <Text numberOfLines={1} style={{ color: colors.coolText, ...textStyles.footnote, marginTop: 2 }}>{preview}</Text>
             </View>
             <Pressable onPress={onClose} hitSlop={8} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.coolMuted }}>
               <X size={16} color={colors.coolText} />
@@ -1635,14 +1695,14 @@ function ForwardSheet({ visible, targets, preview, sending, onClose, onSend }: {
           </View>
           <View style={{ paddingHorizontal: 18, paddingBottom: 8 }}>
             <TextInput value={q} onChangeText={setQ} placeholder="Search chats & people" placeholderTextColor={colors.coolText3}
-              style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14.5, color: colors.ink }} />
+              style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9, fontSize: textStyles.body.fontSize, color: colors.ink }} />
           </View>
           <FlatList
             data={filtered}
             keyExtractor={(t) => t.key}
             keyboardShouldPersistTaps="handled"
             style={{ flexGrow: 0 }}
-            ListEmptyComponent={<Text style={{ color: colors.coolText, fontSize: 13, textAlign: 'center', paddingVertical: 24 }}>No chats match</Text>}
+            ListEmptyComponent={<Text style={{ color: colors.coolText, ...textStyles.footnote, textAlign: 'center', paddingVertical: 24 }}>No chats match</Text>}
             renderItem={({ item: t }) => {
               const on = selKeys.includes(t.key);
               return (
@@ -1650,8 +1710,8 @@ function ForwardSheet({ visible, targets, preview, sending, onClose, onSend }: {
                   style={{ paddingHorizontal: 18, paddingVertical: 9 }}>
                   <Avatar initials={t.initials} color={t.color} size={38} uri={t.avatarUri} />
                   <View style={{ flex: 1 }}>
-                    <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{t.name}</Text>
-                    {t.sub ? <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 11.5 }}>{t.sub}</Text> : null}
+                    <Text numberOfLines={1} style={{ color: colors.ink, ...textStyles.headline }}>{t.name}</Text>
+                    {t.sub ? <Text numberOfLines={1} style={{ color: colors.coolText, ...textStyles.footnote }}>{t.sub}</Text> : null}
                   </View>
                   <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? colors.primary : colors.coolDivider, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                     {on ? <Check size={13} color="#fff" strokeWidth={3} /> : null}
@@ -1661,19 +1721,19 @@ function ForwardSheet({ visible, targets, preview, sending, onClose, onSend }: {
             }}
           />
           <View className="flex-row items-center" style={{ paddingHorizontal: 18, paddingVertical: 10, borderTopColor: colors.coolDivider, borderTopWidth: 1, gap: 10 }}>
-            <Text style={{ flex: 1, color: colors.coolText, fontSize: 12.5 }}>
+            <Text style={{ flex: 1, color: colors.coolText, ...textStyles.footnote }}>
               {picked.length ? `${picked.length} of ${FORWARD_MAX} selected` : `Select up to ${FORWARD_MAX} chats`}
             </Text>
             <Pressable disabled={!picked.length || sending} onPress={() => onSend(picked)}
               className="flex-row items-center gap-1.5"
               style={{ paddingHorizontal: 20, paddingVertical: 11, borderRadius: 999, backgroundColor: picked.length && !sending ? colors.primary : colors.coolMuted }}>
               {sending ? <ActivityIndicator size="small" color="#fff" /> : <Send size={15} color={picked.length ? '#fff' : colors.coolText3} />}
-              <Text style={{ color: picked.length && !sending ? '#fff' : colors.coolText3, fontSize: 13.5, fontWeight: '700' }}>Send</Text>
+              <Text style={{ color: picked.length && !sending ? '#fff' : colors.coolText3, ...textStyles.subheadline, fontWeight: '600' }}>Send</Text>
             </Pressable>
           </View>
         </View>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -1681,7 +1741,7 @@ function AttachOption({ Icon, label, color, onPress }: { Icon: typeof FileText; 
   return (
     <Pressable onPress={onPress} className="items-center gap-1.5">
       <View style={{ width: 52, height: 52, borderRadius: 16, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}><Icon size={22} color="#fff" /></View>
-      <Text style={{ color: colors.ink, fontSize: 10.5, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: colors.ink, ...textStyles.caption1, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -1714,7 +1774,7 @@ function SystemNotice({ text }: { text: string }) {
   return (
     <View className="items-center" style={{ marginVertical: 6 }}>
       <View style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5, maxWidth: '85%' }}>
-        <Text style={{ color: colors.coolText, fontSize: 12, fontWeight: '600', textAlign: 'center' }}>{text}</Text>
+        <Text style={{ color: colors.coolText, ...textStyles.footnote, fontWeight: '500', textAlign: 'center' }}>{text}</Text>
       </View>
     </View>
   );
@@ -1725,7 +1785,7 @@ function DateSeparator({ label }: { label: string }) {
   return (
     <View className="items-center" style={{ marginVertical: 8 }}>
       <View style={{ backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 5 }}>
-        <Text style={{ color: '#7C858F', fontSize: 11, fontWeight: '500', letterSpacing: 0.4 }}>{label}</Text>
+        <Text style={{ color: '#7C858F', ...textStyles.footnote, fontWeight: '500' }}>{label}</Text>
       </View>
     </View>
   );
@@ -1737,7 +1797,7 @@ function UnreadDivider({ count }: { count: number }) {
     <View className="flex-row items-center" style={{ marginVertical: 8, gap: 8 }}>
       <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary + '55' }} />
       <View style={{ backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4 }}>
-        <Text style={{ color: colors.primary, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.3 }}>
+        <Text style={{ color: colors.primary, ...textStyles.footnote, fontWeight: '600' }}>
           {count} unread message{count === 1 ? '' : 's'}
         </Text>
       </View>
@@ -1791,7 +1851,7 @@ function SwipeToReply({ onReply, children }: { onReply: () => void; children: Re
   );
 }
 
-function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions, onJumpToReply, highlight }: { m: StoredMessage; isGroup: boolean; theme: ChatTheme; nameOf: (id: string) => string; onPress: () => void; onLongPress?: () => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: () => void; onJumpToReply?: (messageId: string) => void; highlight?: string }) {
+function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, onOpenImage, onOpenFile, onRetry, onForward, onReactions, onJumpToReply, highlight }: { m: StoredMessage; isGroup: boolean; theme: ChatTheme; nameOf: (id: string) => string; onPress: (e?: GestureResponderEvent) => void; onLongPress?: (e?: GestureResponderEvent) => void; selecting?: boolean; onOpenImage: (uri: string) => void; onOpenFile: (file: { uri: string; name: string; mime: string }) => void; onRetry: (clientId: string) => void; onForward?: () => void; onReactions?: (e?: GestureResponderEvent) => void; onJumpToReply?: (messageId: string) => void; highlight?: string }) {
   const mine = m.mine;
   const deleted = m.deletedForEveryone;
   // Every colour inside a bubble comes from the side it is on: a sent bubble may be near-black
@@ -1820,41 +1880,41 @@ function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, on
       {/* overflow:hidden is the backstop — whatever a child's intrinsic width turns out to be on an
           unusual screen, nothing is ever drawn outside the rounded card. */}
       <Pressable onPress={onPress} onLongPress={onLongPress} style={{ flexShrink: 1, overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, backgroundColor: mine ? theme.mine : theme.them, borderWidth: theme.bubbleBorderWidth ?? StyleSheet.hairlineWidth, borderColor: mine ? theme.mineBorder : theme.themBorder }}>
-        {isGroup && !mine && !deleted ? <Text style={{ color: theme.senderName, fontSize: 12, fontWeight: '700', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
+        {isGroup && !mine && !deleted ? <Text style={{ color: theme.senderName, ...textStyles.footnote, fontWeight: '600', marginBottom: 2, marginLeft: 4 }}>{nameOf(m.senderId)}</Text> : null}
         {m.forwardedFrom && !deleted ? (
           <View className="flex-row items-center gap-1" style={{ marginBottom: 2, paddingHorizontal: 4 }}>
             <ForwardIcon size={12} color={faint} />
-            <Text style={{ color: faint, fontSize: 11.5, fontStyle: 'italic' }}>Forwarded</Text>
+            <Text style={{ color: faint, ...textStyles.caption1, fontStyle: 'italic' }}>Forwarded</Text>
           </View>
         ) : null}
         {/* The quote is a link back to what was replied to — tapping it scrolls there and flashes it,
             which is the only way to follow a conversation thread on a phone. */}
         {m.replyTo ? (
           <Pressable onPress={() => onJumpToReply?.(m.replyTo!.messageId)} style={{ borderLeftWidth: 3, borderLeftColor: quoteInk, paddingLeft: 6, marginBottom: 4, marginHorizontal: 4, opacity: 0.9 }}>
-            <Text numberOfLines={1} style={{ color: quoteInk, fontSize: 11.5, fontWeight: '700' }}>{nameOf(m.replyTo.senderId)}</Text>
-            <Text numberOfLines={1} style={{ color: faint, fontSize: 12.5 }}>{oneLine(m.replyTo.preview)}</Text>
+            <Text numberOfLines={1} style={{ color: quoteInk, ...textStyles.footnote, fontWeight: '600' }}>{nameOf(m.replyTo.senderId)}</Text>
+            <Text numberOfLines={1} style={{ color: faint, ...textStyles.footnote }}>{oneLine(m.replyTo.preview)}</Text>
           </Pressable>
         ) : null}
         {hasMedia ? <Attachments m={m} mine={mine} onOpenImage={onOpenImage} onOpenFile={onOpenFile} onLongPress={onLongPress} /> : null}
         {deleted ? (
-          <Text style={{ color: faint, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
+          <Text style={{ color: faint, ...textStyles.body, fontStyle: 'italic', paddingHorizontal: 4 }}>This message was deleted</Text>
         ) : m.text ? (
           <>
             {/* Link preview card above the text, WhatsApp-style — fetched server-side, cached per URL. */}
             <LinkPreviewCard text={m.text} />
             <LinkedText text={m.text} linkColor={linkInk} highlight={highlight}
               mentionNames={mentionNames} mentionColor={quoteInk} onLongPress={onLongPress}
-              style={{ color: fg, fontSize: 15, lineHeight: 21, paddingHorizontal: 4 }} />
+              style={{ color: fg, ...textStyles.body, paddingHorizontal: 4 }} />
           </>
         ) : null}
         <View className="flex-row items-center gap-1" style={{ alignSelf: 'flex-end', marginTop: 3, paddingHorizontal: 4 }}>
-          {m.edited && !deleted ? <Text style={{ color: faint, fontSize: 10 }}>edited</Text> : null}
-          <Text style={{ color: faint, fontSize: 11, fontWeight: '500' }}>{hhmm(m.createdAt)}</Text>
+          {m.edited && !deleted ? <Text style={{ color: faint, ...textStyles.caption2 }}>edited</Text> : null}
+          <Text style={{ color: faint, ...textStyles.caption2 }}>{hhmm(m.createdAt)}</Text>
           {mine && !deleted && !m.failed ? <TickIcon size={15} color={tickColor} /> : null}
         </View>
         {mine && m.failed ? (
           <Pressable onPress={() => m.clientId && onRetry(m.clientId)} style={{ alignSelf: 'flex-end', paddingHorizontal: 4 }}>
-            <Text style={{ color: colors.danger, fontSize: 10.5, fontWeight: '800' }}>⚠ Failed · tap to retry</Text>
+            <Text style={{ color: colors.danger, ...textStyles.caption1, fontWeight: '600' }}>⚠ Failed · tap to retry</Text>
           </Pressable>
         ) : null}
         {/* Selection mode: a transparent catcher on top so taps toggle selection instead of hitting
@@ -1872,7 +1932,7 @@ function Bubble({ m, isGroup, nameOf, theme, onPress, onLongPress, selecting, on
         <View className="flex-row" style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: -6, marginRight: 4 }}>
           {/* Tapping the chip opens the reactions sheet (who reacted; tap your own to remove). */}
           <Pressable onPress={onReactions} hitSlop={6} style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
-            <Text style={{ fontSize: 12 }}>{[...new Set(m.reactions.map((r) => r.emoji))].join(' ')} {m.reactions.length}</Text>
+            <Text style={{ ...textStyles.footnote }}>{[...new Set(m.reactions.map((r) => r.emoji))].join(' ')} {m.reactions.length}</Text>
           </Pressable>
         </View>
       ) : null}

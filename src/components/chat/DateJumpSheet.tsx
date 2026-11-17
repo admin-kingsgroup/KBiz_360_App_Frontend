@@ -1,13 +1,15 @@
+import { textStyles } from '../../theme/typography';
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable } from 'react-native';
-import { Modal } from '../ui/Modal';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, Pressable, useWindowDimensions } from 'react-native';
+import { AnchoredMenu, type AnchorRect } from '../ui/AnchoredMenu';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react-native';
 import { colors } from '../../theme';
 
 // WhatsApp-style "jump to date" calendar for the in-chat search. The mirror image of the reminder
 // DateTimeSheet: PAST days are pickable and the future is blocked (there are no messages there
 // yet). Tapping a day jumps immediately — no confirm step, exactly like WhatsApp's calendar.
+// It opens from the calendar button as a card (AnchoredMenu) — it was a bottom sheet over a dark scrim
+// (owner, 2026-11-17).
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -15,10 +17,12 @@ export interface DateJumpSheetProps {
   visible: boolean;
   onClose: () => void;
   onPick: (dayStart: Date) => void; // local midnight of the tapped day
+  /** The calendar button that opened it; without one the card opens mid-screen. */
+  anchor?: AnchorRect | null;
 }
 
-export function DateJumpSheet({ visible, onClose, onPick }: DateJumpSheetProps) {
-  const insets = useSafeAreaInsets();
+export function DateJumpSheet({ visible, onClose, onPick, anchor }: DateJumpSheetProps) {
+  const { width: winW, height: winH } = useWindowDimensions();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()); // 0-based
@@ -51,13 +55,13 @@ export function DateJumpSheet({ visible, onClose, onPick }: DateJumpSheetProps) 
   const isFutureDay = (d: number): boolean => atCurrentMonth && d > now.getDate();
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={() => undefined} style={{ backgroundColor: colors.paper, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(28, insets.bottom + 16) }}>
-          <View style={{ alignItems: 'center', paddingVertical: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.cardEdge }} /></View>
-          <View className="flex-row items-center justify-between px-5 pb-1">
-            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: '800' }}>Jump to date</Text>
-            <Pressable onPress={onClose} hitSlop={9} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
+    <AnchoredMenu anchor={visible ? (anchor ?? { x: winW / 2 - 160, y: winH / 4, width: 320, height: 0 }) : null}
+      onClose={onClose} width={340} background={colors.paper} border={colors.cardEdge} label="Jump to date">
+      <View style={{ paddingBottom: 14 }}>
+          <View className="flex-row items-center justify-between" style={{ paddingLeft: 20, paddingRight: 14, paddingTop: 12 }}>
+            <Text style={{ color: colors.ink, ...textStyles.headline }}>Jump to date</Text>
+            <Pressable onPress={onClose} hitSlop={9} accessibilityRole="button" accessibilityLabel="Close"
+              style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}><X size={14} color={colors.textMuted} /></Pressable>
           </View>
 
           {/* Month header */}
@@ -65,7 +69,7 @@ export function DateJumpSheet({ visible, onClose, onPick }: DateJumpSheetProps) 
             <Pressable onPress={() => goMonth(-1)} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
               <ChevronLeft size={16} color={colors.ink} />
             </Pressable>
-            <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '800' }}>{MONTHS[month]} {year}</Text>
+            <Text style={{ color: colors.ink, ...textStyles.headline }}>{MONTHS[month]} {year}</Text>
             <Pressable onPress={() => goMonth(1)} disabled={atCurrentMonth} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, opacity: atCurrentMonth ? 0.35 : 1 }}>
               <ChevronRight size={16} color={colors.ink} />
             </Pressable>
@@ -75,7 +79,7 @@ export function DateJumpSheet({ visible, onClose, onPick }: DateJumpSheetProps) 
           <View className="flex-row px-4">
             {WEEKDAYS.map((w, i) => (
               <View key={i} style={{ flexBasis: `${100 / 7}%`, alignItems: 'center', paddingVertical: 4 }}>
-                <Text style={{ color: i === 6 ? colors.danger : colors.textMuted, fontSize: 10, fontWeight: '800' }}>{w}</Text>
+                <Text style={{ color: i === 6 ? colors.danger : colors.textMuted, ...textStyles.caption2, fontWeight: '600' }}>{w}</Text>
               </View>
             ))}
           </View>
@@ -88,14 +92,13 @@ export function DateJumpSheet({ visible, onClose, onPick }: DateJumpSheetProps) 
               return (
                 <Pressable key={d} disabled={disabled} onPress={() => onPick(new Date(year, month, d))} style={{ flexBasis: `${100 / 7}%`, height: 34, alignItems: 'center', justifyContent: 'center' }}>
                   <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: isToday ? 1 : 0, borderColor: colors.ink }}>
-                    <Text style={{ color: disabled ? (isSunday ? 'rgba(220,38,38,0.45)' : colors.textMuted2) : isSunday ? colors.danger : colors.ink, fontSize: 13, fontWeight: '600' }}>{d}</Text>
+                    <Text style={{ color: disabled ? (isSunday ? 'rgba(220,38,38,0.45)' : colors.textMuted2) : isSunday ? colors.danger : colors.ink, ...textStyles.callout }}>{d}</Text>
                   </View>
                 </Pressable>
               );
             })}
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      </View>
+    </AnchoredMenu>
   );
 }

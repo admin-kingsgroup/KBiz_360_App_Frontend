@@ -1,5 +1,5 @@
 import type { Task } from '../api/tasks';
-import { actionLabel, commentRequired, counterpart, historyLine, isOverdue, needsMe, primaryAction, repeatLabel, STATUS_LABEL, validateTaskForm } from '../logic/taskRules';
+import { actionLabel, commentRequired, counterpart, historyLine, isOverdue, needsMe, primaryAction, repeatLabel, STATUS_LABEL, TASK_CHAT_COLORS, taskChatStarted, validateTaskForm } from '../logic/taskRules';
 
 const NOW = new Date(2026, 10, 18, 10, 0, 0);
 const iso = (y: number, mo: number, d: number, h = 18): string => new Date(y, mo, d, h).toISOString();
@@ -94,5 +94,33 @@ describe('repeat and history words', () => {
     expect(historyLine({ field: 'status', oldValue: 'in_progress', newValue: 'done' })).toBe('Done – to close');
     const id = '0123456789abcdef01234567';
     expect(historyLine({ field: 'assignedTo', oldValue: null, newValue: id }, (x) => (x === id ? 'Faiz' : undefined))).toBe('Reassigned to Faiz');
+  });
+});
+
+// Owner 2026-11-17: the chat badge on a task is red until someone has WRITTEN in its chat, green after.
+describe('task chat badge', () => {
+  it('is red while the task has no chat', () => {
+    expect(taskChatStarted({ chatId: null })).toBe(false);
+    expect(taskChatStarted({ chatId: null, chatHasMessages: true })).toBe(false);
+  });
+
+  it('stays red when the chat was only started (the app notice is not a message)', () => {
+    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: false })).toBe(false);
+    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: false }, 'system')).toBe(false);
+  });
+
+  it('turns green once the server says someone wrote', () => {
+    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: true })).toBe(true);
+    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: true }, 'system')).toBe(true); // a status notice came after
+  });
+
+  it('turns green at once when the chat list shows a written last message', () => {
+    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: false }, 'text')).toBe(true);
+    expect(taskChatStarted({ chatId: 'c1' }, 'image')).toBe(true); // an older server without the flag
+  });
+
+  it('reads red before and green after', () => {
+    expect(TASK_CHAT_COLORS.none.fg).toBe('#DC2626');
+    expect(TASK_CHAT_COLORS.started.fg).toBe('#15803D');
   });
 });
