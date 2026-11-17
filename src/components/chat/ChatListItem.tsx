@@ -28,15 +28,20 @@ export type ChatRowItem = DirectChatItem & {
 const DIVIDER_INSET = 20 + 48 + 12;
 // Two physical pixels on every screen: a one-pixel hairline all but vanished on a 3x phone.
 const DIVIDER_HEIGHT = 2 / PixelRatio.get();
+// The open chat's leading bar in the two-pane view.
+const SELECTED_BAR_WIDTH = 4;
 
-// `selected`: the chat open beside the list in the two-pane view (iPhone Duo opened) — the row sits on
-// the search field's colour, as WhatsApp marks the open chat in its wide layouts.
+// `selected`: the chat open beside the list in the two-pane view (iPhone Duo opened), marked the way
+// WhatsApp marks it in its wide layouts. Seen on the Duo simulator (2026-11-17): the search field's
+// colour, used first, is all but the read-row tint, so the open chat did not show. It now sits on an
+// accent tint (palette `selected`) with an accent bar down its leading edge. The bar is what tells it
+// from an unread row: in some themes any tint lands near the unread ground.
 function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { chat: ChatRowItem; onPress: () => void; onLongPress?: () => void; selected?: boolean }) {
   const unread = !!chat.unread;
   // Painted from the global chat theme, so the list matches the conversations it opens. Read rows sit
   // on a light tint, unread rows on the full theme colour, and a WhatsApp hairline closes every row.
   const p = useChatListPalette();
-  const ground = selected ? p.field : unread ? p.rowUnread : p.list;
+  const ground = selected ? p.selected : unread ? p.rowUnread : p.list;
   return (
     <Pressable
       onPress={onPress}
@@ -85,6 +90,10 @@ function ChatListItemBase({ chat, onPress, onLongPress, selected = false }: { ch
       {/* WhatsApp's divider: one hairline under the text column (it starts where the name starts,
           past the tile) and runs to the right edge. Inset = padding 20 + tile 48 + gap 12. */}
       <View pointerEvents="none" style={{ position: 'absolute', left: DIVIDER_INSET, right: 0, bottom: 0, height: DIVIDER_HEIGHT, backgroundColor: p.divider }} />
+      {selected ? (
+        <View testID="chat-row-selected-bar" pointerEvents="none"
+          style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: SELECTED_BAR_WIDTH, backgroundColor: p.accent }} />
+      ) : null}
     </Pressable>
   );
 }

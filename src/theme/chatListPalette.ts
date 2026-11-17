@@ -33,6 +33,8 @@ export interface ChatListPalette {
   list: string;
   /** Unread rows: the full theme colour. */
   rowUnread: string;
+  /** The chat open beside the list (two-pane view): the read-row tint moved toward `accent`. */
+  selected: string;
   /** Hairline between rows (WhatsApp's list border, translucent). */
   divider: string;
   /** Time on an unread row. */
@@ -70,17 +72,25 @@ export const DIVIDER_DARK = 'rgba(134,150,160,0.3)';
 /** How far the read-row tint moves from the canvas toward the bar. */
 export const READ_ROW_TINT = 0.6;
 
-export const chatListPalette = (t: ChatTheme): ChatListPalette => ({
-  dark: t.dark,
-  bar: t.bar,
-  line: t.line,
-  text: t.chromeText,
-  mute: t.mute,
-  field: t.input,
-  list: mixHex(t.canvas, t.bar, READ_ROW_TINT),
-  rowUnread: t.canvas,
-  divider: t.dark ? DIVIDER_DARK : DIVIDER_LIGHT,
-  unreadTime: contrastRatio(t.accent, t.canvas) >= 4.5 ? t.accent : t.chromeText,
-  accent: t.accent,
-  onAccent: t.bar,
-});
+/** How far the open chat's row moves from the read-row tint toward the accent. 0.12 is the least that
+ * stands clear of a read row in every theme (ΔE ≥ 5.5) and keeps text and previews above 5.6:1. */
+export const SELECTED_ROW_TINT = 0.12;
+
+export const chatListPalette = (t: ChatTheme): ChatListPalette => {
+  const list = mixHex(t.canvas, t.bar, READ_ROW_TINT);
+  return {
+    dark: t.dark,
+    bar: t.bar,
+    line: t.line,
+    text: t.chromeText,
+    mute: t.mute,
+    field: t.input,
+    list,
+    rowUnread: t.canvas,
+    selected: mixHex(list, t.accent, SELECTED_ROW_TINT),
+    divider: t.dark ? DIVIDER_DARK : DIVIDER_LIGHT,
+    unreadTime: contrastRatio(t.accent, t.canvas) >= 4.5 ? t.accent : t.chromeText,
+    accent: t.accent,
+    onAccent: t.bar,
+  };
+};
