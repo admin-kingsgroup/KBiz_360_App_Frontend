@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, Eye, FileText } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { getTask, getTaskMessages, setTaskWatchers, type Task } from '../../src/api/tasks';
-import { isFinished } from '../../src/logic/taskRules';
+import { isFinished, TASK_MESSAGES_PAGE } from '../../src/logic/taskRules';
 import type { ChatMessage } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { ApiError } from '../../src/api/client';
@@ -45,7 +45,9 @@ export default function TaskChatReadOnly() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [d, msgs] = await Promise.all([getTask(id), getTaskMessages(id, { limit: 200 })]);
+      // The server takes at most 100 a page (GET /tasks/:id/messages); asking for 200 was refused
+      // outright, and this screen said "Could not load the chat" (seen 2026-11-17).
+      const [d, msgs] = await Promise.all([getTask(id), getTaskMessages(id, { limit: TASK_MESSAGES_PAGE })]);
       setTask(d.task);
       setMessages([...msgs].sort((a, b) => (b.sentAt ?? b.createdAt).localeCompare(a.sentAt ?? a.createdAt)));
       setError('');

@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { View, Pressable, StyleSheet, type GestureResponderEvent } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname, useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { contrastRatio } from '../../theme/chatListPalette';
 import { useSideStripStore } from '../../store/sideStripStore';
+import { RAIL_ACTIONS_TOP } from '../../logic/sideRail';
 
 export interface RailAction {
   key: string;
@@ -16,12 +16,12 @@ export interface RailAction {
 }
 
 // A pushed screen's header buttons, stood up in the iPhone Duo's side strip (see useRail): WhatsApp
-// shows its back and call buttons there, under the clock. They sit at the bottom of the strip, as
-// the tab bar does, where the thumb is and well clear of the clock and camera at the top.
+// shows its back and call buttons there, under the clock. They sit at the top, under the clock (see
+// RAIL_ACTIONS_TOP) — they used to sit at the bottom, by the thumb, and read as misplaced next to
+// WhatsApp (Afshin, 2026-11-17). The tab rail alone stays at the bottom.
 export function RailActions({ actions }: { actions: RailAction[] }) {
-  const insets = useSafeAreaInsets();
   return (
-    <View style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center', gap: 8, paddingBottom: insets.bottom + 12 }}>
+    <View style={{ flex: 1, justifyContent: 'flex-start', alignItems: 'center', gap: 8, paddingTop: RAIL_ACTIONS_TOP }}>
       {actions.map((a) => (
         <Pressable key={a.key} testID={`rail-${a.key}`} onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.label}
           style={styles.button}>
@@ -33,7 +33,7 @@ export function RailActions({ actions }: { actions: RailAction[] }) {
 }
 
 // What the strip shows on a screen that put nothing there itself: every pushed screen (an alert
-// channel, a task, a form) gets a Back button in the strip, near the thumb, so the strip is never an
+// channel, a task, a form) gets a Back button in the strip, under the clock, so the strip is never an
 // empty column. Its own header keeps its back arrow too. Nothing on a screen with no way back.
 export function RailBack() {
   const router = useRouter();

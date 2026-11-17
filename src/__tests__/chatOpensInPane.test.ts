@@ -20,6 +20,9 @@ describe('every chat list opens a chat beside itself on a wide window', () => {
     'src/components/home/GroupsList.tsx',
     'app/task/[id].tsx',
     'app/task/chat.tsx',
+    'app/task/list.tsx',
+    'src/components/tasks/TasksScreen.tsx',
+    'src/components/tasks/useOpenTaskChat.ts',
     'src/services/callForeground.ts',
     'src/hooks/useNotificationRouting.ts',
   ])('%s does not push the chat screen itself', (file) => {
@@ -31,11 +34,21 @@ describe('every chat list opens a chat beside itself on a wide window', () => {
     'app/chat/archived.tsx',
     'app/chat/search.tsx',
     'app/chat/starred.tsx',
-    'app/task/[id].tsx',
   ])('%s opens chats through useOpenChat and sits in ChatSplit', (file) => {
     const src = read(file);
     expect(src).toMatch(/useOpenChat\(\)/);
     expect(src).toMatch(/<ChatSplit list=\{/);
+  });
+
+  // A task's chat — the task page's chat card and the chat icon on a task in a list (Afshin,
+  // 2026-11-17) — opens through useOpenTaskChat, which starts the chat if needed and then opens it
+  // through useOpenChat like any other.
+  it('task chats open through useOpenTaskChat, which opens through useOpenChat', () => {
+    expect(read('src/components/tasks/useOpenTaskChat.ts')).toMatch(/useOpenChat\(\)/);
+    expect(read('app/task/[id].tsx')).toMatch(/useOpenTaskChat\(/);
+    expect(read('app/task/[id].tsx')).toMatch(/<ChatSplit list=\{/);
+    expect(read('src/components/tasks/TasksScreen.tsx')).toMatch(/useOpenTaskChat\(\{ fromList: true \}\)/);
+    expect(read('app/task/list.tsx')).toMatch(/useOpenTaskChat\(\{\s*fromList: true/);
   });
 
   it('the Chats tab gives the Groups view its openChat and the chat open in the pane', () => {

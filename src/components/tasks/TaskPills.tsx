@@ -1,8 +1,7 @@
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { AlertTriangle, MessageSquare } from 'lucide-react-native';
 import type { Task, TaskPriority, TaskStatus } from '../../api/tasks';
 import { PRIORITY_COLOR, PRIORITY_LABEL, STATUS_COLOR, STATUS_LABEL, TASK_CHAT_COLORS, taskChatStarted } from '../../logic/taskRules';
-import { useMessagingStore } from '../../store/messagingStore';
 
 // Small coloured labels used by the task rows, the detail screen and the chat card.
 function Chip({ label, color, strong }: { label: string; color: string; strong?: boolean }) {
@@ -41,18 +40,24 @@ export function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-// The task's chat at a glance: red until someone has written in it, green after (see taskChatStarted).
-/** The type of the last message in this task's chat, from the chat list (null when not loaded). */
-export function useTaskChatLastType(chatId: string | null): string | null {
-  return useMessagingStore((s) => (chatId ? s.conversations.find((c) => c.id === chatId)?.lastMessage?.type ?? null : null));
-}
-export function TaskChatBadge({ task, size = 28 }: { task: Pick<Task, 'chatId' | 'chatHasMessages'>; size?: number }) {
-  const started = taskChatStarted(task, useTaskChatLastType(task.chatId));
+// The task's chat at a glance: red while it has none, green once it is started (see taskChatStarted).
+// With onPress it is a button: a list's chat icon goes straight to the task's chat (Afshin,
+// 2026-11-17), the rest of the card still opens the task. hitSlop makes the 28-pt dot a 44-pt target.
+export function TaskChatBadge({ task, size = 28, onPress }: { task: Pick<Task, 'chatId'>; size?: number; onPress?: () => void }) {
+  const started = taskChatStarted(task);
   const c = started ? TASK_CHAT_COLORS.started : TASK_CHAT_COLORS.none;
-  return (
-    <View testID={started ? 'task-chat-started' : 'task-chat-none'} accessibilityLabel={started ? 'Chat started' : 'Chat not started'}
+  const dot = (
+    <View testID={started ? 'task-chat-started' : 'task-chat-none'} accessibilityLabel={onPress ? undefined : started ? 'Chat started' : 'Chat not started'}
       style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: c.bg }}>
       <MessageSquare size={Math.round(size * 0.52)} color={c.fg} strokeWidth={2.2} />
     </View>
+  );
+  if (!onPress) return dot;
+  const pad = Math.max(0, Math.ceil((44 - size) / 2));
+  return (
+    <Pressable onPress={onPress} hitSlop={pad} testID="task-chat-button" accessibilityRole="button"
+      accessibilityLabel={started ? 'Open the task chat' : 'Start the task chat'}>
+      {dot}
+    </Pressable>
   );
 }

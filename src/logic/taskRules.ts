@@ -223,14 +223,29 @@ function fmtIso(v: string): string {
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
-// The chat badge on task cards and the task page (owner, 2026-11-17): red until someone has WRITTEN in
-// the task's chat, green after. Starting the chat is not enough: that only posts the app's own notice
-// ("X started a chat about this task"), as do status changes — those are 'system' messages.
-// The server says so per task (chatHasMessages); the chat list's last message turns it green at once
-// when someone writes while the list is open (and stands in for older servers).
+// The chat badge on task cards and the task page (owner, 2026-11-17): red while the task has no chat,
+// green once it is started. No task comes with a chat — it exists only after the assigner or the
+// assignee pressed Start chat — so having one IS "started". It used to wait for someone to write as
+// well (only the app's own notices were in it), which left Afshin's started chat red while its task
+// page said "Open chat" (Afshin, 2026-11-17: "chat already started ho chuki hai").
 export const TASK_CHAT_COLORS = {
   started: { fg: '#15803D', bg: '#DCFCE7' },
   none: { fg: '#DC2626', bg: '#FDECEC' },
 } as const;
-export const taskChatStarted = (t: Pick<Task, 'chatId' | 'chatHasMessages'>, lastMessageType?: string | null): boolean =>
-  !!t.chatId && (t.chatHasMessages === true || (!!lastMessageType && lastMessageType !== 'system'));
+export const taskChatStarted = (t: Pick<Task, 'chatId'>): boolean => !!t.chatId;
+
+/** The most messages GET /api/tasks/:id/messages returns in one page — it refuses a bigger limit. */
+export const TASK_MESSAGES_PAGE = 100;
+
+/** What a tap on a task's chat icon in a list does (Afshin, 2026-11-17: straight to the task's chat). */
+export type TaskChatTap =
+  | { do: 'open'; chatId: string }
+  | { do: 'start' }
+  | { do: 'read' }
+  | { do: 'explain'; text: string };
+export function taskChatTap(t: Parameters<typeof taskChatButton>[0]): TaskChatTap {
+  const b = taskChatButton(t);
+  if (b.kind === 'none') return { do: 'explain', text: b.sub };
+  if (b.kind === 'read') return { do: 'read' };
+  return t.chatId ? { do: 'open', chatId: t.chatId } : { do: 'start' };
+}

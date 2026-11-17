@@ -9,6 +9,7 @@ import { useAuthStore } from '../../store/authStore';
 import { listKey, useTasksStore } from '../../store/tasksStore';
 import { activeFilterCount, filterTasks, groupAssigned, groupMine, type TaskFilters } from '../../logic/taskGroups';
 import { TaskRow } from './TaskRow';
+import { useOpenTaskChat } from './useOpenTaskChat';
 import { FilterSheet } from './FilterSheet';
 import { PeopleList } from './PeopleList';
 
@@ -83,6 +84,9 @@ export default function TasksScreen() {
   const total = sections.reduce((n, s) => n + s.data.length, 0);
   const filterCount = activeFilterCount(filters);
   const openTask = useCallback((id: string) => router.push({ pathname: '/task/[id]', params: { id } }), [router]);
+  // The chat icon on a card: straight to the task's chat (Afshin, 2026-11-17).
+  const openTaskChat = useOpenTaskChat({ fromList: true });
+  const openChatOf = useCallback((t: Task) => { void openTaskChat(t); }, [openTaskChat]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -161,7 +165,7 @@ export default function TasksScreen() {
             borderTopWidth: index === 0 ? 1 : 0, borderBottomWidth: index === section.data.length - 1 ? 1 : 0,
             borderTopLeftRadius: index === 0 ? 14 : 0, borderTopRightRadius: index === 0 ? 14 : 0,
             borderBottomLeftRadius: index === section.data.length - 1 ? 14 : 0, borderBottomRightRadius: index === section.data.length - 1 ? 14 : 0, overflow: 'hidden' }}>
-            <TaskRow task={item} meId={meId} onPress={openTask} last={index === section.data.length - 1} />
+            <TaskRow task={item} meId={meId} onPress={openTask} onChatPress={openChatOf} last={index === section.data.length - 1} />
           </View>
         )}
         ListEmptyComponent={

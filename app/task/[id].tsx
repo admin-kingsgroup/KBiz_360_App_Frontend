@@ -7,7 +7,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
 import { Building2, CalendarDays, ChevronLeft, ExternalLink, Eye, EyeOff, FileText, Hourglass, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
 import { colors } from '../../src/theme';
-import { addTaskAttachment, ensureTaskChat, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
+import { addTaskAttachment, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
 import { ApiError } from '../../src/api/client';
 import { humanSize, mediaUrl, uploadFile } from '../../src/api/media';
 import { useAuthStore } from '../../src/store/authStore';
@@ -19,7 +19,8 @@ import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, ST
 import { OverdueFlag, PriorityPill, StatusPill, TaskChatBadge, UnreadBadge } from '../../src/components/tasks/TaskPills';
 import { StatusActions } from '../../src/components/tasks/StatusActions';
 import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
-import { ChatSplit, useOpenChat } from '../../src/components/layout/ChatSplit';
+import { ChatSplit } from '../../src/components/layout/ChatSplit';
+import { useOpenTaskChat } from '../../src/components/tasks/useOpenTaskChat';
 
 // Task detail (spec 2026-11-16, section 7): every field, the status buttons this person may press,
 // attachments, the full history and the task's chat. The server says what this person may do
@@ -57,7 +58,6 @@ export default function TaskDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   // The task's chat opens beside the task on a wide window (iPhone Duo opened), as its own screen
   // otherwise (ChatSplit).
-  const openPane = useOpenChat();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -89,22 +89,15 @@ export default function TaskDetail() {
   // it while the task is open; closed or cancelled, it can only be read (from here); watchers and the
   // managers above see "No chat yet" until one of the two starts it. See logic/taskRules.taskChatButton.
   const chatButton = task ? taskChatButton(task) : null;
+  // Starts the chat first when there is none (components/tasks/useOpenTaskChat, shared with the chat
+  // icon on a task in a list).
+  const openTaskChat = useOpenTaskChat({
+    onStarted: (t) => setTask((cur) => (cur && cur.id === t.id ? { ...cur, chatId: t.chatId } : cur)),
+    onBusy: (on) => setBusy(on ? 'chat' : null),
+  });
   const openChat = async (): Promise<void> => {
-    if (!task || !chatButton) return;
-    if (chatButton.kind === 'none') return;
-    if (chatButton.kind === 'read') { router.push({ pathname: '/task/chat', params: { id: task.id } }); return; }
-    let chatId = task.chatId;
-    if (chatButton.kind === 'start' || !chatId) {
-      setBusy('chat');
-      try { chatId = (await ensureTaskChat(task.id)).chatId; setTask({ ...task, chatId }); }
-      catch (e) {
-        showToast(e instanceof ApiError && e.status === 403 ? 'Only the person who gave the task, or the one doing it, can start its chat' : e instanceof ApiError && e.message ? e.message : 'Could not start the chat');
-        return;
-      } finally { setBusy(null); }
-    }
-    // Make sure the chat is in my list (a chat started a moment ago is not loaded yet).
-    await useMessagingStore.getState().loadConversations().catch(() => undefined);
-    openPane(chatId);
+    if (!task || !chatButton || chatButton.kind === 'none') return;
+    await openTaskChat(task);
   };
 
   const watch = async (on: boolean): Promise<void> => {

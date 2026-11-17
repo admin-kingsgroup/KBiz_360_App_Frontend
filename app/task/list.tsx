@@ -8,6 +8,7 @@ import { listTasks, type Task, type TaskFlag } from '../../src/api/tasks';
 import { useAuthStore } from '../../src/store/authStore';
 import { groupMine } from '../../src/logic/taskGroups';
 import { TaskRow } from '../../src/components/tasks/TaskRow';
+import { useOpenTaskChat } from '../../src/components/tasks/useOpenTaskChat';
 
 // The tasks behind a dashboard number. The dashboard counts over view=all (everything this person may
 // see), so the list asks for exactly that with the same flag, person and branch — the two always agree.
@@ -35,6 +36,13 @@ export default function TaskDrillList() {
 
   const sections = useMemo(() => groupMine(tasks ?? []).map((g) => ({ key: g.key, title: g.title, data: g.tasks })), [tasks]);
   const open = useCallback((id: string) => router.push({ pathname: '/task/[id]', params: { id } }), [router]);
+  // The chat icon on a card: straight to the task's chat (Afshin, 2026-11-17). This list is its own
+  // fetch, not the tasks store, so a chat started from here is written into it too.
+  const openTaskChat = useOpenTaskChat({
+    fromList: true,
+    onStarted: (t) => setTasks((cur) => cur?.map((x) => (x.id === t.id ? { ...x, chatId: t.chatId } : x)) ?? cur),
+  });
+  const openChatOf = useCallback((t: Task) => { void openTaskChat(t); }, [openTaskChat]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -51,7 +59,7 @@ export default function TaskDrillList() {
         renderSectionHeader={({ section }) => <Text style={{ color: section.key === 'overdue' ? colors.danger : colors.ink, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 6 }}>{section.title}  <Text style={{ color: colors.coolText, fontSize: 12.5 }}>{section.data.length}</Text></Text>}
         renderItem={({ item, index, section }) => (
           <View style={{ backgroundColor: colors.card, borderColor: colors.coolDivider, borderWidth: 1, borderTopWidth: index === 0 ? 1 : 0, borderTopLeftRadius: index === 0 ? 14 : 0, borderTopRightRadius: index === 0 ? 14 : 0, borderBottomLeftRadius: index === section.data.length - 1 ? 14 : 0, borderBottomRightRadius: index === section.data.length - 1 ? 14 : 0, overflow: 'hidden' }}>
-            <TaskRow task={item} meId={meId} onPress={open} last={index === section.data.length - 1} />
+            <TaskRow task={item} meId={meId} onPress={open} onChatPress={openChatOf} last={index === section.data.length - 1} />
           </View>
         )}
         ListEmptyComponent={!tasks ? (
