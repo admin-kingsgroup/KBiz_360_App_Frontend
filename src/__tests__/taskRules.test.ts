@@ -1,5 +1,5 @@
 import type { Task } from '../api/tasks';
-import { actionLabel, commentRequired, counterpart, historyLine, isOverdue, needsMe, primaryAction, repeatLabel, STATUS_LABEL, TASK_CHAT_COLORS, taskChatButton, taskChatStarted, validateTaskForm } from '../logic/taskRules';
+import { actionLabel, commentRequired, counterpart, historyLine, isOverdue, needsMe, primaryAction, repeatLabel, STATUS_LABEL, TASK_CHAT_COLORS, taskChatButton, taskChatStarted, taskChatTap, TASK_MESSAGES_PAGE, validateTaskForm } from '../logic/taskRules';
 
 const NOW = new Date(2026, 10, 18, 10, 0, 0);
 const iso = (y: number, mo: number, d: number, h = 18): string => new Date(y, mo, d, h).toISOString();
@@ -97,31 +97,43 @@ describe('repeat and history words', () => {
   });
 });
 
-// Owner 2026-11-17: the chat badge on a task is red until someone has WRITTEN in its chat, green after.
+// The chat badge on a task (owner 2026-11-17; Afshin 2026-11-17): red while the task has no chat,
+// green once someone has pressed Start chat — the chat is started, whether or not anyone wrote yet.
 describe('task chat badge', () => {
   it('is red while the task has no chat', () => {
     expect(taskChatStarted({ chatId: null })).toBe(false);
-    expect(taskChatStarted({ chatId: null, chatHasMessages: true })).toBe(false);
   });
 
-  it('stays red when the chat was only started (the app notice is not a message)', () => {
-    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: false })).toBe(false);
-    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: false }, 'system')).toBe(false);
-  });
-
-  it('turns green once the server says someone wrote', () => {
-    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: true })).toBe(true);
-    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: true }, 'system')).toBe(true); // a status notice came after
-  });
-
-  it('turns green at once when the chat list shows a written last message', () => {
-    expect(taskChatStarted({ chatId: 'c1', chatHasMessages: false }, 'text')).toBe(true);
-    expect(taskChatStarted({ chatId: 'c1' }, 'image')).toBe(true); // an older server without the flag
+  it('turns green as soon as the chat is started, before anyone writes', () => {
+    // Afshin's "Accountant for Kenya" task: its chat holds only "Afshin Dhanani started a chat about
+    // this task" — and the task page says "Open chat", so the badge must not say "not started".
+    expect(taskChatStarted({ chatId: 'c1' })).toBe(true);
   });
 
   it('reads red before and green after', () => {
     expect(TASK_CHAT_COLORS.none.fg).toBe('#DC2626');
     expect(TASK_CHAT_COLORS.started.fg).toBe('#15803D');
+  });
+});
+
+// Afshin 2026-11-17: the chat icon on a task in a list goes straight to the task's chat; tapping the
+// rest of the card still opens the task.
+describe('tapping the chat icon on a task', () => {
+  it('opens the chat when there is one', () => {
+    expect(taskChatTap({ chatId: 'c1', status: 'accepted', myRole: 'assignee' })).toEqual({ do: 'open', chatId: 'c1' });
+    expect(taskChatTap({ chatId: 'c1', status: 'done', myRole: 'watcher' })).toEqual({ do: 'open', chatId: 'c1' });
+  });
+  it('starts it first when I may (the assigner or the assignee, task open)', () => {
+    expect(taskChatTap({ chatId: null, status: 'assigned', myRole: 'assigner' })).toEqual({ do: 'start' });
+    expect(taskChatTap({ chatId: null, status: 'in_progress', myRole: 'assignee' })).toEqual({ do: 'start' });
+  });
+  it('opens the read-only chat for a closed task or a manager above', () => {
+    expect(taskChatTap({ chatId: 'c1', status: 'closed', myRole: 'assigner' })).toEqual({ do: 'read' });
+    expect(taskChatTap({ chatId: 'c1', status: 'waiting', myRole: 'viewer' })).toEqual({ do: 'read' });
+  });
+  it('says why there is no chat when I cannot start one', () => {
+    expect(taskChatTap({ chatId: null, status: 'in_progress', myRole: 'watcher' })).toEqual({ do: 'explain', text: 'The person who gave the task, or the one doing it, can start one.' });
+    expect(taskChatTap({ chatId: null, status: 'closed', myRole: 'assigner' })).toEqual({ do: 'explain', text: 'No chat was started for this task.' });
   });
 });
 
@@ -155,5 +167,13 @@ describe("the task's chat button (chat on demand, owner 2026-11-17)", () => {
   });
   it('reopened: the chat is open again', () => {
     expect(kind('c1', 'reopened', 'assigner')).toBe('open');
+  });
+});
+
+// The read-only task chat asked for 200 messages; the server allows 100 a page and refused the
+// request, so the screen showed "Could not load the chat" (2026-11-17).
+describe('reading a task chat', () => {
+  it("asks for no more messages than the server's page allows", () => {
+    expect(TASK_MESSAGES_PAGE).toBeLessThanOrEqual(100);
   });
 });

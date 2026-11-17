@@ -8,8 +8,9 @@ import { OverdueFlag, PriorityPill, StatusPill, TaskChatBadge, UnreadBadge } fro
 
 // One task in a list: title, who it is to/from, business, due, priority pill, status pill, a red
 // overdue flag, the unread count of its chat and the chat badge: red until the chat is started,
-// green after (spec section 7; badge 2026-11-17).
-export const TaskRow = memo(function TaskRow({ task, meId, onPress, last }: { task: Task; meId: string; onPress: (id: string) => void; last?: boolean }) {
+// green after (spec section 7; badge 2026-11-17). Tapping the badge goes straight to the task's chat
+// (onChatPress, Afshin 2026-11-17); the rest of the card opens the task.
+export const TaskRow = memo(function TaskRow({ task, meId, onPress, onChatPress, last }: { task: Task; meId: string; onPress: (id: string) => void; onChatPress?: (task: Task) => void; last?: boolean }) {
   const overdue = task.overdue || isOverdue(task);
   const who = counterpart(task, meId);
   const biz = [task.companyName, task.branchName].filter(Boolean).join(' · ');
@@ -21,7 +22,7 @@ export const TaskRow = memo(function TaskRow({ task, meId, onPress, last }: { ta
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
           <Text numberOfLines={2} style={{ flex: 1, color: colors.ink, fontSize: 14.5, fontWeight: '700', lineHeight: 19 }}>{task.title}</Text>
           <UnreadBadge count={task.unread} />
-          <TaskChatBadge task={task} />
+          <TaskChatBadge task={task} onPress={onChatPress ? () => onChatPress(task) : undefined} />
         </View>
         <Text numberOfLines={1} style={{ color: colors.coolText, fontSize: 12 }}>{who.label} <Text style={{ color: colors.ink, fontWeight: '600' }}>{who.name}</Text></Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
