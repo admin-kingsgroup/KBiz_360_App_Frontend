@@ -240,7 +240,7 @@ export default function TaskForm() {
           </FormField>
         ) : (
           <>
-            <FormField label="For" required hint={isSelf ? 'A personal to-do — it starts as Accepted, and Done closes it.' : 'One person. They get a notification and a chat for the task opens.'}>
+            <FormField label="For" required hint={isSelf ? 'A personal to-do — it starts as Accepted, and Done closes it.' : 'One person. They get a notification; either of you can start a chat from the task.'}>
               <Pressable onPress={() => setSheet('assignee')} style={fieldBox}>
                 {assignedTo ? <Avatar initials={isSelf ? 'Me' : assignee?.initials ?? '?'} color={isSelf ? colors.primary : assignee?.color ?? colors.blue} size={30} uri={isSelf ? null : assignee?.avatar ?? null} /> : null}
                 <Text style={{ flex: 1, color: assignedTo ? colors.ink : colors.coolText, fontSize: 15, fontWeight: '600' }}>{personName(assignedTo)}</Text>

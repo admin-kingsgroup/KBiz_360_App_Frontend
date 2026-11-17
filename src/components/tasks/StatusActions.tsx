@@ -134,7 +134,7 @@ function StatusSheet({ task, to, onClose, onDone }: { task: Task; to: TaskStatus
               <TextInput value={comment} onChangeText={(v) => { setComment(v); if (error) setError(''); }} placeholder={commentPrompt(to)} placeholderTextColor={colors.coolText3}
                 multiline maxLength={2000}
                 style={{ backgroundColor: colors.coolMuted, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, minHeight: 84, fontSize: 14.5, color: colors.ink, textAlignVertical: 'top' }} />
-              <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 4 }}>Posted in the task's chat and history.</Text>
+              <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 4 }}>Saved in the task's history, and posted in its chat if one was started.</Text>
               {error ? <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '600', marginTop: 8 }}>{error}</Text> : null}
 
               <Pressable onPress={() => void submit()} disabled={saving}

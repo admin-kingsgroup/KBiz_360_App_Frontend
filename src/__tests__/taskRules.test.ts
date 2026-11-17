@@ -1,5 +1,5 @@
 import type { Task } from '../api/tasks';
-import { actionLabel, commentRequired, counterpart, historyLine, isOverdue, needsMe, primaryAction, repeatLabel, STATUS_LABEL, TASK_CHAT_COLORS, taskChatStarted, validateTaskForm } from '../logic/taskRules';
+import { actionLabel, commentRequired, counterpart, historyLine, isOverdue, needsMe, primaryAction, repeatLabel, STATUS_LABEL, TASK_CHAT_COLORS, taskChatButton, taskChatStarted, validateTaskForm } from '../logic/taskRules';
 
 const NOW = new Date(2026, 10, 18, 10, 0, 0);
 const iso = (y: number, mo: number, d: number, h = 18): string => new Date(y, mo, d, h).toISOString();
@@ -122,5 +122,38 @@ describe('task chat badge', () => {
   it('reads red before and green after', () => {
     expect(TASK_CHAT_COLORS.none.fg).toBe('#DC2626');
     expect(TASK_CHAT_COLORS.started.fg).toBe('#15803D');
+  });
+});
+
+describe("the task's chat button (chat on demand, owner 2026-11-17)", () => {
+  const kind = (chatId: string | null, status: Task['status'], myRole: Task['myRole']): string => taskChatButton({ chatId, status, myRole }).kind;
+  it('no chat yet: the assigner or the assignee can start one while the task is open', () => {
+    expect(kind(null, 'assigned', 'assigner')).toBe('start');
+    expect(kind(null, 'in_progress', 'assignee')).toBe('start');
+    expect(kind(null, 'done', 'assigner')).toBe('start'); // Done – to close is still open
+  });
+  it('a personal to-do: no chat unless someone watches it', () => {
+    expect(taskChatButton({ chatId: null, status: 'accepted', myRole: 'both', watchers: [] }).kind).toBe('none');
+    expect(taskChatButton({ chatId: null, status: 'accepted', myRole: 'both', watchers: [{ id: 'u2', name: 'Faiz' }] }).kind).toBe('start');
+  });
+    it('watchers and managers above see "No chat yet" — they cannot start one', () => {
+    expect(taskChatButton({ chatId: null, status: 'in_progress', myRole: 'watcher' }).label).toBe('No chat yet');
+    expect(kind(null, 'in_progress', 'viewer')).toBe('none');
+  });
+  it('closed or cancelled with no chat: nobody starts one', () => {
+    expect(kind(null, 'closed', 'assigner')).toBe('none');
+    expect(kind(null, 'cancelled', 'assignee')).toBe('none');
+  });
+  it('a chat on an open task opens — for a watcher too; a manager above reads it', () => {
+    expect(kind('c1', 'in_progress', 'assignee')).toBe('open');
+    expect(kind('c1', 'done', 'watcher')).toBe('open');
+    expect(kind('c1', 'waiting', 'viewer')).toBe('read');
+  });
+  it('closed or cancelled with a chat: View chat (read-only), for everyone', () => {
+    expect(taskChatButton({ chatId: 'c1', status: 'closed', myRole: 'assigner' }).label).toBe('View chat (read-only)');
+    expect(kind('c1', 'cancelled', 'viewer')).toBe('read');
+  });
+  it('reopened: the chat is open again', () => {
+    expect(kind('c1', 'reopened', 'assigner')).toBe('open');
   });
 });

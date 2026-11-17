@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
-import { Building2, CalendarDays, ChevronLeft, Eye, EyeOff, FileText, Hourglass, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
+import { Building2, CalendarDays, ChevronLeft, ExternalLink, Eye, EyeOff, FileText, Hourglass, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { addTaskAttachment, ensureTaskChat, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
 import { ApiError } from '../../src/api/client';
@@ -15,9 +15,8 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL } from '../../src/logic/taskRules';
-import { OverdueFlag, PriorityPill, StatusPill, TaskChatBadge, UnreadBadge, useTaskChatLastType } from '../../src/components/tasks/TaskPills';
-import { taskChatStarted } from '../../src/logic/taskRules';
+import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL, taskChatButton } from '../../src/logic/taskRules';
+import { OverdueFlag, PriorityPill, StatusPill, TaskChatBadge, UnreadBadge } from '../../src/components/tasks/TaskPills';
 import { StatusActions } from '../../src/components/tasks/StatusActions';
 import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
 import { ChatSplit, useOpenChat } from '../../src/components/layout/ChatSplit';
@@ -86,22 +85,24 @@ export default function TaskDetail() {
   const isMember = !!task && task.myRole !== 'viewer';
   const amWatcher = !!task && task.watchers.some((w) => w.id === meId);
   const isParty = !!task && (task.assignedTo.id === meId || task.assignedBy.id === meId);
-  // Red until someone has written in the task's chat, green after (the chat card and the task cards).
-  const chatLastType = useTaskChatLastType(task?.chatId ?? null);
-  const chatStarted = !!task && taskChatStarted(task, chatLastType);
-
+  // The task's chat (owner, 2026-11-17): none comes with the task. The assigner or the assignee starts
+  // it while the task is open; closed or cancelled, it can only be read (from here); watchers and the
+  // managers above see "No chat yet" until one of the two starts it. See logic/taskRules.taskChatButton.
+  const chatButton = task ? taskChatButton(task) : null;
   const openChat = async (): Promise<void> => {
-    if (!task) return;
-    if (!isMember) { router.push({ pathname: '/task/chat', params: { id: task.id } }); return; }
+    if (!task || !chatButton) return;
+    if (chatButton.kind === 'none') return;
+    if (chatButton.kind === 'read') { router.push({ pathname: '/task/chat', params: { id: task.id } }); return; }
     let chatId = task.chatId;
-    if (!chatId) {
-      // A task made from an old reminder has no chat until someone opens it.
+    if (chatButton.kind === 'start' || !chatId) {
       setBusy('chat');
       try { chatId = (await ensureTaskChat(task.id)).chatId; setTask({ ...task, chatId }); }
-      catch { showToast('Could not open the chat'); return; }
-      finally { setBusy(null); }
+      catch (e) {
+        showToast(e instanceof ApiError && e.status === 403 ? 'Only the person who gave the task, or the one doing it, can start its chat' : e instanceof ApiError && e.message ? e.message : 'Could not start the chat');
+        return;
+      } finally { setBusy(null); }
     }
-    // Make sure the chat is in my list (a brand-new task's chat may not be loaded yet).
+    // Make sure the chat is in my list (a chat started a moment ago is not loaded yet).
     await useMessagingStore.getState().loadConversations().catch(() => undefined);
     openPane(chatId);
   };
@@ -177,10 +178,11 @@ export default function TaskDetail() {
 
   const overdue = task.overdue || isOverdue(task);
   const biz = [task.companyName, task.branchName].filter(Boolean).join(' · ');
-  // The chat card's words — also the right pane's panel on a wide window, before the chat is open.
-  const chatLabel = !isMember ? 'Read chat' : chatStarted ? 'Open chat' : task.chatId || isParty ? 'Start chat' : 'Chat not started';
-  const chatHint = !isMember ? 'Read-only until you watch the task' : chatStarted ? 'Discuss the task — every status change is posted here' : task.chatId ? 'No one has written here yet' : isParty ? 'No one has started a chat on this task yet' : 'It opens once the giver or the doer starts it';
-  const canOpenChat = !isMember || chatStarted || !!task.chatId || isParty;
+  // The chat card's words (taskChatButton) — also the right pane's panel on a wide window, before the
+  // chat is open there.
+  const chatLabel = chatButton?.label ?? '';
+  const chatHint = chatButton?.sub ?? '';
+  const canOpenChat = !!chatButton && chatButton.kind !== 'none';
 
   const page = (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.coolBg }}>
@@ -209,19 +211,26 @@ export default function TaskDetail() {
           ) : null}
 
           {task.actions.length ? <View style={{ marginTop: 14 }}><StatusActions task={task} onChanged={changed} /></View> : null}
-          {task.myRole === 'viewer' ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 12 }}>You can see this task because {task.assignedTo.name.split(' ')[0]} is in your team. Watch it to join its chat.</Text> : null}
+          {task.myRole === 'viewer' ? <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 12 }}>You can see this task because {task.assignedTo.name.split(' ')[0]} is in your team. {task.chatId ? 'Watch it to join its chat.' : 'Watch it to follow it.'}</Text> : null}
         </View>
 
-        {/* The task's chat */}
-        <Pressable onPress={() => void openChat()} disabled={busy === 'chat'} style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, paddingHorizontal: 14, paddingVertical: 13 }}>
-          {/* Red until the task's chat is started, green after — the same badge as on the task cards. */}
-          <TaskChatBadge task={task} size={36} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700' }}>{chatLabel}</Text>
-            <Text style={{ color: colors.coolText, fontSize: 12 }}>{chatHint}</Text>
-          </View>
-          <UnreadBadge count={task.unread} />
-        </Pressable>
+        {/* The task's chat — Start chat / Open chat / View chat (read-only) / No chat yet. The icon is the
+            red/green badge of the task cards: red until someone has written in the chat, green after. */}
+        {chatButton ? (
+          <Pressable onPress={() => void openChat()} disabled={busy === 'chat' || chatButton.kind === 'none'} accessibilityRole={chatButton.kind === 'none' ? 'text' : 'button'}
+            style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: chatButton.kind === 'start' ? colors.primarySoft : colors.card, borderRadius: 14, borderWidth: 1, borderColor: chatButton.kind === 'start' ? colors.primary : colors.coolDivider, paddingHorizontal: 14, paddingVertical: 13 }}>
+            {busy === 'chat' ? (
+              <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : <TaskChatBadge task={task} size={36} />}
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: chatButton.kind === 'none' ? colors.coolText : chatButton.kind === 'start' ? colors.primaryDark : colors.ink, fontSize: 15, fontWeight: '700' }}>{chatLabel}</Text>
+              <Text style={{ color: colors.coolText, fontSize: 12 }}>{chatHint}</Text>
+            </View>
+            {chatButton.kind === 'open' ? <UnreadBadge count={task.unread} /> : null}
+          </Pressable>
+        ) : null}
 
         <View style={{ marginTop: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, paddingHorizontal: 14 }}>
           <Row Icon={UserRoundPen} label={task.isSelf ? 'FOR' : 'ASSIGNED TO'}>
@@ -243,6 +252,15 @@ export default function TaskDetail() {
             <Text style={{ color: overdue ? colors.danger : colors.ink, fontSize: 14.5, fontWeight: '600' }}>{dueLabel(task)}{overdue ? ' · overdue' : ''}</Text>
           </Row>
           {biz ? <Row Icon={Building2} label="BUSINESS / BRANCH"><Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{biz}</Text></Row> : null}
+          {/* A task given from the ERP's right-click menu (owner, 2026-11-16) points back at the screen it is about. */}
+          {task.link ? (
+            <Row Icon={ExternalLink} label={task.source === 'erp' ? 'FROM KBIZ BOOKS' : 'LINK'}>
+              <Pressable onPress={() => void Linking.openURL(task.link!.url).catch(() => undefined)} hitSlop={6} accessibilityRole="link">
+                <Text numberOfLines={2} style={{ color: colors.primary, fontSize: 14.5, fontWeight: '700' }}>{task.link.label}</Text>
+                <Text style={{ color: colors.coolText, fontSize: 12, marginTop: 1 }}>Opens the screen in KBiz Books</Text>
+              </Pressable>
+            </Row>
+          ) : null}
           {task.repeat && task.repeat.kind !== 'none' ? <Row Icon={Repeat} label="REPEATS"><Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{repeatLabel(task.repeat)}</Text></Row> : null}
           <Row Icon={Users} label="WATCHERS">
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

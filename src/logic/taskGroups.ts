@@ -127,8 +127,9 @@ export function mergeTasks(...lists: Task[][]): Task[] {
 }
 
 // ── task chats in the chat list ──
-// A task's chat never locks (decision 4). Once the task is closed or cancelled the chat files under
-// "Closed task chats"; until then it sits with the other chats and under the Task chats filter.
+// A task's chat sits with the other chats and under the Tasks filter while the task is open. Once the
+// task is closed or cancelled the server takes it off the list (owner, 2026-11-17) — it is read from
+// the task. isClosedTaskChat is the client's safety net for a list fetched just before that.
 export interface TaskChatLike { type: string; taskId?: string | null; taskStatus?: string | null }
 /** The task status for a task chat: what the conversation carries, else what the tasks we loaded say. */
 export function taskChatStatus(c: TaskChatLike, statusByTaskId: Record<string, TaskStatus | undefined>): TaskStatus | null {

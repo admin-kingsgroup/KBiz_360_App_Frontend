@@ -3,7 +3,7 @@ import { join } from 'path';
 
 // On a wide window (the iPhone Duo opened) a chat opens in the right pane, beside the list it was
 // picked from — `useOpenChat` decides that, and `ChatSplit` draws the two panes. The Groups view,
-// Archived, Closed task chats, Search and Starred used to push the chat screen themselves, so a chat
+// Archived, Search and Starred used to push the chat screen themselves, so a chat
 // picked there took over the whole window (seen on the Duo simulator, 2026-11-17). Each list must
 // open chats through the shared opener and sit in the shared split.
 const root = join(__dirname, '..', '..');
@@ -14,7 +14,6 @@ describe('every chat list opens a chat beside itself on a wide window', () => {
   it.each([
     'app/(tabs)/index.tsx',
     'app/chat/archived.tsx',
-    'app/chat/closed-tasks.tsx',
     'app/chat/search.tsx',
     'app/chat/starred.tsx',
     'src/components/home/GroupsPane.tsx',
@@ -30,7 +29,6 @@ describe('every chat list opens a chat beside itself on a wide window', () => {
   it.each([
     'app/(tabs)/index.tsx',
     'app/chat/archived.tsx',
-    'app/chat/closed-tasks.tsx',
     'app/chat/search.tsx',
     'app/chat/starred.tsx',
     'app/task/[id].tsx',

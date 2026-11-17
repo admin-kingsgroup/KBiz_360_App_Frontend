@@ -5,6 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, Eye, FileText } from 'lucide-react-native';
 import { colors } from '../../src/theme';
 import { getTask, getTaskMessages, setTaskWatchers, type Task } from '../../src/api/tasks';
+import { isFinished } from '../../src/logic/taskRules';
 import type { ChatMessage } from '../../src/api/chat';
 import { mediaUrl } from '../../src/api/media';
 import { ApiError } from '../../src/api/client';
@@ -16,9 +17,12 @@ import { useUiStore } from '../../src/store/uiStore';
 import { useOpenChat } from '../../src/components/layout/ChatSplit';
 import { useWideLayout } from '../../src/hooks/useWideLayout';
 
-// Read-only task chat for someone who can SEE a task but is not in its chat — a manager above the
-// assignee (decision 2). They read everything; to write, they watch the task, which adds them to
-// the chat, and the real chat screen opens.
+// A task's chat, read-only, straight from the task (GET /api/tasks/:id/messages). Two cases:
+// - the task is closed or cancelled (owner, 2026-11-17): the chat is off everyone's list and refuses
+//   messages — everything in it can still be read here, by anyone who can see the task;
+// - a manager above the assignee (decision 2) on an open task: they read it, and watching the task
+//   adds them to the chat, where they can write.
+// There is never a composer here.
 
 const stamp = (iso: string): string => {
   const d = new Date(iso);
@@ -80,7 +84,7 @@ export default function TaskChatReadOnly() {
         <Pressable onPress={() => router.back()} accessibilityLabel="Back" style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={24} color={colors.ink} /></Pressable>
         <View style={{ flex: 1 }}>
           <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: '700' }}>{task?.title ?? 'Task chat'}</Text>
-          <Text style={{ color: colors.coolText, fontSize: 11.5 }}>Read-only</Text>
+          <Text style={{ color: colors.coolText, fontSize: 11.5 }}>{task && isFinished(task.status) ? `Read-only · task ${task.status === 'cancelled' ? 'cancelled' : 'closed'}` : 'Read-only'}</Text>
         </View>
       </View>
       {!messages ? (
@@ -112,7 +116,11 @@ export default function TaskChatReadOnly() {
           )}
         />
       )}
-      {task && task.myRole === 'viewer' ? (
+      {task && isFinished(task.status) ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderTopWidth: 1, borderTopColor: colors.coolDivider, backgroundColor: colors.card, alignItems: 'center' }}>
+          <Text style={{ color: colors.coolText, fontSize: 13.5, textAlign: 'center' }}>This task is {task.status === 'cancelled' ? 'cancelled' : 'closed'} — the chat is read-only</Text>
+        </View>
+      ) : task && task.myRole === 'viewer' ? (
         <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: colors.coolDivider, backgroundColor: colors.card }}>
           <Pressable onPress={() => void join()} disabled={joining} style={{ height: 46, borderRadius: 999, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, opacity: joining ? 0.7 : 1 }}>
             {joining ? <ActivityIndicator color="#fff" /> : <Eye size={17} color="#fff" />}

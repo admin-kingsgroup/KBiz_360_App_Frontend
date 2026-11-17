@@ -63,12 +63,25 @@ export function connectChatSocket(): void {
   socket.on('chat:online', (p: { userId: string; status?: string }) => store().onPresence({ userId: p.userId, online: true, status: p.status }));
   socket.on('chat:offline', (p: { userId: string; lastSeen?: number | string | null }) => store().onPresence({ userId: p.userId, online: false, lastSeen: p.lastSeen ?? null }));
   socket.on('presence:update', (p: { userId: string; status?: string; lastSeen?: number | string | null }) => store().onPresence(p));
-  socket.on('chat:conversationNew', () => void store().loadConversations());
+  // A new chat — or a task chat back on the list because its task was reopened: drop the read-only
+  // marks (a task that is still closed stays read-only by its status) and reload the list.
+  socket.on('chat:conversationNew', () => { store().clearReadOnlyChats(); void store().loadConversations(); });
   socket.on('chat:conversationUpdated', () => void store().loadConversations());
   // Deleted / removed-from: drop the thread's local history too, so the device isn't left holding
   // messages from a conversation the user can no longer open.
+  // A task chat leaves the list when its task is closed or cancelled (owner, 2026-11-17): it is not
+  // gone — the task still shows it read-only — so it is closed, not forgotten, and a chat screen open
+  // on it keeps its messages and turns read-only instead of going blank.
   socket.on('chat:conversationDeleted', (p: { conversationId?: string }) => {
-    if (p?.conversationId) void store().forgetConversation(p.conversationId);
+    const id = p?.conversationId;
+    if (id) {
+      const s = store();
+      const conv = s.conversations.find((c) => c.id === id);
+      if (conv?.type === 'task' || (!conv && s.activeConversationId === id)) {
+        s.closeTaskChat(id);
+        if (conv?.taskId) useTasksStore.getState().markTouched(conv.taskId); // the open task card refetches its status
+      } else void s.forgetConversation(id);
+    }
     void store().loadConversations();
   });
 

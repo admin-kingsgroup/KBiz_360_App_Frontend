@@ -4,6 +4,15 @@ import { coalescedStorage } from './persistStorage';
 import * as chatApi from '../api/chat';
 import * as chatDb from '../services/chatDb';
 import type { ChatConversation, ChatMessage, ChatReaction, ChatAttachment } from '../api/chat';
+import { ApiError } from '../api/client';
+import { useUiStore } from './uiStore';
+
+// A task's chat is read-only once the task is closed or cancelled (owner, 2026-11-17): the server
+// answers a send with 423 and takes the chat off everyone's list. That send must fail for good —
+// never sit in the outbox to be retried on every reconnect.
+export const TASK_CHAT_CLOSED_STATUS = 423;
+export const TASK_CHAT_CLOSED_TOAST = 'This task is closed — its chat is read-only';
+export const isTaskChatClosedError = (e: unknown): boolean => e instanceof ApiError && e.status === TASK_CHAT_CLOSED_STATUS;
 
 export type StoredMessage = ChatMessage & { pending?: boolean; failed?: boolean };
 export interface PresenceInfo { status: 'online' | 'offline' | 'in_call'; lastSeen: number | null }
@@ -55,6 +64,13 @@ interface MessagingState {
   hydrateLocal: (limit?: number) => Promise<void>;
   prefetchMessages: (limit?: number) => Promise<void>;
   forgetConversation: (conversationId: string) => Promise<void>;
+  /** Task chats whose task was closed or cancelled while this device had them (not persisted). */
+  readOnlyChats: Record<string, true>;
+  /** The server closed this task chat (conversationDeleted / a 423): off the list, nothing left to send.
+   *  The thread stays in memory while it is open on screen, so the screen is not left blank. */
+  closeTaskChat: (conversationId: string) => void;
+  /** A chat came back (task reopened): drop the read-only marks; the task's status decides again. */
+  clearReadOnlyChats: () => void;
   setDraft: (conversationId: string, text: string) => void;
   /** Pass null to clear a chat's override and drop it back to the global theme. */
   setWallpaper: (conversationId: string, key: string | null) => void;
@@ -193,6 +209,7 @@ export const useMessagingStore = create<MessagingState>()(
       typing: {},
       presence: {},
       activeConversationId: null,
+      readOnlyChats: {},
       loadingConversations: false,
       lastSyncAt: null,
       lastSyncId: null,
@@ -207,7 +224,7 @@ export const useMessagingStore = create<MessagingState>()(
       // the previous one's chats (WhatsApp does the same when you unlink). `chatTheme` is deliberately
       // NOT cleared: it is a display preference for this handset, not account data, and resetting it
       // would silently throw the user back to Slate every time they signed out.
-      reset: () => { void chatDb.clearAll(); set({ conversations: [], messages: {}, outbox: [], typing: {}, presence: {}, activeConversationId: null, lastSyncAt: null, lastSyncId: null, drafts: {}, wallpapers: {}, privacy: { readReceipts: true, lastSeen: 'everyone', blocked: [] } }); },
+      reset: () => { void chatDb.clearAll(); set({ conversations: [], messages: {}, outbox: [], typing: {}, presence: {}, activeConversationId: null, readOnlyChats: {}, lastSyncAt: null, lastSyncId: null, drafts: {}, wallpapers: {}, privacy: { readReceipts: true, lastSeen: 'everyone', blocked: [] } }); },
 
       loadConversations: async () => {
         if (get().loadingConversations) return; // coalesce the burst (focus + foreground + socket events)
@@ -360,6 +377,23 @@ export const useMessagingStore = create<MessagingState>()(
         });
         await chatDb.clearConversation(conversationId);
       },
+
+      closeTaskChat: (conversationId) => {
+        const unsent = new Set(get().outbox.filter((o) => o.conversationId === conversationId).map((o) => o.clientId));
+        set((s) => ({
+          readOnlyChats: { ...s.readOnlyChats, [conversationId]: true },
+          conversations: s.conversations.filter((c) => c.id !== conversationId),
+          outbox: s.outbox.filter((o) => o.conversationId !== conversationId),
+          // Anything still waiting to go can't go any more: it shows as not sent, for good.
+          messages: unsent.size && s.messages[conversationId]
+            ? { ...s.messages, [conversationId]: s.messages[conversationId].map((m) => (m.clientId && unsent.has(m.clientId) ? { ...m, pending: false, failed: true } : m)) }
+            : s.messages,
+        }));
+        // Not on screen: forget the thread like any chat that left the list (it is still readable
+        // from the task). On screen: keep it until the person leaves (the chat screen forgets it then).
+        if (get().activeConversationId !== conversationId) void get().forgetConversation(conversationId);
+      },
+      clearReadOnlyChats: () => { if (Object.keys(get().readOnlyChats).length) set({ readOnlyChats: {} }); },
 
       // A draft is whatever is in the composer when you leave — kept per chat and shown in the chat
       // list, so backing out of a half-written message never loses it.
@@ -520,7 +554,13 @@ export const useMessagingStore = create<MessagingState>()(
 
       sendMedia: async (conversationId, input) => {
         // Media requires connectivity to upload; the chat screen handles upload + offline errors.
-        const saved = await chatApi.sendMessage({ conversationId, type: input.type, text: input.text, attachments: input.attachments, mentions: input.mentions });
+        let saved: ChatMessage;
+        try {
+          saved = await chatApi.sendMessage({ conversationId, type: input.type, text: input.text, attachments: input.attachments, mentions: input.mentions });
+        } catch (e) {
+          if (isTaskChatClosedError(e)) set((s) => ({ readOnlyChats: { ...s.readOnlyChats, [conversationId]: true } }));
+          throw e; // the chat screen says why
+        }
         get()._upsert(conversationId, { ...saved, pending: false });
         set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
       },
@@ -539,6 +579,12 @@ export const useMessagingStore = create<MessagingState>()(
       },
 
       retry: async (clientId) => {
+        // Dropped from the outbox for good (its task chat closed): leave the bubble as not sent.
+        if (!get().outbox.some((o) => o.clientId === clientId)) {
+          const convId = Object.keys(get().messages).find((k) => get().messages[k].some((m) => m.clientId === clientId));
+          if (convId && get().readOnlyChats[convId]) useUiStore.getState().showToast(TASK_CHAT_CLOSED_TOAST);
+          return;
+        }
         set((s) => ({ messages: Object.fromEntries(Object.entries(s.messages).map(([k, list]) => [k, list.map((m) => (m.clientId === clientId ? { ...m, pending: true, failed: false } : m))])) }));
         await get()._flush(clientId);
       },
@@ -787,7 +833,18 @@ export const useMessagingStore = create<MessagingState>()(
           // otherwise the saved message is appended as a duplicate bubble with a clashing key.
           get()._upsert(item.conversationId, { ...saved, clientId, pending: false, failed: false });
           set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === item.conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
-        } catch {
+        } catch (e) {
+          if (isTaskChatClosedError(e)) {
+            // The task was closed: this message can never be sent. Out of the outbox (no retry on every
+            // reconnect), marked not sent, and the chat read-only on screen.
+            set((s) => ({
+              outbox: s.outbox.filter((o) => o.clientId !== clientId),
+              readOnlyChats: { ...s.readOnlyChats, [item.conversationId]: true },
+              messages: { ...s.messages, [item.conversationId]: (s.messages[item.conversationId] ?? []).map((m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m)) },
+            }));
+            useUiStore.getState().showToast(TASK_CHAT_CLOSED_TOAST);
+            return;
+          }
           // keep queued; mark the optimistic bubble failed so the user can retry
           set((s) => ({ messages: { ...s.messages, [item.conversationId]: (s.messages[item.conversationId] ?? []).map((m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m)) } }));
         }

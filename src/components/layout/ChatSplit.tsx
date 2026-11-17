@@ -12,7 +12,7 @@ import { textStyles } from '../../theme/typography';
 // imports that barrel, and this file must stay out of the cycle.
 import { ChatThread } from '../../../app/chat/[id]';
 
-// Every screen that lists chats — the Chats tab, Archived, Closed task chats, Search, Starred — opens
+// Every screen that lists chats — the Chats tab, Archived, Search, Starred — opens
 // a chat the same way: beside the list on a wide window (the iPhone Duo opened), as its own screen on
 // a phone-width one. They used to push the chat screen whatever the width, so a chat opened from
 // Archived or Search took over the whole opened Duo (owner, 2026-11-17: "it should open in right
