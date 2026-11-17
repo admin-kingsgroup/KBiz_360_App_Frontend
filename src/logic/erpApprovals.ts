@@ -45,11 +45,21 @@ export function pendingEntries(pw: ErpPendingWork | null | undefined, branch: st
   return out.sort((a, b) => (b.days ?? 0) - (a.days ?? 0) || a.ref.localeCompare(b.ref));
 }
 
-/** The stages the app's Entries lists (owner, 2026-10-29: "don't give Check entries in the mobile app, only those that come
- *  for Approve"): the final Approve and the Director / Owner sign-offs that sit with it. Check (and Verify, off since
- *  2026-10-11) stay on the laptop. An entry with no stage is a settled leftover, not waiting for anyone — left out too. */
+/** The stages the app's Entries lists FOR ACTION (owner, 2026-10-29: "don't give Check entries in the mobile app, only
+ *  those that come for Approve"): the final Approve and the Director / Owner sign-offs that sit with it. Check is done
+ *  on the laptop — the app shows those rows view-only (awaitingCheck, below); Verify is off since 2026-10-11. An entry
+ *  with no stage is a settled leftover, not waiting for anyone — left out too. */
 export const APP_ENTRY_STAGES: ReadonlySet<string> = new Set(['approve', 'director', 'owner']);
 export const awaitingApproval = <T extends { stage?: string }>(entries: T[]): T[] => entries.filter((e) => APP_ENTRY_STAGES.has(String(e.stage || '')));
+
+/** Check is given in the ERP only (owner, 2026-11-03: "show the Check entries in the app, but don't give the option to
+ *  Check from the app; once the ERP has Checked it, the FM approves it in the app"). A Check-stage entry is listed
+ *  VIEW-ONLY under Entries — no Check, no Reject — and never counted on a badge, since nothing in it is the viewer's to
+ *  do here. Once Checked, the ERP moves it to Approve (the Verify step is off since 2026-10-11) and it joins the list
+ *  above. */
+export const isCheckStage = (stage: string | undefined): boolean => String(stage || '') === 'check';
+export const awaitingCheck = <T extends { stage?: string }>(entries: T[]): T[] => entries.filter((e) => isCheckStage(e.stage));
+export const CHECK_IN_ERP_NOTE = 'View only — the Check is given in the ERP, in the branch. Once it is Checked, it comes here for the Finance Manager to approve.';
 
 /** "Check 5 · Verify 4 · Approve 3" for the strip above the list. */
 export function stageCounts(entries: ErpPendingEntry[]): { check: number; verify: number; approve: number; total: number } {
@@ -115,7 +125,9 @@ export function nextErpAction(e: ErpEntryDetail, me: Pick<ErpMe, 'email' | 'name
   // A deal approver may give a hub leg's final approval too; the ERP refuses (and says why) when this entry is not one.
   const inApprove = chain.approve.includes(email) || (chain.dealApprove ?? []).includes(email);
   const stage = e.reviewStage;
-  if (stage === 'check') return { stage, action: 'check', label: 'Check', allowed: true, hint: 'Level 1 · checked in the branch' };
+  // Never offered in the app (owner, 2026-11-03) — the sheet shows a Check-stage entry view-only; this stays refused
+  // in case anything else ever asks.
+  if (stage === 'check') return { stage, action: 'check', label: 'Check (in the ERP)', allowed: false, hint: CHECK_IN_ERP_NOTE };
   if (stage === 'verify') {
     const who = [...new Set([...chain.verify, ...chain.approve])];
     return { stage, action: 'verify', label: 'Verify', allowed: su || inVerify || inApprove, hint: `Level 2 · ${who.length ? who.join(', ') : 'Super Admin only'}` };

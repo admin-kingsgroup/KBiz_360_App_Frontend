@@ -41,6 +41,13 @@ export function seedDayTimes(entry: Pick<AttendanceHistoryEntry, 'date' | 'inTim
   };
 }
 
+// A time-correction REQUEST seeds with a check-out always on — both times are compulsory, today
+// included (owner, 2026-10-09): one sent with only a check-in could never be signed once its day
+// had passed. The admin's direct edit (seedDayTimes) may still leave today open.
+export function seedRequestTimes(entry: Pick<AttendanceHistoryEntry, 'date' | 'inTime' | 'outTime'>, now: Date): DayTimesDraft {
+  return { ...seedDayTimes(entry, now), hasOut: true };
+}
+
 export type DayTimesResult =
   | { ok: true; checkInAt: string; checkOutAt: string | null }
   | { ok: false; error: string };
