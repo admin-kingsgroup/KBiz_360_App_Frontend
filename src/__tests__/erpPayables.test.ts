@@ -142,7 +142,7 @@ describe('branch chip counts (owner, 2026-10-10; Entries · CFM · Requests 2026
   const lists = {
     crs: [
       cr({ _id: 'p-bom', branch: 'BOM' }), cr({ _id: 'p-nbo', branch: 'NBO' }), cr({ _id: 'p-group', branch: '' }),
-      cr({ _id: 'r-bom', type: 'hub_fx', branch: 'bom' }), cr({ _id: 'r-group', type: 'hub_fx', branch: '' }),
+      cr({ _id: 'r-bom', type: 'config', branch: 'bom' }), cr({ _id: 'r-group', type: 'config', branch: '' }),
       cr({ _id: 'h-nbo', type: 'hr_change', branch: 'NBO' }),
       cr({ _id: 'm-bom', type: 'margin_floor', branch: 'BOM' }),
     ],
@@ -153,10 +153,10 @@ describe('branch chip counts (owner, 2026-10-10; Entries · CFM · Requests 2026
   };
 
   it('splits each screen at a branch the way the tabs show it — Below GP in Entries, never in Other', () => {
-    expect(tabCounts(approvalsAt(lists, 'BOM'))).toEqual({ entries: 1, margin: 1, payables: 2, requests: 1, credit: 0, hr: 2 });
-    expect(tabCounts(approvalsAt(lists, 'NBO'))).toEqual({ entries: 1, margin: 0, payables: 2, requests: 0, credit: 1, hr: 1 });
-    expect(tabCounts(approvalsAt(lists, 'MHUB'))).toEqual({ entries: 1, margin: 0, payables: 1, requests: 0, credit: 0, hr: 0 });
-    expect(tabCounts(approvalsAt(lists, 'ALL'))).toEqual({ entries: 2, margin: 1, payables: 3, requests: 2, credit: 2, hr: 4 });
+    expect(tabCounts(approvalsAt(lists, 'BOM'))).toEqual({ entries: 1, margin: 1, entryRequests: 0, edits: 0, payables: 2, requests: 1, credit: 0, hr: 2 });
+    expect(tabCounts(approvalsAt(lists, 'NBO'))).toEqual({ entries: 1, margin: 0, entryRequests: 0, edits: 0, payables: 2, requests: 0, credit: 1, hr: 1 });
+    expect(tabCounts(approvalsAt(lists, 'MHUB'))).toEqual({ entries: 1, margin: 0, entryRequests: 0, edits: 0, payables: 1, requests: 0, credit: 0, hr: 0 });
+    expect(tabCounts(approvalsAt(lists, 'ALL'))).toEqual({ entries: 2, margin: 1, entryRequests: 0, edits: 0, payables: 3, requests: 2, credit: 2, hr: 4 });
   });
 
   it('the three tabs: Entries = entries + Below GP, CFM = credit, Requests = Payables + HR + Other', () => {
