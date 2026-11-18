@@ -89,21 +89,22 @@ export function commentPrompt(to: TaskStatus): string {
 }
 
 // ── the task's chat (owner, 2026-11-17) ──
-// No chat comes with a task any more. The person who gave it, or the one doing it, starts one from the
-// task while it is open. It stays open through "Done – to close"; when the task is closed or cancelled
-// the server takes it off everyone's chat list and it can only be read (from the task). Reopening the
-// task puts it back. Watchers join a chat once it exists; a manager above the assignee reads it.
+// No chat comes with a task any more. One of the people on it — the person who gave it, the one doing
+// it, or a watcher (owner, 2026-11-18: "watcher can also") — starts one from the task while it is open.
+// It stays open through "Done – to close"; when the task is closed or cancelled the server takes it off
+// everyone's chat list and it can only be read (from the task). Reopening the task puts it back.
+// A manager above the assignee who is not on the task reads the chat, and watches the task to join in.
 export type TaskChatButtonKind = 'start' | 'open' | 'read' | 'none';
 export interface TaskChatButton { kind: TaskChatButtonKind; label: string; sub: string }
 
 export function taskChatButton(t: Pick<Task, 'chatId' | 'status' | 'myRole'> & { watchers?: Task['watchers'] }): TaskChatButton {
   const finished = isFinished(t.status);
-  const party = t.myRole === 'assigner' || t.myRole === 'assignee' || t.myRole === 'both';
+  const party = t.myRole !== 'viewer'; // the giver, the doer and the watchers
   if (!t.chatId) {
     // A personal to-do with nobody watching: a chat would hold only you — nothing to start.
     if (t.myRole === 'both' && !(t.watchers?.length)) return { kind: 'none', label: 'No chat', sub: 'A personal to-do has no chat — add a watcher to talk it through.' };
     if (!finished && party) return { kind: 'start', label: 'Start chat', sub: 'Talk it through here — every status change is posted in it' };
-    return { kind: 'none', label: 'No chat yet', sub: finished ? 'No chat was started for this task.' : 'The person who gave the task, or the one doing it, can start one.' };
+    return { kind: 'none', label: 'No chat yet', sub: finished ? 'No chat was started for this task.' : 'Watch the task to start its chat.' };
   }
   if (finished) return { kind: 'read', label: 'View chat (read-only)', sub: 'The task is closed — its chat can be read, not written to' };
   if (t.myRole === 'viewer') return { kind: 'read', label: 'Read chat', sub: 'Read-only until you watch the task' };
