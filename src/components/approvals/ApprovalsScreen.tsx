@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { ErpApprovalsView, type Tab as ErpTab } from '../erpApprovals/ErpApprovalsView';
+import { ErpApprovalsView } from '../erpApprovals/ErpApprovalsView';
+import { placeOf } from '../../logic/erpApprovalTabs';
 import { useOwnerReviewStore } from '../../store/ownerReviewStore';
 import { useErpAccess } from '../erpApprovals/useErpAccess';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -1380,8 +1381,8 @@ export default function ApprovalsScreen() {
   const erp = useErpAccess();
   const [mode, setMode] = useState<'erp' | 'app'>('erp');
   // kbiz360://approvals?tab=review — the widget's Review tile (owner, 2026-10-30) opens ERP approvals on that tab.
-  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
-  const openTab = (['mine', 'entries', 'cfm', 'requests', 'review'] as const).find((t) => t === tabParam) as ErpTab | undefined;
+  const { tab: tabParam, sub: subParam } = useLocalSearchParams<{ tab?: string; sub?: string }>();
+  const openTab = placeOf(tabParam, subParam) ? tabParam : undefined;
   useEffect(() => { if (openTab) setMode('erp'); }, [openTab]);
   // Only one of the two lists is on screen, so the badge refetches both parts whenever the tab opens.
   useFocusEffect(useCallback(() => { void useApprovalBadgeStore.getState().refresh(); void useOwnerReviewStore.getState().refresh(); }, []));
@@ -1435,7 +1436,7 @@ export default function ApprovalsScreen() {
           );
         })}
       </View>
-      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} openTab={openTab} /> : <Inbox showTitle={false} includeCorrections={false} />}
+      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} openTab={openTab} openSub={subParam} /> : <Inbox showTitle={false} includeCorrections={false} />}
     </SafeAreaView>
   );
 }
