@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { ApiError } from '../../api/client';
 import { erpApi, type ErpApprovalsStatus, type ErpCashPlan, type ErpChangeRequest, type ErpCloseRow, type ErpConcern, type ErpConcernsErp, type ErpMe, type ErpRecordedEvent } from '../../api/erp';
-import { ALL_BRANCHES, money } from '../../logic/erpApprovals';
+import { ALL_BRANCHES } from '../../logic/erpApprovals';
 import {
   RR_NOTE, STATUS_COLUMNS, STATUS_SECTIONS, cellsAtFocus, closeLine, closeStage, closeWaitingOn, closesAt, concernStatus, concernsOn, erpConcernGroups, holderName, holderRows,
-  payablesOverview, raisedBy, recordedRow, tally, unheld, type ApprovalTab, type ConcernBucket, type EntryPill, type StatusHolder, type StatusTally,
+  payablesOverview, planMoney, raisedBy, recordedRow, tally, unheld, type ApprovalTab, type ConcernBucket, type EntryPill, type StatusHolder, type StatusTally,
 } from '../../logic/erpApprovalTabs';
 import { requestSubject, requestTypeLabel, waitingRoles, notRetired } from '../../logic/erpRequests';
 import { colors } from '../../theme';
@@ -282,7 +282,7 @@ export function PayablesTiles({ focus, refresh }: { focus: string; refresh: numb
   const [picked, setPicked] = useState<string>();
   const o = useMemo(() => payablesOverview(read.data, focus, picked), [read.data, focus, picked]);
   if (!read.data || !o) return null;
-  const m = (n: number) => money(n, o.currency);
+  const m = (n: number) => planMoney(n, o.currency);
   return (
     <>
       {focus === ALL_BRANCHES ? (

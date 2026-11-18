@@ -2,6 +2,7 @@ import type {
   ErpApprovalsStatus, ErpCashPlan, ErpCashPlanRow, ErpChangeRequest, ErpCloseRow, ErpConcern, ErpConcernsErp, ErpConcernsMine, ErpMe,
   ErpPendingEntry, ErpRecordedEvent, ErpStatusCell, ErpStatusPerson,
 } from '../api/erp';
+import { money } from './erpApprovals';
 import { chainRoleOf } from './erpRequests';
 
 // The ERP's Approvals strip in the app (2026-11-18: "these same I want in the app, exact same, same order"). Pure mirrors of
@@ -305,6 +306,8 @@ export function mergeByParty(rows: ErpCashPlanRow[]): PayeeRow[] {
   }
   return [...by.values()].map((m) => ({ ...m, dueOn: m.dueOn || m.aheadOn, notYetDue: m.dueNow <= 0.005 }));
 }
+/** The payables tiles and payee rows print whole units on the ERP (PlanOverview's `money(n, sym, { dp: 0 })`). */
+export const planMoney = (amount: number, currency?: string): string => money(Math.round(amount), currency);
 export interface PayablesOverview { branch: string; currency?: string; payables: number; requested: number; requestedCount: number; notRequested: number; waiting: number; payees: PayeeRow[] }
 /** One book's tiles (a payable in rupees and one in dollars are never added together): the Focus book, or the picked / first one at All. */
 export function payablesOverview(plan: ErpCashPlan | null | undefined, focus: string, picked?: string): PayablesOverview | null {
