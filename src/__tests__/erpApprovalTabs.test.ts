@@ -1,7 +1,7 @@
 import type { ErpChangeRequest, ErpCloseRow, ErpConcern, ErpPendingEntry } from '../api/erp';
 import {
   APPROVAL_TABS, ENTRY_PILLS, SUBTABS, cellsAtFocus, closeLine, closeStage, closeWaitingOn, closesAt, closesOwed, concernStatus, concernsAt, concernsOn, entriesOnPill, entryPillOf,
-  erpConcernCount, erpConcernGroups, holderRows, mergeByParty, payablesOverview, placeOf, raisedBy, recordedRow, rrBadge, setupRows, supplierBankRows, tally, unheld,
+  erpConcernCount, erpConcernGroups, holderRows, mergeByParty, payablesOverview, placeOf, planMoney, raisedBy, recordedRow, rrBadge, setupRows, supplierBankRows, tally, unheld,
 } from '../logic/erpApprovalTabs';
 
 // 2026-11-18: "these same I want in the app, exact same, same order". The strips below are read off the ERP's screens.
@@ -155,6 +155,11 @@ describe('the payables tiles', () => {
   } }] };
   it('gives the ERP screen\'s figures for BOM', () => {
     expect(payablesOverview(plan, 'BOM')).toMatchObject({ payables: 6748465, requested: 5000, requestedCount: 1, notRequested: 6743465, waiting: 0 });
+  });
+  it('prints whole units, as the ERP tiles do', () => {
+    expect(planMoney(6748464.98, 'INR')).toBe('₹67,48,465');
+    expect(planMoney(5000, 'INR')).toBe('₹5,000');
+    expect(planMoney(1234.56, 'USD')).toBe('$1,235');
   });
   it('merges a payee into one row', () => {
     expect(mergeByParty(plan.branches[0].ladder.part2.rows.slice(0, 2))).toEqual([expect.objectContaining({ party: 'Travkings MHUB', amount: 6743465, dueNow: 5840557, ahead: 902908, aheadOn: '2026-11-23', dueOn: '2026-11-18', notYetDue: false })]);
