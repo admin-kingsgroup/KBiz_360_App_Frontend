@@ -250,7 +250,7 @@ export default function Home() {
                 <MessageCircle size={50} color={p.accent} />
               </View>
               <Text style={{ color: p.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>{filter === 'unread' ? 'No unread chats' : filter === 'tasks' ? 'No task chats' : 'No conversations'}</Text>
-              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'tasks' ? 'A task chat appears here once the person who gave the task, or the one doing it, starts it from the task. It leaves when the task is closed.' : 'Your conversations will appear here.'}</Text>
+              <Text style={{ color: p.mute, fontSize: 14, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{filter === 'tasks' ? 'A task chat appears here once someone on the task starts it from the task. It leaves when the task is closed.' : 'Your conversations will appear here.'}</Text>
               <Pressable onPress={() => router.push('/chat/search')} className="flex-row items-center gap-2" style={{ marginTop: 24, height: 50, paddingHorizontal: 24, borderRadius: 999, backgroundColor: p.accent }}>
                 <Plus size={20} color={p.onAccent} />
                 <Text style={{ color: p.onAccent, fontSize: 15, fontWeight: '600' }}>Start new chat</Text>
