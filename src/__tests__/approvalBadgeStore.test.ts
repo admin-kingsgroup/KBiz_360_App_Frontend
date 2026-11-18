@@ -4,7 +4,7 @@ import { ApiError } from '../api/client';
 
 const getApprovalCounts = jest.fn();
 const getRegularizationsForAdmin = jest.fn();
-const erp = { changeRequests: jest.fn(), leaveApplications: jest.fn(), creditRequests: jest.fn(), pendingWork: jest.fn() };
+const erp = { changeRequests: jest.fn(), leaveApplications: jest.fn(), creditRequests: jest.fn(), pendingWork: jest.fn(), editRequests: jest.fn() };
 const loadErpAccess = jest.fn();
 
 jest.mock('../api/approvals', () => ({ getApprovalCounts: () => getApprovalCounts() }));
@@ -28,6 +28,7 @@ beforeEach(() => {
   erp.changeRequests.mockResolvedValue([pay('BOM'), pay('MHUB'), req('AMD')]);
   erp.leaveApplications.mockResolvedValue([{ _id: 'l1', branch: 'HNBO' }]);
   erp.creditRequests.mockResolvedValue([{ _id: 'cr1', branch: 'BOM' }]);
+  erp.editRequests.mockResolvedValue([]);
   // Entries (owner, 2026-10-29): one voucher waiting for Approve at AMD, from the Pending Work feed — the one still at
   // Check is not the app's (Check is done in the ERP). Month Close is not counted any more.
   erp.pendingWork.mockResolvedValue({ branches: [{ branch: 'AMD', cards: [{ key: 'approvals', items: [{ key: 'vouchers', entries: [

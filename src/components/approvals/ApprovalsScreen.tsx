@@ -1382,7 +1382,7 @@ export default function ApprovalsScreen() {
   const [mode, setMode] = useState<'erp' | 'app'>('erp');
   // kbiz360://approvals?tab=review — the widget's Review tile (owner, 2026-10-30) opens ERP approvals on that tab.
   const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
-  const openTab = (['entries', 'cfm', 'requests', 'review'] as const).find((t) => t === tabParam) as ErpTab | undefined;
+  const openTab = (['mine', 'entries', 'cfm', 'requests', 'review'] as const).find((t) => t === tabParam) as ErpTab | undefined;
   useEffect(() => { if (openTab) setMode('erp'); }, [openTab]);
   // Only one of the two lists is on screen, so the badge refetches both parts whenever the tab opens.
   useFocusEffect(useCallback(() => { void useApprovalBadgeStore.getState().refresh(); void useOwnerReviewStore.getState().refresh(); }, []));

@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { ApiError, apiFetch } from './client';
 
 // ERP approvals in the app (owner, 2026-10-07). Every call goes to THIS app's backend under
 // /api/erp, which forwards it to the ERP's app door as the signed-in user — the phone never holds
@@ -57,6 +57,13 @@ export interface ErpEntryDetail {
 export interface ErpJournal {
   postings: Array<{ ledger: string; debit?: number; credit?: number; narration?: string }>;
   totalDebit?: number; totalCredit?: number; balanced?: boolean;
+}
+
+/** An edit of an approved voucher or booking, waiting for the Finance Manager. The books keep the old figures until then. */
+export interface ErpEditRequest {
+  id: string; voucherId?: string; entity?: string; vno: string; type?: string; branch?: string; date?: string; party?: string;
+  fields?: string[]; raisedBy?: string; raisedAt?: string; reason?: string; currency?: string;
+  figures?: { before?: { total?: number }; after?: { total?: number }; held?: { blocks?: string[] } | null } | null;
 }
 
 export interface ErpChangeRequest {
@@ -150,6 +157,16 @@ export const erpApi = {
     unwrap(apiFetch(`/api/erp/${kind === 'file' ? 'booking-orders' : 'vouchers'}/${id}/approve${qs({ branch })}`, { method: 'POST', body: {} })),
   reject: (kind: 'voucher' | 'file', id: string, reason: string, branch?: string): Promise<unknown> =>
     unwrap(apiFetch(`/api/erp/${kind === 'file' ? 'booking-orders' : 'vouchers'}/${id}/reject${qs({ branch })}`, { method: 'POST', body: { reason } })),
+
+  /** Edits for FM. Read only here: approving one re-posts the books, and the ERP shows the journal before and after first.
+   *  A server that does not open this read yet (403 / 404) simply has none to show. */
+  editRequests: (): Promise<ErpEditRequest[]> =>
+    unwrap(apiFetch<Envelope<ErpEditRequest[]>>('/api/erp/vouchers/edit-requests?status=pending'))
+      .then((d) => (Array.isArray(d) ? d : []))
+      .catch((e) => {
+        if (e instanceof ApiError && (e.status === 403 || e.status === 404)) return [];
+        throw e;
+      }),
 
   /** Pending requests by default; `status: 'approved'` + `type` finds the ones signed off but not applied. */
   changeRequests: (status: string = 'pending', type?: string): Promise<ErpChangeRequest[]> =>

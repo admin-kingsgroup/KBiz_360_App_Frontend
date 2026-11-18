@@ -1,5 +1,8 @@
 import type { ErpChangeRequest, ErpMe, ErpPaymentRequestRow } from '../api/erp';
 import { money } from './erpApprovals';
+import { chainRoleOf, isCreditRequest, isEntryRequest, isTransitRequest, myTurnOn, notRetired, waitingRoles } from './erpRequests';
+
+export { chainRoleOf };
 
 // Approvals ▸ Payables in the app (owner, 2026-10-09: "show Receivables and Payables in the app with the
 // same functionality as the ERP"). Pure mirrors of the ERP's own rules — Books tk-group/utils
@@ -38,31 +41,38 @@ export function entriesAtFocus<E extends { branch?: string; actionBranch?: strin
   return list.filter((e) => String(e.branch || '').toUpperCase() === f || String(e.actionBranch || '').toUpperCase() === f);
 }
 
-export function approvalsAt<L extends { branch?: string }, C extends { branch?: string }, E extends { branch?: string; actionBranch?: string }>(
-  lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[]; entries?: E[] }, focus: string,
+export function approvalsAt<L extends { branch?: string }, C extends { branch?: string }, E extends { branch?: string; actionBranch?: string }, X extends { branch?: string } = { branch?: string }>(
+  lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[]; entries?: E[]; edits?: X[] }, focus: string,
 ) {
   const f = String(focus || '').trim().toUpperCase();
   const all = !f || f === 'ALL';
   const at = (b?: string) => all || String(b || '').toUpperCase() === f;
+  const crs = lists.crs.filter(notRetired);
   return {
     entries: entriesAtFocus(lists.entries, f),
-    margin: lists.crs.filter((r) => isMarginReview(r) && at(r.branch)),
-    payables: atFocus(lists.crs.filter(isPaymentRequest), f),
-    requests: lists.crs.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && !isMarginReview(r) && at(r.branch)),
-    hrRequests: lists.crs.filter((r) => isHrRequest(r) && at(r.branch)),
+    margin: crs.filter((r) => isMarginReview(r) && at(r.branch)),
+    // On the ERP's Entries since 2026-11-14: the Hub FX voucher, a posted item off the books, a change on approval.
+    entryRequests: crs.filter((r) => isEntryRequest(r) && at(r.branch)),
+    // Listed on the ERP's Entries too, but outside its Entries figure.
+    transit: crs.filter((r) => isTransitRequest(r) && at(r.branch)),
+    edits: (lists.edits ?? []).filter((e) => at(e.branch)),
+    payables: atFocus(crs.filter(isPaymentRequest), f),
+    requests: crs.filter((r) => !isHrRequest(r) && !isPaymentRequest(r) && !isMarginReview(r) && !isEntryRequest(r) && !isTransitRequest(r) && at(r.branch)),
+    hrRequests: crs.filter((r) => isHrRequest(r) && at(r.branch)),
     leave: lists.leave.filter((a) => at(a.branch)),
     credit: lists.credit.filter((c) => at(c.branch)),
   };
 }
 
 /** The badge on each screen. `requests` is Requests ▸ Other. */
-export function tabCounts(a: ReturnType<typeof approvalsAt>): { entries: number; margin: number; payables: number; requests: number; credit: number; hr: number } {
-  return { entries: a.entries.length, margin: a.margin.length, payables: a.payables.length, requests: a.requests.length, credit: a.credit.length, hr: a.leave.length + a.hrRequests.length };
+export function tabCounts(a: ReturnType<typeof approvalsAt>): { entries: number; margin: number; entryRequests: number; edits: number; payables: number; requests: number; credit: number; hr: number } {
+  return { entries: a.entries.length, margin: a.margin.length, entryRequests: a.entryRequests.length, edits: a.edits.length, payables: a.payables.length, requests: a.requests.length, credit: a.credit.length, hr: a.leave.length + a.hrRequests.length };
 }
 
-/** The three tabs' badges (owner, 2026-10-29): Entries = entries + Below GP; CFM = credit; Requests = Payables + HR + Other. */
+/** The three tabs' badges: Entries = entries + Below GP + Edits for FM + the requests the ERP lists there; CFM = credit;
+ *  Requests = Payables + HR + Other. */
 export function tabTotals(c: ReturnType<typeof tabCounts>): { entries: number; cfm: number; requests: number } {
-  return { entries: c.entries + c.margin, cfm: c.credit, requests: c.payables + c.hr + c.requests };
+  return { entries: c.entries + c.margin + c.entryRequests + c.edits, cfm: c.credit, requests: c.payables + c.hr + c.requests };
 }
 
 /** The number on each branch chip (owner, 2026-10-10: "branches should show how many approvals are in which
@@ -82,15 +92,18 @@ export function allBranchesTotal(lists: Parameters<typeof approvalsAt>[0]): numb
   return branchCounts(lists, ['ALL']).ALL;
 }
 
-/** The chain level a signed-in role holds, by the ERP's canonical names. */
-export function chainRoleOf(role: string | undefined): string {
-  const r = String(role || '').trim();
-  if (/^(owner|super\s*_?admin)$/i.test(r)) return 'Owner';
-  if (/^director$/i.test(r)) return 'Director';
-  if (/^finance\s*_?manager$/i.test(r) || r === 'FinanceManager') return 'FinanceManager';
-  // The Branch / General Manager signs first on Requests and CFM since 2026-10-29 (the ERP's BranchManager level).
-  if (/^(branch|general)\s*_?manager$/i.test(r) || r === 'BranchManager' || /^(bm|gm)$/i.test(r)) return 'BranchManager';
-  return r;
+/** What is at this person's step at a branch focus — the ERP's Waiting on me, without Month Close (signed in the ERP): the
+ *  requests waiting on their level, the credit they may act on, and the leave at their turn. */
+export function waitingOnMe<L extends { branch?: string; turn?: { allowed?: boolean } }, C extends { branch?: string; yourTurn?: boolean; signPast?: unknown[] }>(
+  lists: { crs: ErpChangeRequest[]; leave: L[]; credit: C[] }, focus: string, me: Pick<ErpMe, 'role' | 'email'>,
+) {
+  const f = String(focus || '').trim().toUpperCase();
+  const all = !f || f === 'ALL';
+  const at = (b?: string) => all || String(b || '').toUpperCase() === f;
+  const requests = atFocus(lists.crs.filter((r) => notRetired(r) && !isCreditRequest(r)), f).filter((r) => myTurnOn(r, me));
+  const credit = lists.credit.filter((c) => at(c.branch) && (!!c.yourTurn || (c.signPast?.length ?? 0) > 0));
+  const leave = lists.leave.filter((a) => at(a.branch) && !!a.turn?.allowed);
+  return { requests, credit, leave, total: requests.length + credit.length + leave.length };
 }
 
 type Level = { order?: number; role: string; label?: string };
@@ -105,10 +118,9 @@ export function chainSteps(cr: Pick<ErpChangeRequest, 'chain' | 'approvals'>): A
 }
 
 /** Whom it waits on, as the ERP names the level ("Review (FM)") — an ordered chain waits on ONE level. */
-export function waitingLabel(cr: Pick<ErpChangeRequest, 'chain' | 'approvals'>): string {
-  const signed = signedRoles(cr);
-  const next = levelsOf(cr).find((l) => !signed.has(l.role));
-  return next ? next.label || next.role : '';
+export function waitingLabel(cr: Pick<ErpChangeRequest, 'type' | 'chain' | 'approvals' | 'maker'>): string {
+  const levels = levelsOf(cr);
+  return waitingRoles(cr).map((role) => levels.find((l) => l.role === role)?.label || role).join(' → ');
 }
 
 /** GOVN-GATE-02: only the chain's own levels act on it — why every act is off for `me`, or ''. */
