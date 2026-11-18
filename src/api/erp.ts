@@ -40,6 +40,8 @@ export interface ErpPendingEntry {
   id: string; ref: string; title: string; sub?: string; amount?: number; currency?: string; days?: number;
   stage: ErpStage; kind: 'voucher' | 'file'; type: string; branch: string; actionBranch: string;
   pipeline?: string; due?: string; dueStatus?: string;
+  /** A hub deal's trade leg: it is approved on the seller's queue (SPGH · Out). */
+  deal?: boolean;
 }
 export interface ErpApprovalsItem { key: string; n: number; stages?: { check?: number; verify?: number; approve?: number }; entries?: ErpPendingEntry[]; entriesTotal?: number }
 export interface ErpPendingWork {
@@ -67,12 +69,14 @@ export interface ErpEditRequest {
 }
 
 export interface ErpChangeRequest {
-  _id: string; type: string; branch: string; status: string; createdAt?: string;
+  _id: string; type: string; branch: string; status: string; createdAt?: string; updatedAt?: string;
+  /** Why it was sent back to its maker. */
+  reason?: string;
   /** The currency the request's branch keeps its books in (the ERP adds it; a payment request's amounts carry none). */
   bookCurrency?: string;
   /** Set once an approved change went through; approved with none = signed off but not applied. */
   appliedAt?: string | null; applyError?: string;
-  maker?: { userId?: string; name?: string; role?: string };
+  maker?: { userId?: string; email?: string; name?: string; role?: string };
   payload?: { before?: unknown; after?: unknown; summary?: string; reason?: string; [k: string]: unknown };
   chain?: Array<{ order?: number; role: string; label?: string }>;
   approvals?: Array<{ role: string; by?: string; at?: string; skipped?: boolean }>;
@@ -133,7 +137,31 @@ export interface ErpPaymentRequestRow {
   bills?: Array<{ billVno?: string; supplierRef?: string; dueOn?: string; outstanding?: number; amount?: number }>;
   payment?: { id: string; vno: string; status?: string; posted: boolean } | null;
 }
-export interface ErpCloseRow { branch: string; label?: string; from?: string; upTo?: string; status: string; months?: number }
+export interface ErpCloseRow {
+  branch: string; label?: string; from?: string; upTo?: string; status: string; months?: number;
+  fmSign?: { by?: string; at?: string } | null; directorSign?: { by?: string; at?: string } | null; ahead?: { label?: string; status?: string } | null;
+}
+/** Approvals ▸ Status: every tab's pending items, each counted once against the role next to act, in its book. */
+export interface ErpStatusCell { branch?: string; tab: string; role: string; n: number; oldestDays?: number | null }
+export interface ErpStatusPerson { name: string; branches?: string[] | null; title?: string; login?: string }
+export interface ErpApprovalsStatus { asOf?: string; tabs?: string[]; branchRoles?: string[]; cells: ErpStatusCell[]; people?: Record<string, ErpStatusPerson[]>; rosterUnread?: boolean; unread?: string[] }
+/** One event of Status ▸ Recorded: done at once by the BA / Senior Accountant and kept for audit. */
+export interface ErpRecordedEvent { _id?: string; id?: string; ts?: string; action?: string; branch?: string; reason?: string; after?: { ref?: string; amount?: number }; actor?: { name?: string; userId?: string; role?: string } }
+export interface ErpConcernPerson { name?: string; title?: string; desk?: string }
+/** One concern on Raise & Resolve's lists, or on ERP Concerns. Opening one marks it Seen, so the app only lists them. */
+export interface ErpConcern {
+  id: string; no?: string | number; title?: string; type?: string; book?: string; bucket?: string; status?: string; priority?: string; overdue?: boolean; dueToday?: boolean; dueDay?: string;
+  from?: ErpConcernPerson | null; to?: ErpConcernPerson | null; holder?: ErpConcernPerson | null; assignee?: ErpConcernPerson | null; assignedBy?: ErpConcernPerson | null;
+  assignDone?: boolean; assignLate?: boolean; levelName?: string; why?: string; rule?: string; head?: string; amount?: number | null; currency?: string; last?: { name?: string; text?: string } | null;
+}
+export interface ErpConcernsMine { rows: ErpConcern[]; counts?: Partial<Record<'move' | 'wait' | 'cc' | 'closed', number>>; erp?: { hiddenByBook?: Record<string, Partial<Record<'move' | 'wait' | 'closed', number>>> } }
+export interface ErpConcernsErp { rows?: ErpConcern[]; rules?: Array<{ rule: string; head?: string; name: string }>; heads?: Record<string, string>; counts?: Record<string, Record<string, number>>; noDesk?: boolean }
+export interface ErpCashPlanRow {
+  party?: string; amount?: number; kind?: string; side?: string; dueOn?: string; overdueDays?: number; notYetDue?: boolean;
+  request?: { status?: string; advance?: boolean } | null; reco?: { kind?: string; ok?: boolean; throughDate?: string; why?: string } | null;
+}
+export interface ErpCashPlan { branches?: Array<{ branch: string; currency?: string; ladder?: { rows?: ErpCashPlanRow[]; part2?: { rows?: ErpCashPlanRow[] } } }> }
+export interface ErpHubCounts { settlements?: { pending?: number } }
 
 export const erpApi = {
   status: (): Promise<{ configured: boolean }> => apiFetch('/api/erp/status'),
@@ -200,6 +228,20 @@ export const erpApi = {
   directorDecided: (days: number): Promise<ErpDirectorDecision[]> =>
     unwrap(apiFetch<Envelope<ErpDirectorDecision[] | { rows?: ErpDirectorDecision[] }>>(`/api/erp/ba-dashboard/owner/director-decided${qs({ tab: 'all', days: String(days) })}`))
       .then((d) => (Array.isArray(d) ? d : d?.rows ?? [])),
+  /** Approvals ▸ Status: what is pending on every tab, and with whom. */
+  approvalsStatus: (): Promise<ErpApprovalsStatus> => unwrap(apiFetch('/api/erp/pending-work/approvals/status')),
+  /** Status ▸ Recorded. The ERP lets the app read only `recorded=1` of its audit trail. */
+  recordedEvents: (branch?: string): Promise<ErpRecordedEvent[]> =>
+    apiFetch<{ items?: ErpRecordedEvent[]; data?: ErpRecordedEvent[] | { items?: ErpRecordedEvent[] } }>(`/api/erp/tk/monitor/audit${qs({ recorded: '1', branch })}`)
+      .then((r) => r?.items ?? (Array.isArray(r?.data) ? r.data : r?.data?.items) ?? []),
+  /** Raise & Resolve's four lists (My move, Waiting on others, Copied to me, Closed). */
+  concernsMine: (): Promise<ErpConcernsMine> => unwrap(apiFetch('/api/erp/concerns/mine?groupWide=1')),
+  /** ERP Concerns: `counts` answers the rule book and the open counts only; otherwise every row at the branch. */
+  erpConcerns: (opts: { counts?: boolean; branch?: string } = {}): Promise<ErpConcernsErp> =>
+    unwrap(apiFetch(`/api/erp/concerns/erp${qs({ counts: opts.counts ? '1' : undefined, ...(opts.branch ? { branch: opts.branch } : { groupWide: '1' }) })}`)),
+  /** The plan behind Pay & Credit's payables tiles. */
+  cashPlan: (): Promise<ErpCashPlan> => unwrap(apiFetch('/api/erp/operations-board/cashplan?days=90')),
+  hubCounts: (branch?: string): Promise<ErpHubCounts> => unwrap(apiFetch(`/api/erp/hub-deal/approval-counts${qs({ branch, scope: 'hub-branch' })}`)),
   closeBoard: (): Promise<ErpCloseRow[]> =>
     unwrap(apiFetch<Envelope<ErpCloseRow[] | { rows?: ErpCloseRow[] }>>('/api/erp/reconciliation/close/board'))
       .then((d) => (Array.isArray(d) ? d : d?.rows ?? [])),
