@@ -26,7 +26,7 @@ export interface OpenTaskChatOptions {
  * Opens a task's chat. Shared by the task page's chat card and the chat icon on a task in a list —
  * Afshin, 2026-11-17: the icon goes straight to the task's chat instead of into the task.
  * - a chat: opens it;
- * - none yet, and I gave the task or am doing it (task open): starts it, then opens it;
+ * - none yet, and I gave the task, am doing it or am watching it (task open): starts it, then opens it;
  * - closed or cancelled, or a manager above reading: the read-only chat;
  * - none, and I can't start one: says why.
  */
@@ -54,8 +54,7 @@ export function useOpenTaskChat(options: OpenTaskChatOptions = {}): (task: Task)
         useTasksStore.getState().upsert(started);
         opts.current.onStarted?.(started);
       } catch (e) {
-        showToast(e instanceof ApiError && e.status === 403 ? 'Only the person who gave the task, or the one doing it, can start its chat'
-          : e instanceof ApiError && e.message ? e.message : 'Could not start the chat');
+        showToast(e instanceof ApiError && e.message ? e.message : 'Could not start the chat');
         return;
       } finally {
         starting.current = false;

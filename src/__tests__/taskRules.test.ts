@@ -123,34 +123,38 @@ describe('tapping the chat icon on a task', () => {
     expect(taskChatTap({ chatId: 'c1', status: 'accepted', myRole: 'assignee' })).toEqual({ do: 'open', chatId: 'c1' });
     expect(taskChatTap({ chatId: 'c1', status: 'done', myRole: 'watcher' })).toEqual({ do: 'open', chatId: 'c1' });
   });
-  it('starts it first when I may (the assigner or the assignee, task open)', () => {
+  it('starts it first when I may (the assigner, the assignee or a watcher, task open)', () => {
     expect(taskChatTap({ chatId: null, status: 'assigned', myRole: 'assigner' })).toEqual({ do: 'start' });
     expect(taskChatTap({ chatId: null, status: 'in_progress', myRole: 'assignee' })).toEqual({ do: 'start' });
+    expect(taskChatTap({ chatId: null, status: 'in_progress', myRole: 'watcher' })).toEqual({ do: 'start' }); // owner, 2026-11-18
   });
   it('opens the read-only chat for a closed task or a manager above', () => {
     expect(taskChatTap({ chatId: 'c1', status: 'closed', myRole: 'assigner' })).toEqual({ do: 'read' });
     expect(taskChatTap({ chatId: 'c1', status: 'waiting', myRole: 'viewer' })).toEqual({ do: 'read' });
   });
   it('says why there is no chat when I cannot start one', () => {
-    expect(taskChatTap({ chatId: null, status: 'in_progress', myRole: 'watcher' })).toEqual({ do: 'explain', text: 'The person who gave the task, or the one doing it, can start one.' });
+    expect(taskChatTap({ chatId: null, status: 'in_progress', myRole: 'viewer' })).toEqual({ do: 'explain', text: 'Watch the task to start its chat.' });
+    expect(taskChatTap({ chatId: null, status: 'closed', myRole: 'watcher' })).toEqual({ do: 'explain', text: 'No chat was started for this task.' });
     expect(taskChatTap({ chatId: null, status: 'closed', myRole: 'assigner' })).toEqual({ do: 'explain', text: 'No chat was started for this task.' });
   });
 });
 
 describe("the task's chat button (chat on demand, owner 2026-11-17)", () => {
   const kind = (chatId: string | null, status: Task['status'], myRole: Task['myRole']): string => taskChatButton({ chatId, status, myRole }).kind;
-  it('no chat yet: the assigner or the assignee can start one while the task is open', () => {
+  it('no chat yet: the assigner, the assignee or a watcher can start one while the task is open', () => {
     expect(kind(null, 'assigned', 'assigner')).toBe('start');
     expect(kind(null, 'in_progress', 'assignee')).toBe('start');
     expect(kind(null, 'done', 'assigner')).toBe('start'); // Done – to close is still open
+    // Owner, 2026-11-18: "watcher is not able to create or open chat — watcher can also".
+    expect(taskChatButton({ chatId: null, status: 'assigned', myRole: 'watcher' })).toMatchObject({ kind: 'start', label: 'Start chat' });
+    expect(kind(null, 'done', 'watcher')).toBe('start');
   });
   it('a personal to-do: no chat unless someone watches it', () => {
     expect(taskChatButton({ chatId: null, status: 'accepted', myRole: 'both', watchers: [] }).kind).toBe('none');
     expect(taskChatButton({ chatId: null, status: 'accepted', myRole: 'both', watchers: [{ id: 'u2', name: 'Faiz' }] }).kind).toBe('start');
   });
-    it('watchers and managers above see "No chat yet" — they cannot start one', () => {
-    expect(taskChatButton({ chatId: null, status: 'in_progress', myRole: 'watcher' }).label).toBe('No chat yet');
-    expect(kind(null, 'in_progress', 'viewer')).toBe('none');
+  it('a manager above who is not on the task sees "No chat yet" — watching it lets them start one', () => {
+    expect(taskChatButton({ chatId: null, status: 'in_progress', myRole: 'viewer' })).toEqual({ kind: 'none', label: 'No chat yet', sub: 'Watch the task to start its chat.' });
   });
   it('closed or cancelled with no chat: nobody starts one', () => {
     expect(kind(null, 'closed', 'assigner')).toBe('none');

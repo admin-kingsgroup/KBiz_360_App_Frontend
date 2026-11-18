@@ -85,9 +85,10 @@ export default function TaskDetail() {
   const isMember = !!task && task.myRole !== 'viewer';
   const amWatcher = !!task && task.watchers.some((w) => w.id === meId);
   const isParty = !!task && (task.assignedTo.id === meId || task.assignedBy.id === meId);
-  // The task's chat (owner, 2026-11-17): none comes with the task. The assigner or the assignee starts
-  // it while the task is open; closed or cancelled, it can only be read (from here); watchers and the
-  // managers above see "No chat yet" until one of the two starts it. See logic/taskRules.taskChatButton.
+  // The task's chat (owner, 2026-11-17): none comes with the task. The assigner, the assignee or a
+  // watcher (owner, 2026-11-18) starts it while the task is open; closed or cancelled, it can only be
+  // read (from here); a manager above who is not on the task sees "No chat yet" until one of them
+  // starts it, or watches the task and starts it. See logic/taskRules.taskChatButton.
   const chatButton = task ? taskChatButton(task) : null;
   // Starts the chat first when there is none (components/tasks/useOpenTaskChat, shared with the chat
   // icon on a task in a list).
