@@ -43,11 +43,11 @@ async function erpWaitingAllBranches(): Promise<number | null> {
   // The entries come from the Pending Work feed (one object, every branch the person sees) — only those waiting for
   // Approve, as the app's Entries lists them (owner, 2026-10-29).
   const pwRead = erpApi.pendingWork().then((pw) => awaitingApproval(pendingEntries(pw))).catch((e) => (e instanceof ApiError && e.status === 403 ? [] : null));
-  const [crs, leave, credit, entries] = await Promise.all([
-    read(erpApi.changeRequests()), read(erpApi.leaveApplications()), read(erpApi.creditRequests()), pwRead,
+  const [crs, leave, credit, entries, edits] = await Promise.all([
+    read(erpApi.changeRequests()), read(erpApi.leaveApplications()), read(erpApi.creditRequests()), pwRead, read(erpApi.editRequests()),
   ]);
-  if (!crs || !leave || !credit || !entries) return null;
-  return allBranchesTotal({ crs, leave, credit, entries });
+  if (!crs || !leave || !credit || !entries || !edits) return null;
+  return allBranchesTotal({ crs, leave, credit, entries, edits });
 }
 
 const clamp = (n: number): number => Math.max(0, n);
