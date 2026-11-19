@@ -29,7 +29,7 @@ import { EmojiPicker } from '../../src/components/chat/EmojiPicker';
 import { colors as themeColors } from '../../src/theme';
 import { useUiStore } from '../../src/store/uiStore';
 import { useAccessStore } from '../../src/store/accessStore';
-import { useMessagingStore, toEpochMs, isTaskChatClosedError, TASK_CHAT_CLOSED_TOAST, type StoredMessage } from '../../src/store/messagingStore';
+import { useMessagingStore, toEpochMs, type StoredMessage } from '../../src/store/messagingStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { isFinished } from '../../src/logic/taskRules';
 import type { TaskStatus } from '../../src/api/tasks';
@@ -38,8 +38,8 @@ import { search as searchChatDb, firstOnOrAfter as dbFirstOnOrAfter } from '../.
 import { mergeSearchHits } from '../../src/logic/searchHits';
 import { objectIdForTime, earlierCandidate } from '../../src/logic/dateJump';
 import { DateJumpSheet } from '../../src/components/chat/DateJumpSheet';
-import { uploadFile, mediaUrl, toAttachment } from '../../src/api/media';
-import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile } from '../../src/services/attachments';
+import { mediaUrl, isLocalUri } from '../../src/api/media';
+import { MEDIA_DIR, openWithViewer, shareFile, saveUrlToDevice, writeTextFile, downloadedUri } from '../../src/services/attachments';
 import { requestLocationWithDisclosure, openLocationSettings } from '../../src/services/locationPermission';
 import { useChatTheme, chatCanvas, type ChatTheme } from '../../src/theme';
 import { ChatWatermark, ChatTile } from '../../src/components/chat';
@@ -198,7 +198,11 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
   const [fetched, setFetched] = useState(false);
   const loadingOlder = useRef(false);
   const reachedTop = useRef(false);
-  const [uploading, setUploading] = useState<number | null>(null);
+  // Progress of this chat's file going up right now (the outbox uploads one at a time, in order).
+  const uploading = useMessagingStore((s) => {
+    for (const o of s.outbox) if (o.conversationId === convId && s.uploadProgress[o.clientId] !== undefined) return s.uploadProgress[o.clientId];
+    return null;
+  });
   // An image picked/shot but not sent yet — WhatsApp-style preview with a caption box. The caption
   // takes @mentions like any message: the API accepts `mentions` on media messages too.
   const [pendingImage, setPendingImage] = useState<{ uri: string; name: string; width?: number; height?: number } | null>(null);
@@ -623,16 +627,11 @@ export function ChatThread({ id: idProp, messageId: messageProp, embedded = fals
     setFileViewer(f);
   };
 
+  // WhatsApp's model (Afshin, 2026-11-19): the voice note / photo / file shows in the chat at once
+  // with a clock and goes when there is a connection — no "check your connection" failure. The
+  // outbox keeps it (and its file) across the app closing; see sendFile in the messaging store.
   const doUpload = async (file: { uri: string; name: string; mime: string }, type: ChatMessage['type'], extra: Partial<ChatAttachment> = {}, text?: string, mentions?: string[]): Promise<void> => {
-    setUploading(0);
-    try {
-      const res = await uploadFile(file, setUploading);
-      await useMessagingStore.getState().sendMedia(convId, { type, attachments: [toAttachment(res, extra)], text, mentions });
-    } catch (e) {
-      showToast(isTaskChatClosedError(e) ? TASK_CHAT_CLOSED_TOAST : 'Upload failed — check your connection');
-    } finally {
-      setUploading(null);
-    }
+    await useMessagingStore.getState().sendFile(convId, { type, file, extra, text, mentions });
   };
   // Shared by the library picker and the camera — video goes up as-is, images are resized/compressed.
   const uploadAsset = async (a: ImagePicker.ImagePickerAsset): Promise<void> => {
@@ -1785,8 +1784,7 @@ function Attachments({ m, mine, onOpenImage, onOpenFile, onLongPress }: { m: Sto
         // screenshot and a recording (2026-10-12). Every other message has none — its type decides.
         const kind = attachmentKindOf(att, m.type);
         if (kind === 'voice') {
-          // Both sides are light cards now — always use the dark-on-light voice styling.
-          const voice = <VoiceMessage key={i} uri={mediaUrl(att.url)} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
+          const voice = <CachedVoice key={i} att={att} />;
           // Stacked above other files it needs the gap the tiles keep below themselves.
           return m.attachments.length > 1 ? <View key={i} style={{ marginBottom: 4 }}>{voice}</View> : voice;
         }
@@ -1795,6 +1793,22 @@ function Attachments({ m, mine, onOpenImage, onOpenFile, onLongPress }: { m: Sto
       })}
     </>
   );
+}
+
+// A voice note plays from the phone when it is on the phone: the sender's own note (kept from the
+// outbox, before and after it is sent) and any note already downloaded. Otherwise it streams.
+function CachedVoice({ att }: { att: ChatAttachment }) {
+  const remote = mediaUrl(att.url);
+  const [uri, setUri] = useState(remote);
+  useEffect(() => {
+    let alive = true;
+    setUri(remote);
+    if (!isLocalUri(remote)) void downloadedUri(att).then((local) => { if (alive && local) setUri(local); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote]);
+  // Both sides are light cards now — always use the dark-on-light voice styling.
+  return <VoiceMessage uri={uri} durationSec={(att.durationMs ?? 0) / 1000} outgoing={false} />;
 }
 
 // WhatsApp-style centered grey notice for group events ("X added Y", "Z left", subject changes).

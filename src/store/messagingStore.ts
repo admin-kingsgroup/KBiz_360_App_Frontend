@@ -5,6 +5,8 @@ import * as chatApi from '../api/chat';
 import * as chatDb from '../services/chatDb';
 import type { ChatConversation, ChatMessage, ChatReaction, ChatAttachment } from '../api/chat';
 import { ApiError } from '../api/client';
+import { uploadFile, toAttachment } from '../api/media';
+import { keepForOutbox, outboxFileUri, settleOutboxFile, dropOutboxFile, clearOutboxFiles } from '../services/outboxMedia';
 import { useUiStore } from './uiStore';
 
 // A task's chat is read-only once the task is closed or cancelled (owner, 2026-11-17): the server
@@ -28,6 +30,12 @@ export interface OutboxItem {
   replyToId?: string;
   mentions?: string[];
   createdAt: number;
+  /** A voice note / photo / video / document still on this phone. It is uploaded first; `attachments`
+   *  then holds the server copy, so a send retried after a dropped response never uploads it twice. */
+  file?: { path: string; name: string; mime: string; extra?: Partial<ChatAttachment> };
+  /** The server refused it (not a network problem): it waits for "tap to retry" instead of being
+   *  re-sent — and a file re-uploaded — on every reconnect. */
+  held?: boolean;
 }
 
 interface MessagingState {
@@ -35,6 +43,8 @@ interface MessagingState {
   conversations: ChatConversation[];
   messages: Record<string, StoredMessage[]>;
   outbox: OutboxItem[];
+  /** Upload progress (0..1) of outbox files going up right now, by clientId. Not persisted. */
+  uploadProgress: Record<string, number>;
   typing: Record<string, string[]>;
   presence: Record<string, PresenceInfo>;
   activeConversationId: string | null;
@@ -94,6 +104,9 @@ interface MessagingState {
   // `mentions` rides along with a caption — the API takes it whatever the message type, and the
   // recipient gets the "X mentioned you: 📷 Photo" push.
   sendMedia: (conversationId: string, input: { type: ChatMessage['type']; attachments: ChatAttachment[]; text?: string; mentions?: string[] }) => Promise<void>;
+  /** A file from this phone (voice note, photo, video, document): shown at once, queued like a text,
+   *  uploaded and sent when there is a connection. */
+  sendFile: (conversationId: string, input: { type: ChatMessage['type']; file: { uri: string; name: string; mime: string }; extra?: Partial<ChatAttachment>; text?: string; mentions?: string[] }) => Promise<void>;
   forward: (messageId: string, conversationIds: string[]) => Promise<number>;
   retry: (clientId: string) => Promise<void>;
   flushOutbox: () => Promise<void>;
@@ -119,8 +132,14 @@ interface MessagingState {
   _prune: (conversationId: string, page: StoredMessage[]) => void;
   _dropBefore: (conversationId: string, clearedAt: string) => Promise<void>;
   _persistIds: (conversationId: string, ids: string[]) => void;
-  _flush: (clientId: string) => Promise<void>;
+  _flush: (clientId: string) => Promise<FlushResult>;
+  /** Put back the bubbles of messages still in the outbox (they are not in the message database). */
+  _restoreOutbox: (conversationId: string) => Promise<void>;
 }
+
+/** sent · offline (waits for the network, stays queued with a clock) · refused (held, tap to retry) ·
+ *  skipped (already going, gone, or held). */
+type FlushResult = 'sent' | 'offline' | 'refused' | 'skipped';
 
 type PersistedMessaging = Pick<MessagingState, 'conversations' | 'outbox' | 'lastSyncAt' | 'lastSyncId' | 'drafts' | 'wallpapers' | 'chatTheme' | 'chatWatermark' | 'privacy'>;
 
@@ -148,6 +167,43 @@ const shareUnchanged = (prev: ChatConversation[], fresh: ChatConversation[]): Ch
   return same ? prev : out;
 };
 const newClientId = (): string => `c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+
+// ── Outbox delivery (WhatsApp's model, Afshin 2026-11-19) ──
+// No connection is not a failure: the message keeps its clock and goes when the network is back.
+// Only a refusal from the server (a 4xx) marks it "not sent". Order is kept: the queue goes out
+// oldest first, and nothing overtakes a message that is waiting for the network.
+/** True when the send should simply be tried again later (no connection, timeout, server trouble). */
+export const waitsForNetwork = (e: unknown): boolean =>
+  !(e instanceof ApiError) || e.status === 0 || e.status === 408 || e.status === 429 || e.status >= 500;
+/** clientIds being uploaded / sent right now — a reconnect flush must not send them a second time. */
+const flushing = new Set<string>();
+let flushRun: Promise<void> | null = null;
+let flushAgain = false;
+// Besides socket reconnects (which flush), a timer retries while something waits for the network:
+// a socket that never dropped would otherwise leave a message on its clock until the next foreground.
+const RETRY_FIRST_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryDelay = RETRY_FIRST_MS;
+const stopRetry = (): void => {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  retryDelay = RETRY_FIRST_MS;
+};
+const dropFiles = (items: OutboxItem[]): void => { for (const o of items) if (o.file) void dropOutboxFile(o.file.path); };
+/** The bubble an outbox message shows until the server confirms it. `fileUri` = its file, resolved. */
+const outboxBubble = (o: OutboxItem, me: string, fileUri?: string): StoredMessage => {
+  const at = new Date(o.createdAt).toISOString();
+  const attachments: ChatAttachment[] = o.file && fileUri
+    ? [{ url: fileUri, name: o.file.name, size: 0, mime: o.file.mime, ...o.file.extra }]
+    : o.attachments ?? [];
+  return {
+    id: o.clientId, clientId: o.clientId, conversationId: o.conversationId, senderId: me, type: o.type, text: o.text ?? '',
+    deletedForEveryone: false, attachments, replyTo: null, forwardedFrom: null, mentions: o.mentions ?? [], reactions: [],
+    status: 'sent', sentAt: at, deliveredAt: null, readAt: null, pinned: false, edited: false, editedAt: null,
+    createdAt: at, mine: true, starred: false, pending: !o.held, failed: !!o.held,
+  };
+};
 const typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 // Conversations whose prefetch is in flight — keeps a re-focus of the chat list from re-firing the
 // same background fetches (module-level: transient, never persisted).
@@ -206,6 +262,7 @@ export const useMessagingStore = create<MessagingState>()(
       conversations: [],
       messages: {},
       outbox: [],
+      uploadProgress: {},
       typing: {},
       presence: {},
       activeConversationId: null,
@@ -224,7 +281,7 @@ export const useMessagingStore = create<MessagingState>()(
       // the previous one's chats (WhatsApp does the same when you unlink). `chatTheme` is deliberately
       // NOT cleared: it is a display preference for this handset, not account data, and resetting it
       // would silently throw the user back to Slate every time they signed out.
-      reset: () => { void chatDb.clearAll(); set({ conversations: [], messages: {}, outbox: [], typing: {}, presence: {}, activeConversationId: null, readOnlyChats: {}, lastSyncAt: null, lastSyncId: null, drafts: {}, wallpapers: {}, privacy: { readReceipts: true, lastSeen: 'everyone', blocked: [] } }); },
+      reset: () => { void chatDb.clearAll(); void clearOutboxFiles(); stopRetry(); set({ conversations: [], messages: {}, outbox: [], uploadProgress: {}, typing: {}, presence: {}, activeConversationId: null, readOnlyChats: {}, lastSyncAt: null, lastSyncId: null, drafts: {}, wallpapers: {}, privacy: { readReceipts: true, lastSeen: 'everyone', blocked: [] } }); },
 
       loadConversations: async () => {
         if (get().loadingConversations) return; // coalesce the burst (focus + foreground + socket events)
@@ -261,6 +318,7 @@ export const useMessagingStore = create<MessagingState>()(
             });
           }
         }
+        await get()._restoreOutbox(conversationId);
         if (!(get().messages[conversationId] ?? []).some((m) => !m.pending && !m.failed)) {
           await get().syncMessages(conversationId); // nothing stored for this thread yet — first fill
         }
@@ -379,6 +437,7 @@ export const useMessagingStore = create<MessagingState>()(
       },
 
       closeTaskChat: (conversationId) => {
+        dropFiles(get().outbox.filter((o) => o.conversationId === conversationId));
         const unsent = new Set(get().outbox.filter((o) => o.conversationId === conversationId).map((o) => o.clientId));
         set((s) => ({
           readOnlyChats: { ...s.readOnlyChats, [conversationId]: true },
@@ -468,6 +527,7 @@ export const useMessagingStore = create<MessagingState>()(
       // messages, its draft and anything still waiting to send in it. Offline: nothing changes.
       deleteChat: async (conversationId) => {
         try { await chatApi.deleteChat(conversationId); } catch { return false; }
+        dropFiles(get().outbox.filter((o) => o.conversationId === conversationId));
         set((s) => {
           const drafts = { ...s.drafts };
           delete drafts[conversationId];
@@ -549,7 +609,27 @@ export const useMessagingStore = create<MessagingState>()(
             ? { ...c, lastMessage: { messageId: clientId, text: body, type: 'text', senderId: myUserId, at: nowIso }, lastActivityAt: nowIso }
             : c))),
         }));
-        await get()._flush(clientId);
+        await get().flushOutbox(); // in order: behind anything still waiting to go
+      },
+
+      sendFile: async (conversationId, input) => {
+        const clientId = newClientId();
+        const myUserId = get().myUserId ?? '';
+        // Into the outbox folder first, so the message survives the app closing before it is sent.
+        const path = await keepForOutbox(clientId, input.file);
+        const item: OutboxItem = {
+          clientId, conversationId, type: input.type, text: input.text || undefined, mentions: input.mentions, createdAt: Date.now(),
+          file: { path, name: input.file.name, mime: input.file.mime, extra: input.extra },
+        };
+        const optimistic = outboxBubble(item, myUserId, await outboxFileUri(path));
+        set((s) => ({
+          messages: { ...s.messages, [conversationId]: [...(s.messages[conversationId] ?? []), optimistic] },
+          outbox: [...s.outbox, item],
+          conversations: sortConvs(s.conversations.map((c) => (c.id === conversationId
+            ? { ...c, lastMessage: { messageId: clientId, text: input.text || `[${input.type}]`, type: input.type, senderId: myUserId, at: optimistic.createdAt }, lastActivityAt: optimistic.createdAt }
+            : c))),
+        }));
+        await get().flushOutbox();
       },
 
       sendMedia: async (conversationId, input) => {
@@ -585,12 +665,38 @@ export const useMessagingStore = create<MessagingState>()(
           if (convId && get().readOnlyChats[convId]) useUiStore.getState().showToast(TASK_CHAT_CLOSED_TOAST);
           return;
         }
-        set((s) => ({ messages: Object.fromEntries(Object.entries(s.messages).map(([k, list]) => [k, list.map((m) => (m.clientId === clientId ? { ...m, pending: true, failed: false } : m))])) }));
-        await get()._flush(clientId);
+        set((s) => ({
+          outbox: s.outbox.map((o) => (o.clientId === clientId ? { ...o, held: false } : o)),
+          messages: Object.fromEntries(Object.entries(s.messages).map(([k, list]) => [k, list.map((m) => (m.clientId === clientId ? { ...m, pending: true, failed: false } : m))])),
+        }));
+        await get().flushOutbox();
       },
 
-      flushOutbox: async () => {
-        for (const item of [...get().outbox]) { await get()._flush(item.clientId); }
+      // One delivery run at a time, oldest first. A call made while a run is going asks it to go
+      // round once more (a message added meanwhile) and resolves with it.
+      flushOutbox: () => {
+        if (flushRun) { flushAgain = true; return flushRun; }
+        const run = async (): Promise<void> => {
+          do {
+            flushAgain = false;
+            for (const { clientId } of [...get().outbox]) {
+              if ((await get()._flush(clientId)) === 'offline') {
+                // Still offline: stop here so nothing behind it goes first, and try again shortly.
+                if (!retryTimer) {
+                  retryTimer = setTimeout(() => { retryTimer = null; void get().flushOutbox(); }, retryDelay);
+                  (retryTimer as { unref?: () => void }).unref?.(); // never holds a test process open
+                  retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
+                }
+                return;
+              }
+            }
+          } while (flushAgain);
+          stopRetry(); // everything that could go has gone
+        };
+        // Cleared in .finally (a microtask), never inside run(): with nothing to send, run() finishes
+        // synchronously — clearing there would happen BEFORE the assignment and leave it stuck.
+        flushRun = run().finally(() => { flushRun = null; });
+        return flushRun;
       },
 
       // Edit / delete / react / star / pin all answer the tap FIRST and talk to the server second
@@ -824,30 +930,77 @@ export const useMessagingStore = create<MessagingState>()(
       },
 
       _flush: async (clientId) => {
-        const item = get().outbox.find((o) => o.clientId === clientId);
-        if (!item) return;
+        const queued = get().outbox.find((o) => o.clientId === clientId);
+        if (!queued || queued.held || flushing.has(clientId)) return 'skipped';
+        flushing.add(clientId);
+        const setBubble = (patch: Partial<StoredMessage>): void => set((s) => ({ messages: { ...s.messages, [queued.conversationId]: (s.messages[queued.conversationId] ?? []).map((m) => (m.clientId === clientId ? { ...m, ...patch } : m)) } }));
         try {
+          let item = queued;
+          if (item.file && !item.attachments?.length) {
+            // The file goes up first. Its server copy is kept on the outbox item at once, so if the
+            // send below is cut off, the retry sends the message without uploading the file again.
+            const uri = await outboxFileUri(item.file.path);
+            const up = await uploadFile({ uri, name: item.file.name, mime: item.file.mime }, (p) => set((s) => ({ uploadProgress: { ...s.uploadProgress, [clientId]: p } })));
+            const attachments = [toAttachment(up, item.file.extra)];
+            item = { ...item, attachments };
+            set((s) => ({ outbox: s.outbox.map((o) => (o.clientId === clientId ? { ...o, attachments } : o)) }));
+          }
           const saved = await chatApi.sendMessage({ conversationId: item.conversationId, text: item.text, type: item.type, attachments: item.attachments, replyToId: item.replyToId, mentions: item.mentions, clientId });
+          // The sender's own copy moves into the downloaded-media folder under the server copy's name
+          // BEFORE the bubble switches to it, so the photo / voice note opens from the phone.
+          if (item.file && saved.attachments?.[0]) await settleOutboxFile(item.file.path, saved.attachments[0]);
           set((s) => ({ outbox: s.outbox.filter((o) => o.clientId !== clientId) }));
           // Carry the clientId so _upsert REPLACES the optimistic row (the REST response omits it) —
           // otherwise the saved message is appended as a duplicate bubble with a clashing key.
           get()._upsert(item.conversationId, { ...saved, clientId, pending: false, failed: false });
           set((s) => ({ conversations: sortConvs(s.conversations.map((c) => (c.id === item.conversationId ? { ...c, lastMessage: { messageId: saved.id, id: saved.id, text: saved.text || `[${saved.type}]`, type: saved.type, senderId: saved.senderId, at: saved.createdAt, status: saved.status ?? 'sent' }, lastActivityAt: saved.createdAt } : c))) }));
+          return 'sent';
         } catch (e) {
           if (isTaskChatClosedError(e)) {
             // The task was closed: this message can never be sent. Out of the outbox (no retry on every
             // reconnect), marked not sent, and the chat read-only on screen.
+            dropFiles([queued]);
             set((s) => ({
               outbox: s.outbox.filter((o) => o.clientId !== clientId),
-              readOnlyChats: { ...s.readOnlyChats, [item.conversationId]: true },
-              messages: { ...s.messages, [item.conversationId]: (s.messages[item.conversationId] ?? []).map((m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m)) },
+              readOnlyChats: { ...s.readOnlyChats, [queued.conversationId]: true },
             }));
+            setBubble({ pending: false, failed: true });
             useUiStore.getState().showToast(TASK_CHAT_CLOSED_TOAST);
-            return;
+            return 'refused';
           }
-          // keep queued; mark the optimistic bubble failed so the user can retry
-          set((s) => ({ messages: { ...s.messages, [item.conversationId]: (s.messages[item.conversationId] ?? []).map((m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m)) } }));
+          if (waitsForNetwork(e)) {
+            // No connection: still queued, still a clock. It goes by itself when the network is back.
+            setBubble({ pending: true, failed: false });
+            return 'offline';
+          }
+          // The server refused it: "not sent · tap to retry", and held until that tap.
+          set((s) => ({ outbox: s.outbox.map((o) => (o.clientId === clientId ? { ...o, held: true } : o)) }));
+          setBubble({ pending: false, failed: true });
+          return 'refused';
+        } finally {
+          flushing.delete(clientId);
+          if (get().uploadProgress[clientId] !== undefined) {
+            set((s) => {
+              const uploadProgress = { ...s.uploadProgress };
+              delete uploadProgress[clientId];
+              return { uploadProgress };
+            });
+          }
         }
+      },
+
+      _restoreOutbox: async (conversationId) => {
+        const shown = new Set((get().messages[conversationId] ?? []).map((m) => m.clientId).filter(Boolean));
+        const missing = get().outbox.filter((o) => o.conversationId === conversationId && !shown.has(o.clientId));
+        if (!missing.length) return;
+        const me = get().myUserId ?? '';
+        const bubbles = await Promise.all(missing.map(async (o) => outboxBubble(o, me, o.file ? await outboxFileUri(o.file.path) : undefined)));
+        set((s) => {
+          const list = s.messages[conversationId] ?? [];
+          const have = new Set(list.map((m) => m.clientId).filter(Boolean));
+          const add = bubbles.filter((b) => !have.has(b.clientId));
+          return add.length ? { messages: { ...s.messages, [conversationId]: [...list, ...add] } } : s;
+        });
       },
     }),
     {
