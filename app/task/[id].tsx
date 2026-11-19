@@ -15,7 +15,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useMessagingStore } from '../../src/store/messagingStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL, taskChatButton } from '../../src/logic/taskRules';
+import { ATTACHMENT_MAX_BYTES, dueLabel, historyLine, isOverdue, repeatLabel, STATUS_LABEL, taskChatButton, DEPARTMENT_LABEL } from '../../src/logic/taskRules';
 import { OverdueFlag, PriorityPill, StatusPill, TaskChatBadge, UnreadBadge } from '../../src/components/tasks/TaskPills';
 import { StatusActions } from '../../src/components/tasks/StatusActions';
 import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
@@ -246,6 +246,7 @@ export default function TaskDetail() {
             <Text style={{ color: overdue ? colors.danger : colors.ink, fontSize: 14.5, fontWeight: '600' }}>{dueLabel(task)}{overdue ? ' · overdue' : ''}</Text>
           </Row>
           {biz ? <Row Icon={Building2} label="BUSINESS / BRANCH"><Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{biz}</Text></Row> : null}
+          {task.department ? <Row Icon={Building2} label="DEPARTMENT"><Text style={{ color: colors.ink, fontSize: 14.5, fontWeight: '600' }}>{DEPARTMENT_LABEL[task.department]}</Text></Row> : null}
           {/* A task given from the ERP's right-click menu (owner, 2026-11-16) points back at the screen it is about. */}
           {task.link ? (
             <Row Icon={ExternalLink} label={task.source === 'erp' ? 'FROM KBIZ BOOKS' : 'LINK'}>

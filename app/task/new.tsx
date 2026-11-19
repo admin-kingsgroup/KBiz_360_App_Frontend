@@ -11,7 +11,7 @@ import { DaySheet, FormField, SheetSave, TimeSheet } from '../../src/components/
 import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
 import { BranchSheet, branchLabel } from '../../src/components/tasks/BranchSheet';
 import { colors } from '../../src/theme';
-import { createTask, getTask, patchTask, type PatchTaskInput, type RepeatRule, type Task, type TaskPriority } from '../../src/api/tasks';
+import { createTask, getTask, patchTask, type PatchTaskInput, type RepeatRule, type Task, type TaskDepartment, type TaskPriority } from '../../src/api/tasks';
 import { ApiError } from '../../src/api/client';
 import { listUsers } from '../../src/api/directory';
 import { humanSize, uploadFile } from '../../src/api/media';
@@ -20,7 +20,7 @@ import { useAccessStore } from '../../src/store/accessStore';
 import { useDirectoryStore } from '../../src/store/directoryStore';
 import { useTasksStore } from '../../src/store/tasksStore';
 import { useUiStore } from '../../src/store/uiStore';
-import { ATTACHMENT_MAX_BYTES, DEFAULT_DUE_TIME, DESCRIPTION_MAX, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, TITLE_MAX, dayKeyOf, hhmmOf, validateTaskForm } from '../../src/logic/taskRules';
+import { ATTACHMENT_MAX_BYTES, DEFAULT_DUE_TIME, DEPARTMENT_LABEL, DESCRIPTION_MAX, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, TITLE_MAX, dayKeyOf, hhmmOf, validateTaskForm } from '../../src/logic/taskRules';
 import { formatTimeOfDay, type TimeOfDay } from '../../src/logic/reminderTime';
 
 // New task / Edit task (spec 2026-11-16, sections 3 and 7). A task is for ONE person — someone else,
@@ -62,6 +62,8 @@ export default function TaskForm() {
   const [branchId, setBranchId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [priority, setPriority] = useState<TaskPriority>('normal');
+  // Operations / Accounts: the branch group the task is shared in "so the team knows" (owner, 2026-11-19).
+  const [department, setDepartment] = useState<TaskDepartment | null>(null);
   const [day, setDay] = useState<string | null>(editing ? null : defaultDay());
   const [time, setTime] = useState<TimeOfDay | null>(null);
   const [repeat, setRepeat] = useState<RepeatRule>({ kind: 'none' });
@@ -89,6 +91,7 @@ export default function TaskForm() {
       setBranchId(task.branchId);
       setCompanyId(task.companyId);
       setPriority(task.priority);
+      setDepartment(task.department ?? null);
       setRepeat(task.repeat ?? { kind: 'none' });
       if (task.dueAt) {
         const d = new Date(task.dueAt);
@@ -149,7 +152,7 @@ export default function TaskForm() {
   };
 
   const save = async (): Promise<void> => {
-    const problem = validateTaskForm({ title, description, assignedTo, branchId, dueDate: day, dueTime: time });
+    const problem = validateTaskForm({ title, description, assignedTo, branchId, dueDate: day, dueTime: time, askDepartment: !editing && !isSelf, department });
     // Editing an old reminder-made task without a date may keep it undated.
     const undatedEdit = editing && !day && !original?.dueAt;
     if (problem && !(undatedEdit && problem === 'Choose a due date')) { setError(problem); return; }
@@ -164,6 +167,7 @@ export default function TaskForm() {
         if (title.trim() !== original.title) patch.title = title.trim();
         if (description !== (original.description ?? '')) patch.description = description;
         if (priority !== original.priority) patch.priority = priority;
+        if (department && department !== (original.department ?? null)) patch.department = department;
         if (branchId && branchId !== original.branchId) { patch.branchId = branchId; patch.companyId = companyId; }
         if (JSON.stringify(repeat) !== JSON.stringify(original.repeat ?? { kind: 'none' })) patch.repeat = repeat;
         if (day) {
@@ -193,6 +197,7 @@ export default function TaskForm() {
         branchId: branchId as string,
         ...(companyId ? { companyId } : {}),
         priority,
+        ...(department && !isSelf ? { department } : {}),
         ...due,
         ...(repeat.kind !== 'none' ? { repeat } : {}),
         ...(attachments.length ? { attachments } : {}),
@@ -264,6 +269,22 @@ export default function TaskForm() {
             <ChevronDown size={18} color={colors.coolText} />
           </Pressable>
         </FormField>
+
+        {!isSelf ? (
+          <FormField label="Department" required={!editing} hint={editing ? 'Changing it later does not post the task again.' : 'The task is posted in this branch\u2019s Operations or Accounts group so the team knows.'}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {(['operations', 'accounts'] as const).map((d) => {
+                const on = department === d;
+                return (
+                  <Pressable key={d} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => { setDepartment(d); if (error) setError(''); }}
+                    style={{ flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? colors.primary : colors.coolMuted }}>
+                    <Text style={{ color: on ? '#fff' : colors.ink, fontSize: 13.5, fontWeight: '700' }}>{DEPARTMENT_LABEL[d]}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </FormField>
+        ) : null}
 
         <FormField label="Priority" required>
           <View style={{ flexDirection: 'row', gap: 8 }}>
