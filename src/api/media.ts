@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from './client';
+import { ApiError, getApiBaseUrl, refreshSession } from './client';
 import { getAccessToken } from './tokens';
 import type { ChatAttachment } from './chat';
 
@@ -11,7 +11,18 @@ export interface UploadResult {
 }
 
 // Multipart upload with progress, via XMLHttpRequest (fetch can't report upload progress in RN).
-export function uploadFile(file: { uri: string; name: string; mime: string }, onProgress?: (fraction: number) => void): Promise<UploadResult> {
+// An HTTP refusal rejects with ApiError (its status tells the chat outbox "rejected" from "offline");
+// no connection rejects with a plain Error. An expired login is refreshed once, as apiFetch does.
+export async function uploadFile(file: { uri: string; name: string; mime: string }, onProgress?: (fraction: number) => void): Promise<UploadResult> {
+  try {
+    return await uploadOnce(file, onProgress);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401 && (await refreshSession())) return uploadOnce(file, onProgress);
+    throw e;
+  }
+}
+
+function uploadOnce(file: { uri: string; name: string; mime: string }, onProgress?: (fraction: number) => void): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     // React Native FormData file part.
@@ -24,7 +35,8 @@ export function uploadFile(file: { uri: string; name: string; mime: string }, on
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try { resolve(JSON.parse(xhr.responseText) as UploadResult); } catch (err) { reject(err as Error); }
-      } else reject(new Error(`Upload failed (${xhr.status})`));
+      } else if (xhr.status === 0) reject(new Error('Upload network error'));
+      else reject(new ApiError(xhr.status, `Upload failed (${xhr.status})`));
     };
     xhr.onerror = () => reject(new Error('Upload network error'));
     xhr.send(form);
@@ -32,7 +44,9 @@ export function uploadFile(file: { uri: string; name: string; mime: string }, on
 }
 
 // Resolve a stored (possibly relative) media URL to an absolute one for <Image>/players/Linking.
-export const mediaUrl = (url: string): string => (url.startsWith('http') ? url : `${getApiBaseUrl()}${url}`);
+// A file still on this phone (a chat message waiting in the outbox) is already absolute.
+export const isLocalUri = (url: string): boolean => /^(file|content|ph|assets-library):/i.test(url);
+export const mediaUrl = (url: string): string => (url.startsWith('http') || isLocalUri(url) ? url : `${getApiBaseUrl()}${url}`);
 
 // Convenience: turn an upload result + extra metadata into a ChatAttachment.
 export const toAttachment = (r: UploadResult, extra: Partial<ChatAttachment> = {}): ChatAttachment => ({

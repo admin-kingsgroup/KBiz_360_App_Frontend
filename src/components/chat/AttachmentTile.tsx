@@ -3,7 +3,7 @@ import { View, Text, Pressable, Image, ActivityIndicator, StyleSheet, useWindowD
 import { Download, FileText, Play } from 'lucide-react-native';
 import { colors } from '../../theme';
 import { useUiStore } from '../../store/uiStore';
-import { mediaUrl, humanSize } from '../../api/media';
+import { mediaUrl, humanSize, isLocalUri } from '../../api/media';
 import type { ChatAttachment, ChatMessage } from '../../api/chat';
 import { downloadedUri, downloadAttachment, saveMediaToDevice, attachmentMime, exportToSharedFolder } from '../../services/attachments';
 
@@ -40,6 +40,8 @@ export function AttachmentTile({ att, type, mine, onOpenImage, onOpenFile, onLon
 
   useEffect(() => {
     let alive = true;
+    // Still in the outbox: the file is on this phone already (it is what is being sent).
+    if (isLocalUri(att.url)) { setLocal(att.url); return () => { alive = false; }; }
     void downloadedUri(att).then((uri) => { if (alive) setLocal(uri); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
