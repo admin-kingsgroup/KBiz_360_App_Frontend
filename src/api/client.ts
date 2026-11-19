@@ -23,6 +23,8 @@ export class ApiError extends Error {
 type Refresher = () => Promise<boolean>;
 let refresher: Refresher | null = null;
 export const registerRefreshHandler = (fn: Refresher | null): void => { refresher = fn; };
+/** Refresh the session for a request made outside apiFetch (the XHR upload); false when it can't. */
+export const refreshSession = async (): Promise<boolean> => (refresher ? refresher() : false);
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
