@@ -1,4 +1,4 @@
-import type { Task, TaskPriority, TaskStatus } from '../api/tasks';
+import type { Task, TaskDepartment, TaskPriority, TaskStatus } from '../api/tasks';
 
 // Words, colours and small rules for tasks (spec 2026-11-16, section 4). Pure — no RN, no stores.
 // The SERVER decides who may do what (Task.actions); this file only names things and draws them.
@@ -163,14 +163,18 @@ export const TITLE_MAX = 120;
 export const DESCRIPTION_MAX = 2000;
 export const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 
-/** Form check for create/edit — returns the first problem, or null. */
-export function validateTaskForm(f: { title: string; description: string; assignedTo: string | null; branchId: string | null; dueDate: string | null; dueTime: { hour: number; minute: number } | null }, now: Date = new Date()): string | null {
+export const DEPARTMENT_LABEL: Record<TaskDepartment, string> = { operations: 'Operations', accounts: 'Accounts' };
+
+/** Form check for create/edit — returns the first problem, or null. `askDepartment`: a new task given to someone
+ *  else names its department (Operations / Accounts — the branch group it is shared in, owner 2026-11-19). */
+export function validateTaskForm(f: { title: string; description: string; assignedTo: string | null; branchId: string | null; dueDate: string | null; dueTime: { hour: number; minute: number } | null; askDepartment?: boolean; department?: TaskDepartment | null }, now: Date = new Date()): string | null {
   const title = f.title.trim();
   if (!title) return 'Add a title';
   if (title.length > TITLE_MAX) return `Keep the title under ${TITLE_MAX} characters`;
   if (f.description.length > DESCRIPTION_MAX) return `Keep the details under ${DESCRIPTION_MAX.toLocaleString('en-US')} characters`;
   if (!f.assignedTo) return 'Choose who it is for';
   if (!f.branchId) return 'Choose the business or branch';
+  if (f.askDepartment && !f.department) return 'Choose Operations or Accounts';
   if (!f.dueDate) return 'Choose a due date';
   if (f.dueDate < dayKeyOf(now)) return 'The due date cannot be in the past';
   if (f.dueDate === dayKeyOf(now)) {
@@ -216,6 +220,11 @@ export function historyLine(h: { field: string; oldValue: string | null; newValu
     case 'repeat': return 'Repeat changed';
     case 'branchId': return 'Business / branch changed';
     case 'link': return 'Link changed';
+    case 'department': {
+      const label = (v: string | null): string => (v && v in DEPARTMENT_LABEL ? DEPARTMENT_LABEL[v as TaskDepartment] : v ?? '');
+      if (!h.newValue) return 'Department cleared';
+      return h.oldValue ? `Department ${label(h.oldValue)} → ${label(h.newValue)}` : `Department: ${label(h.newValue)}`;
+    }
     default: return `${h.field} changed`;
   }
 }

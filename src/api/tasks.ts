@@ -17,6 +17,8 @@ export type TaskStatus =
   | 'reopened'
   | 'cancelled';
 export type TaskPriority = 'urgent' | 'high' | 'normal';
+// Owner, 2026-11-19: the branch group a task is shared in — "BOM Operations" / "BOM Accounts".
+export type TaskDepartment = 'operations' | 'accounts';
 export type RepeatRule =
   | { kind: 'none' }
   | { kind: 'daily' }
@@ -45,6 +47,8 @@ export interface Task {
   assignedBy: TaskPerson;
   watchers: TaskPerson[];
   priority: TaskPriority;
+  // Optional: servers before 2026-11-19 do not send it; null on older tasks.
+  department?: TaskDepartment | null;
   dueAt: string | null; // ISO; null only on tasks converted from an undated reminder
   status: TaskStatus;
   requestedDueAt: string | null; // the date the assignee asked for (status date_change_requested)
@@ -129,6 +133,7 @@ export interface CreateTaskInput extends DueInput {
   branchId: string;
   companyId?: string | null;
   priority: TaskPriority;
+  department?: TaskDepartment;
   repeat?: RepeatRule;
   link?: TaskLink | null;
   attachments?: Array<Pick<TaskAttachment, 'url' | 'name' | 'size' | 'mime'>>;
@@ -138,6 +143,7 @@ export interface PatchTaskInput extends DueInput {
   title?: string;
   description?: string;
   priority?: TaskPriority;
+  department?: TaskDepartment | null;
   branchId?: string;
   companyId?: string | null;
   repeat?: RepeatRule;

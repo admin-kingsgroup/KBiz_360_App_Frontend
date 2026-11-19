@@ -82,6 +82,17 @@ describe('task form check', () => {
     expect(validateTaskForm({ ...base, assignedTo: null }, NOW)).toMatch(/who/);
     expect(validateTaskForm({ ...base, branchId: null }, NOW)).toMatch(/branch/);
   });
+  // Owner, 2026-11-19: a task given to someone names its department; it is shared in that branch group.
+  it('asks for Operations or Accounts when the form asks for it, right after the branch', () => {
+    expect(validateTaskForm({ ...base, askDepartment: true, department: null }, NOW)).toBe('Choose Operations or Accounts');
+    expect(validateTaskForm({ ...base, askDepartment: true, department: 'operations' }, NOW)).toBeNull();
+    expect(validateTaskForm({ ...base, askDepartment: true, department: 'accounts' }, NOW)).toBeNull();
+    expect(validateTaskForm({ ...base, askDepartment: true, department: null, branchId: null }, NOW)).toMatch(/branch/);
+  });
+  it('a personal to-do, or an edit of an older task, does not need one', () => {
+    expect(validateTaskForm({ ...base, askDepartment: false, department: null }, NOW)).toBeNull();
+    expect(validateTaskForm(base, NOW)).toBeNull();
+  });
 });
 
 describe('repeat and history words', () => {
@@ -130,5 +141,13 @@ describe("the task's chat button (chat on demand, owner 2026-11-17)", () => {
   });
   it('reopened: the chat is open again', () => {
     expect(kind('c1', 'reopened', 'assigner')).toBe('open');
+  });
+});
+
+describe('department in the task history', () => {
+  it('names the departments, not the field', () => {
+    expect(historyLine({ field: 'department', oldValue: null, newValue: 'accounts' })).toBe('Department: Accounts');
+    expect(historyLine({ field: 'department', oldValue: 'accounts', newValue: 'operations' })).toBe('Department Accounts → Operations');
+    expect(historyLine({ field: 'department', oldValue: 'operations', newValue: null })).toBe('Department cleared');
   });
 });
