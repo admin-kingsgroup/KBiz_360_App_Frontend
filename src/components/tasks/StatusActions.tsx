@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Modal } from '../ui/Modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CalendarDays, Clock, X } from 'lucide-react-native';
@@ -100,7 +101,9 @@ function StatusSheet({ task, to, onClose, onDone }: { task: Task; to: TaskStatus
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      {/* keyboard-controller's, not react-native's: the app is edge-to-edge (Expo 58), so Android no longer
+          shrinks the window for the keyboard and the old iOS-only padding left the sheet under it. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <Pressable onPress={() => undefined} style={{ backgroundColor: colors.coolBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: Math.max(24, insets.bottom + 12), maxHeight: '85%' }}>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 10 }}>
