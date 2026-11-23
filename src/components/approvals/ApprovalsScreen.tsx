@@ -4,6 +4,7 @@ import { Modal } from '../ui/Modal';
 import { Check, ClipboardCheck, CheckCircle2, Plus, Search, Trash2, X, XCircle } from 'lucide-react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ErpApprovalsView } from '../erpApprovals/ErpApprovalsView';
+import { ApprovalsHeader } from '../erpApprovals/ApprovalsHome';
 import { placeOf } from '../../logic/erpApprovalTabs';
 import { useOwnerReviewStore } from '../../store/ownerReviewStore';
 import { useErpAccess } from '../erpApprovals/useErpAccess';
@@ -1380,7 +1381,9 @@ export default function ApprovalsScreen() {
   // here — Entries, Requests, Credit, HR, Month Close — next to the app's own requests. Everyone else
   // sees the app's requests exactly as before.
   const erp = useErpAccess();
+  // The app's own requests open from the last row of the ERP home list (owner, 2026-11-19: one list, no switch above it).
   const [mode, setMode] = useState<'erp' | 'app'>('erp');
+  const appPending = useApprovalBadgeStore((s) => s.app);
   // kbiz360://approvals?tab=review — the widget's Review tile (owner, 2026-10-30) opens ERP approvals on that tab.
   const { tab: tabParam, sub: subParam } = useLocalSearchParams<{ tab?: string; sub?: string }>();
   const openTab = placeOf(tabParam, subParam) ? tabParam : undefined;
@@ -1392,6 +1395,12 @@ export default function ApprovalsScreen() {
   const erpNow = useRef(erp);
   erpNow.current = erp;
   useFocusEffect(useCallback(() => { if (erpNow.current.state === 'error') erpNow.current.retry(); }, []));
+  // Android's back button leaves App requests for the home list it was opened from.
+  useFocusEffect(useCallback(() => {
+    if (mode !== 'app') return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setMode('erp'); return true; });
+    return () => sub.remove();
+  }, [mode]));
   if (erp.state === 'checking') {
     return (
       <SafeAreaView style={styles.screen}>
@@ -1426,18 +1435,12 @@ export default function ApprovalsScreen() {
   }
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.header}><Text style={styles.headerTitle}>Approvals</Text></View>
-      <View style={[styles.segment, { marginBottom: 10 }]}>
-        {([['erp', 'ERP approvals'], ['app', 'App requests']] as const).map(([key, label]) => {
-          const on = mode === key;
-          return (
-            <Pressable key={key} onPress={() => setMode(key)} accessibilityRole="tab" accessibilityState={{ selected: on }} style={[styles.segmentTab, on && styles.segmentTabOn]}>
-              <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} openTab={openTab} openSub={subParam} /> : <Inbox showTitle={false} includeCorrections={false} />}
+      {mode === 'erp' ? <ErpApprovalsView me={erp.me} chain={erp.chain} openTab={openTab} openSub={subParam} appPending={appPending} onOpenApp={() => setMode('app')} /> : (
+        <>
+          <ApprovalsHeader title="App requests" onBack={() => setMode('erp')} />
+          <Inbox showTitle={false} includeCorrections={false} />
+        </>
+      )}
     </SafeAreaView>
   );
 }

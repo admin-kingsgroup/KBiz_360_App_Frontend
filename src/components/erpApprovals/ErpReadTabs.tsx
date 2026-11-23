@@ -9,6 +9,7 @@ import {
 } from '../../logic/erpApprovalTabs';
 import { requestSubject, requestTypeLabel, waitingRoles, notRetired } from '../../logic/erpRequests';
 import { colors } from '../../theme';
+import { About } from './ApprovalsHome';
 
 // The read-only tabs of ERP Approvals in the app (2026-11-18): Close, Status, Raise & Resolve and the payables tiles. They show
 // what the ERP shows; signing a close and answering a concern stay in the ERP.
@@ -33,6 +34,8 @@ export function useErpRead<T>(read: () => Promise<T>, deps: unknown[]): ErpRead<
 }
 
 const Note = ({ children }: { children: ReactNode }) => <Text style={st.note}>{children}</Text>;
+// What a list is and why it is read-only here: one tap away, as the rule text of the signing lists is (owner, 2026-11-19: "a lot of extra stuff").
+const Intro = ({ children }: { children: ReactNode }) => <About label="About this list"><Note>{children}</Note></About>;
 const Empty = ({ children }: { children: ReactNode }) => <Text style={st.empty}>{children}</Text>;
 const Spinner = () => <View style={{ padding: 32, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View>;
 const TONE = { bad: { bg: '#FEE2E2', fg: colors.danger }, warn: { bg: colors.orange + '22', fg: colors.orange }, ok: { bg: colors.primarySoft, fg: colors.primary }, info: { bg: '#DBEAFE', fg: '#1D4ED8' }, plain: { bg: colors.coolMuted, fg: colors.coolText } };
@@ -52,7 +55,7 @@ export function CloseTab({ read, focus, onRetry }: { read: ErpRead<ErpCloseRow[]
   const rows = useMemo(() => closesAt(read.data ?? [], focus), [read.data, focus]);
   return (
     <>
-      <Note>Closes waiting on someone — held for the Owner&apos;s lock, or being checked by the team before the FM signs. They are opened and signed in the ERP.</Note>
+      <Intro>Closes waiting on someone — held for the Owner&apos;s lock, or being checked by the team before the FM signs. They are opened and signed in the ERP.</Intro>
       <ReadState read={read} what="Month closes" onRetry={onRetry} />
       {read.loading && !read.data ? <Spinner /> : null}
       {read.data && !rows.length ? <Empty>{focus === ALL_BRANCHES ? 'No close is waiting.' : `No close is waiting at ${focus}.`}</Empty> : null}
@@ -106,7 +109,7 @@ export function StatusBoard({ read, focus, books, go, onRetry }: { read: ErpRead
   }, [d, focus, all, books]);
   return (
     <>
-      <Note>What is pending on every approval tab, and with whom. Counts only — tap a count to open its tab.</Note>
+      <Intro>What is pending on every approval tab, and with whom. Counts only — tap a count to open its tab.</Intro>
       <ReadState read={read} what="The status board and its counts" onRetry={onRetry} />
       {read.loading && !d ? <Spinner /> : null}
       {model ? (
@@ -188,7 +191,7 @@ export function RaisedByMe({ pending, me, refresh, onRetry }: { pending: ErpChan
   };
   return (
     <>
-      <Note>What you asked for and where each stands — and anything sent back to you to correct.</Note>
+      <Intro>What you asked for and where each stands — and anything sent back to you to correct.</Intro>
       <ReadState read={returned} what="Requests sent back" onRetry={onRetry} />
       {returned.loading && !returned.data ? <Spinner /> : null}
       {!returned.loading && !back.length && !waiting.length ? <Empty>Nothing raised by you is waiting.</Empty> : null}
@@ -203,7 +206,7 @@ export function RecordedList({ focus, refresh, onRetry }: { focus: string; refre
   const rows = (read.data ?? []).map(recordedRow);
   return (
     <>
-      <Note>Done at once by the BA / Senior Accountant and kept for audit: cheque bounces, client promises, assets seen, ADM disputes dropped.</Note>
+      <Intro>Done at once by the BA / Senior Accountant and kept for audit: cheque bounces, client promises, assets seen, ADM disputes dropped.</Intro>
       <ReadState read={read} what="Recorded items" onRetry={onRetry} />
       {read.loading && !read.data ? <Spinner /> : null}
       {read.data && !rows.length ? <Empty>Nothing recorded yet.</Empty> : null}
@@ -238,7 +241,7 @@ export function ConcernList({ rows, bucket, read, onRetry }: { rows: ErpConcern[
   const list = concernsOn(rows, bucket);
   return (
     <>
-      <Note>{RR_NOTE[bucket]} {VIEW_ONLY}</Note>
+      <Intro>{RR_NOTE[bucket]} {VIEW_ONLY}</Intro>
       <ReadState read={read} what="Concerns" onRetry={onRetry} />
       {read.loading && !list.length ? <Spinner /> : null}
       {!read.loading && !read.refused && !read.error && !list.length ? <Empty>{bucket === 'move' ? 'Nothing needs your move.' : 'Nothing here.'}</Empty> : null}
@@ -255,7 +258,7 @@ export function ErpConcernsList({ focus, refresh, onRetry }: { focus: string; re
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   return (
     <>
-      <Note>The concerns the ERP raised itself, closed only by the ERP, the night the problem is gone. {VIEW_ONLY}</Note>
+      <Intro>The concerns the ERP raised itself, closed only by the ERP, the night the problem is gone. {VIEW_ONLY}</Intro>
       <ReadState read={read} what="ERP Concerns" onRetry={onRetry} />
       {read.loading && !read.data ? <Spinner /> : null}
       {read.data && !groups.length ? <Empty>No ERP Concern is open here.</Empty> : null}
