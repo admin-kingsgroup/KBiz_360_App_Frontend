@@ -91,7 +91,9 @@ export function connectChatSocket(): void {
   // Tasks: 'task:update' { taskId } reaches everyone on a task when it changes — refresh the tab badge
   // (and the widget list) and tell any open screen showing that task to refetch. 'task:notification'
   // goes to the one person it is for — refresh the in-app list's unread count.
-  socket.on('task:update', (p?: { taskId?: string }) => {
+  socket.on('task:update', (p?: { taskId?: string; deleted?: boolean }) => {
+    // A Super Admin deleted it (owner, 2026-11-28): off every list at once, before the refetch.
+    if (p?.deleted && p.taskId) useTasksStore.getState().remove(p.taskId);
     useTasksStore.getState().markTouched(p?.taskId);
     void useTasksStore.getState().refreshBadge(useAuthStore.getState().user?.id);
   });
