@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
-import { Building2, CalendarDays, ChevronLeft, ExternalLink, Eye, EyeOff, FileText, Hourglass, MessageSquare, Paperclip, Pencil, Repeat, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
+import { Building2, CalendarDays, ChevronLeft, ExternalLink, Eye, EyeOff, FileText, Hourglass, MessageSquare, Paperclip, Pencil, Repeat, Trash2, UserPlus, UserRoundPen, Users } from 'lucide-react-native';
 import { colors } from '../../src/theme';
-import { addTaskAttachment, ensureTaskChat, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
+import { addTaskAttachment, deleteTask, ensureTaskChat, getTask, historyAt, reassignTask, setTaskWatchers, type Task, type TaskHistoryItem } from '../../src/api/tasks';
 import { ApiError } from '../../src/api/client';
 import { humanSize, mediaUrl, uploadFile } from '../../src/api/media';
 import { useAuthStore } from '../../src/store/authStore';
@@ -22,7 +22,7 @@ import { PeopleSheet } from '../../src/components/tasks/PeopleSheet';
 
 // Task detail (spec 2026-11-16, section 7): every field, the status buttons this person may press,
 // attachments, the full history and the task's chat. The server says what this person may do
-// (`actions`, `canEdit`, `canReassign`, `myRole`) — the screen only draws it.
+// (`actions`, `canEdit`, `canReassign`, `canDelete`, `myRole`) — the screen only draws it.
 
 const when = (iso: string | null | undefined): string => {
   if (!iso) return '';
@@ -134,6 +134,33 @@ export default function TaskDetail() {
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : 'Could not reassign the task');
     } finally { setBusy(null); }
+  };
+
+  // Super Admin only (owner, 2026-11-28): any task, whoever gave it, whatever its status. The task and
+  // its chat leave everyone's lists and the people on it are told; the server keeps a copy.
+  const removeTask = async (): Promise<void> => {
+    if (!task) return;
+    setBusy('delete');
+    try {
+      await deleteTask(task.id);
+      useTasksStore.getState().remove(task.id);
+      void useTasksStore.getState().refreshBadge(meId);
+      if (task.chatId) void useMessagingStore.getState().loadConversations();
+      showToast('Task deleted');
+      router.back();
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Could not delete the task');
+      setBusy(null);
+    }
+  };
+  const confirmDelete = (): void => {
+    if (!task) return;
+    const others = [task.assignedBy, task.assignedTo, ...task.watchers].filter((p, i, all) => p.id !== meId && all.findIndex((q) => q.id === p.id) === i).map((p) => p.name.split(' ')[0]);
+    const told = others.length ? ` ${others.join(', ')} will be told.` : '';
+    Alert.alert('Delete task', `Delete "${task.title}" for everyone?${task.chatId ? ' Its chat is deleted too.' : ''}${told}`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void removeTask() },
+    ]);
   };
 
   const addFile = async (kind: 'photo' | 'file'): Promise<void> => {
@@ -295,7 +322,7 @@ export default function TaskDetail() {
           ) : null}
         </View>
 
-        {/* History (audit): every change, who, when — nothing can be deleted. */}
+        {/* History (audit): every change, who, when — only a Super Admin deleting the whole task removes it. */}
         <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '700', marginTop: 18, marginBottom: 8 }}>History</Text>
         <View style={{ backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.coolDivider, paddingHorizontal: 14 }}>
           {history.length === 0 ? <Text style={{ color: colors.coolText, fontSize: 12.5, paddingVertical: 12 }}>Created {when(task.createdAt)}</Text> : null}
@@ -314,6 +341,13 @@ export default function TaskDetail() {
         <Text style={{ color: colors.coolText3, fontSize: 11, marginTop: 10, textAlign: 'center' }}>
           {STATUS_LABEL[task.status]}{task.acceptedAt ? ` · accepted ${when(task.acceptedAt)}` : ''}{task.closedAt ? ` · closed ${when(task.closedAt)}` : task.cancelledAt ? ` · cancelled ${when(task.cancelledAt)}` : ''}
         </Text>
+        {task.canDelete ? (
+          <Pressable onPress={confirmDelete} disabled={!!busy} accessibilityRole="button" accessibilityLabel="Delete task"
+            style={{ marginTop: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.dangerEdge, paddingVertical: 13 }}>
+            {busy === 'delete' ? <ActivityIndicator size="small" color={colors.danger} /> : <Trash2 size={16} color={colors.danger} />}
+            <Text style={{ color: colors.danger, fontSize: 14.5, fontWeight: '700' }}>{busy === 'delete' ? 'Deleting…' : 'Delete task'}</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <PeopleSheet visible={sheet === 'reassign'} title="Reassign to" subtitle="They get a notification; the task starts again as Assigned" meId={meId} myself
