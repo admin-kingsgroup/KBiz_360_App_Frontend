@@ -36,6 +36,8 @@ interface TasksState {
   markTouched: (taskId: string | null | undefined) => void;
   refreshNotifications: () => Promise<void>;
   upsert: (task: Task) => void;
+  /** A task was deleted (by a Super Admin) — drop it from every list. */
+  remove: (taskId: string) => void;
   refreshBadge: (meId: string | null | undefined) => Promise<void>;
   reset: () => void;
 }
@@ -94,6 +96,12 @@ export const useTasksStore = create<TasksState>((set, get) => ({
       else lists[key] = list;
     }
     return { lists, statusById: { ...s.statusById, [task.id]: task.status } };
+  }),
+  remove: (taskId) => set((s) => {
+    const lists: Record<string, Task[]> = {};
+    for (const [key, list] of Object.entries(s.lists)) lists[key] = list.some((t) => t.id === taskId) ? list.filter((t) => t.id !== taskId) : list;
+    const { [taskId]: _gone, ...statusById } = s.statusById;
+    return { lists, statusById, top: s.top.filter((t) => t.id !== taskId) };
   }),
   refreshBadge: async (meId) => {
     if (!meId) return;

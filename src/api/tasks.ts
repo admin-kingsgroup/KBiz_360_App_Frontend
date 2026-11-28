@@ -67,6 +67,8 @@ export interface Task {
   actions: TaskStatus[];
   canEdit: boolean;
   canReassign: boolean;
+  // A Super Admin may delete any task (owner, 2026-11-28). Optional: servers before then do not send it.
+  canDelete?: boolean;
   source?: 'app' | 'erp' | 'reminder';
   createdAt: string;
   acceptedAt: string | null;
@@ -185,6 +187,10 @@ export const changeTaskStatus = (id: string, body: { to: TaskStatus; comment?: s
 
 export const reassignTask = (id: string, body: { assignedTo: string; comment?: string }): Promise<Task> =>
   apiFetch<Task | { task: Task }>(`/api/tasks/${encodeURIComponent(id)}/reassign`, { method: 'POST', body }).then(asTask);
+
+// Super Admin only: the task, its chat and its notifications leave every list (the server keeps a copy).
+export const deleteTask = (id: string, reason?: string): Promise<{ ok: true }> =>
+  apiFetch<{ ok: true }>(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE', body: reason ? { reason } : {} });
 
 export const setTaskWatchers = (id: string, body: { add?: string[]; remove?: string[] }): Promise<Task> =>
   apiFetch<Task | { task: Task }>(`/api/tasks/${encodeURIComponent(id)}/watchers`, { method: 'POST', body }).then(asTask);
